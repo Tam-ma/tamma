@@ -69,3 +69,21 @@ Thumbs.db
 # Temporary files
 *.tmp
 *.temp
+.temp-seed.sql
+
+# Deployment artifacts
+.last-deployment.json
+deployment-report.txt
+setup-report.txt
+migration-report.txt
+migrations-status.json
+db/backups/*.sql
+
+# Playwright
+playwright-report/
+test-results/
+playwright/.auth/
+
+# Lighthouse CI
+.lighthouseci/
+lhci-reports/

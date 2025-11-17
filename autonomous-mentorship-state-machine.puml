@@ -1,0 +1,98 @@
+@startuml AutonomousJuniorDeveloperMentorship
+
+!theme plain
+skinparam state {
+    BackgroundColor<<Initial>> LightGreen
+    BackgroundColor<<Final>> LightCoral
+    BackgroundColor<<Implementation>> LightBlue
+    BackgroundColor<<Quality>> LightYellow
+    BackgroundColor<<Review>> LightPurple
+    BackgroundColor<<Problem>> LightPink
+    BorderColor Black
+    ArrowColor Black
+}
+
+title Autonomous Junior Developer Mentorship State Machine
+
+state "INIT_STORY_PROCESSING" as INIT <<Initial>>
+state "ASSESS_JUNIOR_CAPABILITY" as ASSESS
+state "RE_EXPLAIN_STORY" as EXPLAIN
+state "PLAN_DECOMPOSITION" as PLAN
+state "PROVIDE_TEMPLATE_PLAN" as TEMPLATE
+state "START_IMPLEMENTATION" as START <<Implementation>>
+state "NEXT_IMPLEMENTATION_STEP" as NEXT_STEP <<Implementation>>
+state "MONITOR_PROGRESS" as MONITOR <<Implementation>>
+state "DIAGNOSE_BLOCKER" as DIAGNOSE <<Problem>>
+state "FIX_TECHNICAL_ISSUE" as FIX_TECH <<Problem>>
+state "VERIFY_FIX" as VERIFY <<Problem>>
+state "AUTO_VERIFY" as AUTO_VERIFY <<Problem>>
+state "DETECT_PATTERN" as PATTERN <<Problem>>
+state "STRATEGIC_REDIRECT" as REDIRECT <<Problem>>
+state "QUALITY_GATE_CHECK" as QUALITY <<Quality>>
+state "AUTO_FIX_ISSUES" as AUTO_FIX <<Quality>>
+state "PREPARE_CODE_REVIEW" as PREP_REVIEW <<Review>>
+state "MONITOR_REVIEW" as MONITOR_REVIEW <<Review>>
+state "GUIDE_FIXES" as GUIDE_FIXES <<Review>>
+state "MERGE_AND_COMPLETE" as MERGE <<Final>>
+state "STORY_COMPLETE" as COMPLETE <<Final>>
+
+[*] --> INIT
+
+INIT --> ASSESS : storyLoaded
+
+ASSESS --> PLAN : correctUnderstanding
+ASSESS --> EXPLAIN : misunderstanding
+ASSESS --> DIAGNOSE : timeout
+
+EXPLAIN --> PLAN : understandingConfirmed
+
+PLAN --> TEMPLATE : timeout
+PLAN --> START : goodPlan
+
+TEMPLATE --> START : templateProvided
+
+START --> NEXT_STEP : taskCompleted
+START --> DIAGNOSE : timeout
+START --> FIX_TECH : technicalError
+
+NEXT_STEP --> MONITOR : nextStepAssigned
+
+MONITOR --> NEXT_STEP : steadyProgress
+MONITOR --> DIAGNOSE : noProgress
+MONITOR --> PATTERN : circularActivity
+
+DIAGNOSE --> FIX_TECH : technicalError
+DIAGNOSE --> START : solutionProvided
+
+FIX_TECH --> VERIFY : fixProvided
+
+VERIFY --> NEXT_STEP : fixConfirmed
+VERIFY --> AUTO_VERIFY : noResponse
+
+AUTO_VERIFY --> NEXT_STEP : allChecksPass
+AUTO_VERIFY --> DIAGNOSE : stillFailing
+
+PATTERN --> REDIRECT : patternIdentified
+
+REDIRECT --> MONITOR : redirectComplete
+
+MONITOR --> QUALITY : implementationComplete
+
+QUALITY --> AUTO_FIX : minorIssues
+QUALITY --> PREP_REVIEW : allPass
+
+AUTO_FIX --> QUALITY : fixesApplied
+
+PREP_REVIEW --> MONITOR_REVIEW : prSubmitted
+
+MONITOR_REVIEW --> GUIDE_FIXES : minorChanges
+MONITOR_REVIEW --> MERGE : approved
+
+GUIDE_FIXES --> VERIFY : fixesStarted
+
+MERGE --> COMPLETE : mergeComplete
+
+COMPLETE --> INIT : newStoryAssigned
+COMPLETE --> [*]
+
+@enduml
