@@ -103,7 +103,7 @@ pnpm test:email
 Preview templates:
 ```bash
 pnpm dev
-# Visit http://localhost:5173/test/email-preview
+# Visit http://localhost:6700/test/email-preview
 ```
 
 ## Monitoring

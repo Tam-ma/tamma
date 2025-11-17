@@ -30,7 +30,7 @@ Create a `.dev.vars` file in the project root:
 # Email Configuration
 RESEND_API_KEY=re_your_api_key_here
 RESEND_FROM_EMAIL=notifications@yourdomain.com
-APP_URL=http://localhost:5173
+APP_URL=http://localhost:6700
 UNSUBSCRIBE_SECRET=your-secret-key-for-unsubscribe-tokens
 ```
 
@@ -51,7 +51,7 @@ pnpm db:migrate
 pnpm dev
 
 # Navigate to settings
-# http://localhost:5173/settings/notifications
+# http://localhost:6700/settings/notifications
 
 # Click "Send Test Email"
 ```

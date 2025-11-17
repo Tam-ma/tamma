@@ -147,7 +147,7 @@ pnpm playwright:install
 ### "Server not starting"
 ```bash
 # Check if port is in use
-lsof -i :8788
+lsof -i :6701
 
 # Kill process
 kill -9 <PID>

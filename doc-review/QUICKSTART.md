@@ -73,7 +73,7 @@ pnpm wrangler d1 execute tamma-docs --file=./db/schema.sql
 pnpm dev
 ```
 
-Visit **http://localhost:5173** 🎉
+Visit **http://localhost:6700** 🎉
 
 ## What You'll See
 
@@ -123,7 +123,7 @@ Read **ARCHITECTURE.md** to understand:
 - Check `wrangler.toml` has correct KV `id`
 
 ### "Port already in use"
-- Kill process: `lsof -ti:5173 | xargs kill`
+- Kill process: `lsof -ti:6700 | xargs kill`
 - Or use different port: `pnpm dev -- --port 3000`
 
 ### Type errors

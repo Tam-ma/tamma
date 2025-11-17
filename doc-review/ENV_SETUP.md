@@ -25,8 +25,8 @@ To enable authentication features in development:
    - Go to https://github.com/settings/developers
    - Click "New OAuth App"
    - Set Application name: "Tamma Doc Review (Dev)"
-   - Set Homepage URL: `http://localhost:5173`
-   - Set Authorization callback URL: `http://localhost:5173/auth/callback`
+   - Set Homepage URL: `http://localhost:6700`
+   - Set Authorization callback URL: `http://localhost:6700/auth/callback`
    - Click "Register application"
    - Note your Client ID and generate a Client Secret
 
@@ -117,7 +117,7 @@ wrangler pages secret put GITHUB_CLIENT_SECRET --project-name=tamma-doc-review
    - Or deploy to Cloudflare Pages for full environment
 
 3. **Incorrect Callback URL**
-   - Development: `http://localhost:5173/auth/callback`
+   - Development: `http://localhost:6700/auth/callback`
    - Production: `https://your-domain.pages.dev/auth/callback`
    - Must match exactly in GitHub OAuth app settings
 

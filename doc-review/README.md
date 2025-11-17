@@ -100,7 +100,7 @@ pnpm wrangler secret put CF_ACCESS_AUD
 pnpm dev
 ```
 
-Runs on `http://localhost:5173` with Cloudflare Workers runtime.
+Runs on `http://localhost:6700` with Cloudflare Workers runtime.
 
 ### Type Checking
 

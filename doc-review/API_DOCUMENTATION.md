@@ -7,7 +7,7 @@ The Comments API provides full CRUD operations for managing document comments wi
 All endpoints require authentication. The API uses session-based authentication via cookies.
 
 ## Base URL
-- Development: `http://localhost:8788/api/comments`
+- Development: `http://localhost:6700/api/comments`
 - Production: `https://your-domain.com/api/comments`
 
 ## Data Model

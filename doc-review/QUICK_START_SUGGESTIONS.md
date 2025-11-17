@@ -13,7 +13,7 @@ cd doc-review
 npm run dev
 ```
 
-Visit: `http://localhost:5173`
+Visit: `http://localhost:6700`
 
 ## Quick Demo
 
@@ -21,7 +21,7 @@ Visit: `http://localhost:5173`
 
 **Step 1**: Navigate to a document
 ```
-http://localhost:5173/docs/architecture
+http://localhost:6700/docs/architecture
 ```
 
 **Step 2**: Create a review session (first time only)
@@ -47,7 +47,7 @@ http://localhost:5173/docs/architecture
 
 **Step 2**: Full-page review interface opens
 ```
-http://localhost:5173/docs/architecture/suggestions
+http://localhost:6700/docs/architecture/suggestions
 ```
 
 **Step 3**: Explore the interface

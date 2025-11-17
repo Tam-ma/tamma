@@ -306,7 +306,7 @@ npm run db:migrate  # Apply to production
 
 ### Create a suggestion
 ```bash
-curl -X POST http://localhost:5173/api/suggestions \
+curl -X POST http://localhost:6700/api/suggestions \
   -H "Content-Type: application/json" \
   -d '{
     "docPath": "docs/example.md",
@@ -320,7 +320,7 @@ curl -X POST http://localhost:5173/api/suggestions \
 
 ### Approve a suggestion
 ```bash
-curl -X PATCH http://localhost:5173/api/suggestions/uuid-here \
+curl -X PATCH http://localhost:6700/api/suggestions/uuid-here \
   -H "Content-Type: application/json" \
   -d '{
     "status": "approved"
@@ -329,7 +329,7 @@ curl -X PATCH http://localhost:5173/api/suggestions/uuid-here \
 
 ### List suggestions for a document
 ```bash
-curl "http://localhost:5173/api/suggestions?docPath=docs/example.md&status=pending"
+curl "http://localhost:6700/api/suggestions?docPath=docs/example.md&status=pending"
 ```
 
 ## Future Enhancements

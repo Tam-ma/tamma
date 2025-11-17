@@ -208,7 +208,7 @@ To get API token:
 pnpm dev
 ```
 
-Visit http://localhost:5173
+Visit http://localhost:6700
 
 The app will run with:
 - Local D1 database
