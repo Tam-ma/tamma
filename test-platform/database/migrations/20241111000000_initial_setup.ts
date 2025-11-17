@@ -74,9 +74,9 @@ export async function up(knex: Knex): Promise<void> {
   });
 
   // Add comments to tables
-  await knex.raw('COMMENT ON TABLE system_metadata IS ?', ['Stores system-wide configuration and metadata']);
-  await knex.raw('COMMENT ON TABLE audit_log IS ?', ['Tracks all database changes for audit purposes']);
-  await knex.raw('COMMENT ON TABLE health_checks IS ?', ['Records health check results for monitoring']);
+  await knex.raw("COMMENT ON TABLE system_metadata IS 'Stores system-wide configuration and metadata'");
+  await knex.raw("COMMENT ON TABLE audit_log IS 'Tracks all database changes for audit purposes'");
+  await knex.raw("COMMENT ON TABLE health_checks IS 'Records health check results for monitoring'");
 }
 
 export async function down(knex: Knex): Promise<void> {

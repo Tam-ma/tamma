@@ -1,0 +1,141 @@
+<testsuites id="" name="" tests="7" failures="7" skipped="0" errors="0" time="2.9227879999999997">
+<testsuite name="auth/registration.spec.ts" timestamp="2025-11-14T02:26:38.784Z" hostname="chromium" tests="7" failures="7" skipped="0" time="0.39" errors="0">
+<testcase name="User Registration › should successfully register a new user with valid credentials" classname="auth/registration.spec.ts" time="0.055">
+<failure message="registration.spec.ts:5:7 should successfully register a new user with valid credentials" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:5:7 › User Registration › should successfully register a new user with valid credentials 
+
+    Error: expect(received).toBeTruthy()
+
+    Received: false
+
+      15 |     });
+      16 |
+    > 17 |     expect(response.ok()).toBeTruthy();
+         |                           ^
+      18 |     const data = await response.json();
+      19 |
+      20 |     expect(data).toHaveProperty('message');
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:17:27
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should reject registration with duplicate email" classname="auth/registration.spec.ts" time="0.055">
+<failure message="registration.spec.ts:28:7 should reject registration with duplicate email" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:28:7 › User Registration › should reject registration with duplicate email 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 404
+
+      45 |
+      46 |     expect(response.ok()).toBeFalsy();
+    > 47 |     expect(response.status()).toBe(400);
+         |                               ^
+      48 |
+      49 |     const data = await response.json();
+      50 |     expect(data).toHaveProperty('error');
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:47:31
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should reject registration with invalid email format" classname="auth/registration.spec.ts" time="0.047">
+<failure message="registration.spec.ts:54:7 should reject registration with invalid email format" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:54:7 › User Registration › should reject registration with invalid email format 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 404
+
+      65 |
+      66 |     expect(response.ok()).toBeFalsy();
+    > 67 |     expect(response.status()).toBe(400);
+         |                               ^
+      68 |
+      69 |     const data = await response.json();
+      70 |     expect(data).toHaveProperty('error');
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:67:31
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should reject registration with weak password" classname="auth/registration.spec.ts" time="0.059">
+<failure message="registration.spec.ts:73:7 should reject registration with weak password" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:73:7 › User Registration › should reject registration with weak password 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 404
+
+      84 |
+      85 |     expect(response.ok()).toBeFalsy();
+    > 86 |     expect(response.status()).toBe(400);
+         |                               ^
+      87 |
+      88 |     const data = await response.json();
+      89 |     expect(data).toHaveProperty('error');
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:86:31
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should reject registration with missing required fields" classname="auth/registration.spec.ts" time="0.065">
+<failure message="registration.spec.ts:93:7 should reject registration with missing required fields" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:93:7 › User Registration › should reject registration with missing required fields 
+
+    Error: expect(received).toBe(expected) // Object.is equality
+
+    Expected: 400
+    Received: 404
+
+      100 |
+      101 |     expect(response.ok()).toBeFalsy();
+    > 102 |     expect(response.status()).toBe(400);
+          |                               ^
+      103 |
+      104 |     const data = await response.json();
+      105 |     expect(data).toHaveProperty('error');
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:102:31
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should send email verification token after registration" classname="auth/registration.spec.ts" time="0.061">
+<failure message="registration.spec.ts:108:7 should send email verification token after registration" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:108:7 › User Registration › should send email verification token after registration 
+
+    Error: expect(received).toBeTruthy()
+
+    Received: false
+
+      118 |     });
+      119 |
+    > 120 |     expect(response.ok()).toBeTruthy();
+          |                           ^
+      121 |     const data = await response.json();
+      122 |
+      123 |     // Check that email verification is pending
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:120:27
+]]>
+</failure>
+</testcase>
+<testcase name="User Registration › should not expose sensitive data in registration response" classname="auth/registration.spec.ts" time="0.048">
+<failure message="registration.spec.ts:127:7 should not expose sensitive data in registration response" type="FAILURE">
+<![CDATA[  [chromium] › auth/registration.spec.ts:127:7 › User Registration › should not expose sensitive data in registration response 
+
+    Error: expect(received).toBeTruthy()
+
+    Received: false
+
+      137 |     });
+      138 |
+    > 139 |     expect(response.ok()).toBeTruthy();
+          |                           ^
+      140 |     const data = await response.json();
+      141 |
+      142 |     // Should not return password, password hash, or salt
+        at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:139:27
+]]>
+</failure>
+</testcase>
+</testsuite>
+</testsuites>

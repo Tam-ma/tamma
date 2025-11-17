@@ -2,32 +2,27 @@
   "$schema": "node_modules/wrangler/config-schema.json",
   "name": "api",
   "main": "src/index.ts",
-  "compatibility_date": "2025-11-11"
-  // "compatibility_flags": [
-  //   "nodejs_compat"
-  // ],
-  // "vars": {
-  //   "MY_VAR": "my-variable"
-  // },
-  // "kv_namespaces": [
-  //   {
-  //     "binding": "MY_KV_NAMESPACE",
-  //     "id": "xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
-  //   }
-  // ],
-  // "r2_buckets": [
-  //   {
-  //     "binding": "MY_BUCKET",
-  //     "bucket_name": "my-bucket"
-  //   }
-  // ],
-  // "d1_databases": [
-  //   {
-  //     "binding": "MY_DB",
-  //     "database_name": "my-database",
-  //     "database_id": ""
-  //   }
-  // ],
+  "compatibility_date": "2025-11-11",
+  "compatibility_flags": [
+    "nodejs_compat"
+  ],
+  "vars": {
+    "ENVIRONMENT": "development"
+  },
+  "kv_namespaces": [
+    {
+      "binding": "KV",
+      "id": "d0d0085a3ace446fbfc0385c5a618c7b",
+      "preview_id": "d0d0085a3ace446fbfc0385c5a618c7b"
+    }
+  ],
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "aibaas",
+      "database_id": "0e2df7cf-4c4c-4662-98f2-f460d202e1b9"
+    }
+  ],
   // "ai": {
   //   "binding": "AI"
   // },

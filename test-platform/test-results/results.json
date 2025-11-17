@@ -1,0 +1,568 @@
+{
+  "config": {
+    "configFile": "/home/meywd/Branches/Tamma/test-platform/test-platform/playwright.config.ts",
+    "rootDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+    "forbidOnly": false,
+    "fullyParallel": true,
+    "globalSetup": null,
+    "globalTeardown": null,
+    "globalTimeout": 0,
+    "grep": {},
+    "grepInvert": null,
+    "maxFailures": 0,
+    "metadata": {
+      "actualWorkers": 3
+    },
+    "preserveOutput": "always",
+    "reporter": [
+      [
+        "html",
+        null
+      ],
+      [
+        "json",
+        {
+          "outputFile": "test-results/results.json"
+        }
+      ],
+      [
+        "junit",
+        {
+          "outputFile": "test-results/junit.xml"
+        }
+      ]
+    ],
+    "reportSlowTests": {
+      "max": 5,
+      "threshold": 300000
+    },
+    "quiet": false,
+    "projects": [
+      {
+        "outputDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "chromium",
+        "name": "chromium",
+        "testDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "firefox",
+        "name": "firefox",
+        "testDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "webkit",
+        "name": "webkit",
+        "testDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "Mobile Chrome",
+        "name": "Mobile Chrome",
+        "testDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      },
+      {
+        "outputDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/test-results",
+        "repeatEach": 1,
+        "retries": 0,
+        "metadata": {
+          "actualWorkers": 3
+        },
+        "id": "Mobile Safari",
+        "name": "Mobile Safari",
+        "testDir": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e",
+        "testIgnore": [],
+        "testMatch": [
+          "**/*.@(spec|test).?(c|m)[jt]s?(x)"
+        ],
+        "timeout": 30000
+      }
+    ],
+    "shard": null,
+    "updateSnapshots": "missing",
+    "updateSourceMethod": "patch",
+    "version": "1.56.1",
+    "workers": 3,
+    "webServer": {
+      "command": "npm run dev",
+      "url": "http://localhost:3000",
+      "reuseExistingServer": true,
+      "timeout": 120000
+    }
+  },
+  "suites": [
+    {
+      "title": "auth/registration.spec.ts",
+      "file": "auth/registration.spec.ts",
+      "column": 0,
+      "line": 0,
+      "specs": [],
+      "suites": [
+        {
+          "title": "User Registration",
+          "file": "auth/registration.spec.ts",
+          "line": 4,
+          "column": 6,
+          "specs": [
+            {
+              "title": "should successfully register a new user with valid credentials",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 0,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 55,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:17:27",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 27,
+                          "line": 17
+                        },
+                        "snippet": "  15 |     });\n  16 |\n> 17 |     expect(response.ok()).toBeTruthy();\n     |                           ^\n  18 |     const data = await response.json();\n  19 |\n  20 |     expect(data).toHaveProperty('message');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 27,
+                            "line": 17
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  15 |     });\n  16 |\n> 17 |     expect(response.ok()).toBeTruthy();\n     |                           ^\n  18 |     const data = await response.json();\n  19 |\n  20 |     expect(data).toHaveProperty('message');\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:17:27"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:39.760Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 27,
+                        "line": 17
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-199947550093ce498a0d",
+              "file": "auth/registration.spec.ts",
+              "line": 5,
+              "column": 7
+            },
+            {
+              "title": "should reject registration with duplicate email",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 1,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 55,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:47:31",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 31,
+                          "line": 47
+                        },
+                        "snippet": "  45 |\n  46 |     expect(response.ok()).toBeFalsy();\n> 47 |     expect(response.status()).toBe(400);\n     |                               ^\n  48 |\n  49 |     const data = await response.json();\n  50 |     expect(data).toHaveProperty('error');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 31,
+                            "line": 47
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n\n  45 |\n  46 |     expect(response.ok()).toBeFalsy();\n> 47 |     expect(response.status()).toBe(400);\n     |                               ^\n  48 |\n  49 |     const data = await response.json();\n  50 |     expect(data).toHaveProperty('error');\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:47:31"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:39.749Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 31,
+                        "line": 47
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-0398faa00e3716773251",
+              "file": "auth/registration.spec.ts",
+              "line": 28,
+              "column": 7
+            },
+            {
+              "title": "should reject registration with invalid email format",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 2,
+                      "parallelIndex": 2,
+                      "status": "failed",
+                      "duration": 47,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:67:31",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 31,
+                          "line": 67
+                        },
+                        "snippet": "  65 |\n  66 |     expect(response.ok()).toBeFalsy();\n> 67 |     expect(response.status()).toBe(400);\n     |                               ^\n  68 |\n  69 |     const data = await response.json();\n  70 |     expect(data).toHaveProperty('error');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 31,
+                            "line": 67
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n\n  65 |\n  66 |     expect(response.ok()).toBeFalsy();\n> 67 |     expect(response.status()).toBe(400);\n     |                               ^\n  68 |\n  69 |     const data = await response.json();\n  70 |     expect(data).toHaveProperty('error');\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:67:31"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:39.749Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 31,
+                        "line": 67
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-aa1feee3f06bf071eb28",
+              "file": "auth/registration.spec.ts",
+              "line": 54,
+              "column": 7
+            },
+            {
+              "title": "should reject registration with weak password",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 4,
+                      "parallelIndex": 2,
+                      "status": "failed",
+                      "duration": 59,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:86:31",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 31,
+                          "line": 86
+                        },
+                        "snippet": "  84 |\n  85 |     expect(response.ok()).toBeFalsy();\n> 86 |     expect(response.status()).toBe(400);\n     |                               ^\n  87 |\n  88 |     const data = await response.json();\n  89 |     expect(data).toHaveProperty('error');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 31,
+                            "line": 86
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n\n  84 |\n  85 |     expect(response.ok()).toBeFalsy();\n> 86 |     expect(response.status()).toBe(400);\n     |                               ^\n  87 |\n  88 |     const data = await response.json();\n  89 |     expect(data).toHaveProperty('error');\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:86:31"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:40.611Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 31,
+                        "line": 86
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-1010f779d4f368e76018",
+              "file": "auth/registration.spec.ts",
+              "line": 73,
+              "column": 7
+            },
+            {
+              "title": "should reject registration with missing required fields",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 3,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 65,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:102:31",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 31,
+                          "line": 102
+                        },
+                        "snippet": "  100 |\n  101 |     expect(response.ok()).toBeFalsy();\n> 102 |     expect(response.status()).toBe(400);\n      |                               ^\n  103 |\n  104 |     const data = await response.json();\n  105 |     expect(data).toHaveProperty('error');"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 31,
+                            "line": 102
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBe\u001b[2m(\u001b[22m\u001b[32mexpected\u001b[39m\u001b[2m) // Object.is equality\u001b[22m\n\nExpected: \u001b[32m400\u001b[39m\nReceived: \u001b[31m404\u001b[39m\n\n  100 |\n  101 |     expect(response.ok()).toBeFalsy();\n> 102 |     expect(response.status()).toBe(400);\n      |                               ^\n  103 |\n  104 |     const data = await response.json();\n  105 |     expect(data).toHaveProperty('error');\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:102:31"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:40.582Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 31,
+                        "line": 102
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-3e0ab4bb1ed3988f81db",
+              "file": "auth/registration.spec.ts",
+              "line": 93,
+              "column": 7
+            },
+            {
+              "title": "should send email verification token after registration",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 5,
+                      "parallelIndex": 0,
+                      "status": "failed",
+                      "duration": 61,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:120:27",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 27,
+                          "line": 120
+                        },
+                        "snippet": "  118 |     });\n  119 |\n> 120 |     expect(response.ok()).toBeTruthy();\n      |                           ^\n  121 |     const data = await response.json();\n  122 |\n  123 |     // Check that email verification is pending"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 27,
+                            "line": 120
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  118 |     });\n  119 |\n> 120 |     expect(response.ok()).toBeTruthy();\n      |                           ^\n  121 |     const data = await response.json();\n  122 |\n  123 |     // Check that email verification is pending\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:120:27"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:40.610Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 27,
+                        "line": 120
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-c945772ba5bb88cca992",
+              "file": "auth/registration.spec.ts",
+              "line": 108,
+              "column": 7
+            },
+            {
+              "title": "should not expose sensitive data in registration response",
+              "ok": false,
+              "tags": [],
+              "tests": [
+                {
+                  "timeout": 30000,
+                  "annotations": [],
+                  "expectedStatus": "passed",
+                  "projectId": "chromium",
+                  "projectName": "chromium",
+                  "results": [
+                    {
+                      "workerIndex": 6,
+                      "parallelIndex": 1,
+                      "status": "failed",
+                      "duration": 48,
+                      "error": {
+                        "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m",
+                        "stack": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:139:27",
+                        "location": {
+                          "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                          "column": 27,
+                          "line": 139
+                        },
+                        "snippet": "  137 |     });\n  138 |\n> 139 |     expect(response.ok()).toBeTruthy();\n      |                           ^\n  140 |     const data = await response.json();\n  141 |\n  142 |     // Should not return password, password hash, or salt"
+                      },
+                      "errors": [
+                        {
+                          "location": {
+                            "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                            "column": 27,
+                            "line": 139
+                          },
+                          "message": "Error: \u001b[2mexpect(\u001b[22m\u001b[31mreceived\u001b[39m\u001b[2m).\u001b[22mtoBeTruthy\u001b[2m()\u001b[22m\n\nReceived: \u001b[31mfalse\u001b[39m\n\n  137 |     });\n  138 |\n> 139 |     expect(response.ok()).toBeTruthy();\n      |                           ^\n  140 |     const data = await response.json();\n  141 |\n  142 |     // Should not return password, password hash, or salt\n    at /home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts:139:27"
+                        }
+                      ],
+                      "stdout": [],
+                      "stderr": [],
+                      "retry": 0,
+                      "startTime": "2025-11-14T02:26:41.433Z",
+                      "annotations": [],
+                      "attachments": [],
+                      "errorLocation": {
+                        "file": "/home/meywd/Branches/Tamma/test-platform/test-platform/tests/e2e/auth/registration.spec.ts",
+                        "column": 27,
+                        "line": 139
+                      }
+                    }
+                  ],
+                  "status": "unexpected"
+                }
+              ],
+              "id": "e959d31b32d120a59812-f94ae7edc75f11919622",
+              "file": "auth/registration.spec.ts",
+              "line": 127,
+              "column": 7
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "errors": [],
+  "stats": {
+    "startTime": "2025-11-14T02:26:38.617Z",
+    "duration": 2922.7879999999996,
+    "expected": 0,
+    "skipped": 0,
+    "unexpected": 7,
+    "flaky": 0
+  }
+}

@@ -36,11 +36,11 @@ export class MigrationRunner {
     const baseConfig: Knex.Config = {
       client: 'pg',
       connection: {
-        host: process.env[`${this.environment.toUpperCase()}_DB_HOST`] || 'localhost',
-        port: parseInt(process.env[`${this.environment.toUpperCase()}_DB_PORT`] || '5432', 10),
-        user: process.env[`${this.environment.toUpperCase()}_DB_USER`] || 'postgres',
-        password: process.env[`${this.environment.toUpperCase()}_DB_PASSWORD`] || 'postgres',
-        database: process.env[`${this.environment.toUpperCase()}_DB_NAME`] || 'test_platform',
+        host: process.env.DB_HOST || 'localhost',
+        port: parseInt(process.env.DB_PORT || '5432', 10),
+        user: process.env.DB_USER || 'test_platform_user',
+        password: process.env.DB_PASSWORD,
+        database: process.env.DB_NAME || 'test_platform',
       },
       pool: {
         min: 2,
