@@ -5,6 +5,7 @@ export interface User {
   avatar?: string;
   role: string;
   organizationId?: string;
+  emailVerified?: boolean;
   createdAt: string;
   updatedAt: string;
 }

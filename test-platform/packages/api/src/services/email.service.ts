@@ -1,5 +1,4 @@
-import nodemailer, { Transporter } from 'nodemailer'
-import handlebars from 'handlebars'
+import { Resend } from 'resend'
 
 interface EmailOptions {
   to: string
@@ -7,147 +6,51 @@ interface EmailOptions {
   html: string
   text: string
   category?: string
-  attachments?: Array<{
-    filename: string
-    content?: string
-    path?: string
-  }>
-}
-
-interface EmailConfig {
-  host: string
-  port: number
-  secure: boolean
-  auth: {
-    user: string
-    pass: string
-  }
-  from: string
 }
 
 export class EmailService {
-  private transporter: Transporter | null = null
-  private config: EmailConfig
-  private templates: Map<string, handlebars.TemplateDelegate> = new Map()
+  private resend: Resend
+  private fromEmail: string
 
   constructor() {
-    // Configure based on environment
-    this.config = {
-      host: process.env.EMAIL_HOST || 'smtp.gmail.com',
-      port: parseInt(process.env.EMAIL_PORT || '587'),
-      secure: process.env.EMAIL_SECURE === 'true',
-      auth: {
-        user: process.env.EMAIL_USER || '',
-        pass: process.env.EMAIL_PASS || '',
-      },
-      from: process.env.EMAIL_FROM || 'Test Platform <noreply@testplatform.com>',
-    }
+    // Initialize Resend with API key
+    const apiKey = process.env.RESEND_API_KEY || 're_cmjpryvG_8A6PKNjHm9VSiENDahAC7G1m'
+    this.resend = new Resend(apiKey)
 
-    this.initializeTransporter()
-    this.registerTemplates()
+    // Set from email
+    this.fromEmail = process.env.EMAIL_FROM || 'Mithqal <mithqal@tamma.dev>'
   }
 
-  private initializeTransporter(): void {
-    if (process.env.NODE_ENV === 'test') {
-      // Use test account for testing
-      this.transporter = nodemailer.createTransport({
-        host: 'localhost',
-        port: 1025,
-        secure: false,
-        ignoreTLS: true,
-      })
-    } else if (process.env.NODE_ENV === 'development') {
-      // Use Ethereal for development
-      nodemailer.createTestAccount((err, account) => {
-        if (err) {
-          console.error('Failed to create test email account', err)
-          return
-        }
-
-        this.transporter = nodemailer.createTransporter({
-          host: account.smtp.host,
-          port: account.smtp.port,
-          secure: account.smtp.secure,
-          auth: {
-            user: account.user,
-            pass: account.pass,
-          },
-        })
-
-        console.log('Test email account created:', account.user)
-        console.log('Preview URL will be generated for sent emails')
-      })
-    } else {
-      // Production configuration
-      this.transporter = nodemailer.createTransporter({
-        host: this.config.host,
-        port: this.config.port,
-        secure: this.config.secure,
-        auth: this.config.auth,
-      })
-
-      // Verify connection
-      this.transporter.verify((error) => {
-        if (error) {
-          console.error('Email transporter verification failed:', error)
-        } else {
-          console.log('Email server is ready to send emails')
-        }
-      })
+  private replaceTemplate(template: string, data: Record<string, any>): string {
+    let result = template
+    for (const [key, value] of Object.entries(data)) {
+      result = result.replace(new RegExp(`{{${key}}}`, 'g'), String(value))
     }
-  }
-
-  private registerTemplates(): void {
-    // Register password reset template
-    const passwordResetTemplate = handlebars.compile(this.getPasswordResetTemplate())
-    this.templates.set('password_reset', passwordResetTemplate)
-
-    // Register password changed template
-    const passwordChangedTemplate = handlebars.compile(this.getPasswordChangedTemplate())
-    this.templates.set('password_changed', passwordChangedTemplate)
-
-    // Register welcome template
-    const welcomeTemplate = handlebars.compile(this.getWelcomeTemplate())
-    this.templates.set('welcome', welcomeTemplate)
-
-    // Register email verification template
-    const emailVerificationTemplate = handlebars.compile(this.getEmailVerificationTemplate())
-    this.templates.set('email_verification', emailVerificationTemplate)
+    return result
   }
 
   async sendEmail(options: EmailOptions): Promise<void> {
-    if (!this.transporter) {
-      console.error('Email transporter not initialized')
-      return
-    }
-
     try {
-      const info = await this.transporter.sendMail({
-        from: this.config.from,
+      const { data, error } = await this.resend.emails.send({
+        from: this.fromEmail,
         to: options.to,
         subject: options.subject,
         html: options.html,
         text: options.text,
-        attachments: options.attachments,
-        headers: {
-          'X-Category': options.category || 'general',
-        },
+        tags: options.category ? [{ name: 'category', value: options.category }] : undefined,
       })
 
-      console.log('Email sent successfully', {
-        messageId: info.messageId,
+      if (error) {
+        console.error('Failed to send email via Resend', { error, to: options.to, subject: options.subject })
+        throw error
+      }
+
+      console.log('Email sent successfully via Resend', {
+        id: data?.id,
         to: options.to,
         subject: options.subject,
         category: options.category,
       })
-
-      // Log preview URL for development
-      if (process.env.NODE_ENV === 'development') {
-        const previewUrl = nodemailer.getTestMessageUrl(info)
-        if (previewUrl) {
-          console.log('Preview URL:', previewUrl)
-        }
-      }
     } catch (error) {
       console.error('Failed to send email', { error, to: options.to, subject: options.subject })
       throw error
@@ -155,15 +58,10 @@ export class EmailService {
   }
 
   async sendPasswordResetEmail(email: string, token: string, firstName?: string): Promise<void> {
-    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/reset-password?token=${token}`
+    const resetUrl = `${process.env.FRONTEND_URL || 'http://localhost:3100'}/reset-password?token=${token}`
     const expiryHours = 2
 
-    const template = this.templates.get('password_reset')
-    if (!template) {
-      throw new Error('Password reset template not found')
-    }
-
-    const html = template({
+    const html = this.replaceTemplate(this.getPasswordResetTemplate(), {
       firstName: firstName || 'there',
       resetUrl,
       expiryHours,
@@ -208,12 +106,7 @@ export class EmailService {
       userAgent?: string
     }
   ): Promise<void> {
-    const template = this.templates.get('password_changed')
-    if (!template) {
-      throw new Error('Password changed template not found')
-    }
-
-    const html = template({
+    const html = this.replaceTemplate(this.getPasswordChangedTemplate(), {
       firstName: firstName || 'there',
       ipAddress: context?.ipAddress || 'Unknown',
       userAgent: context?.userAgent || 'Unknown',
@@ -255,14 +148,9 @@ export class EmailService {
   }
 
   async sendWelcomeEmail(email: string, firstName?: string): Promise<void> {
-    const template = this.templates.get('welcome')
-    if (!template) {
-      throw new Error('Welcome template not found')
-    }
-
-    const html = template({
+    const html = this.replaceTemplate(this.getWelcomeTemplate(), {
       firstName: firstName || 'there',
-      loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:3000'}/login`,
+      loginUrl: `${process.env.FRONTEND_URL || 'http://localhost:3100'}/login`,
       currentYear: new Date().getFullYear(),
     })
 
@@ -291,15 +179,10 @@ export class EmailService {
   }
 
   async sendEmailVerification(email: string, token: string, firstName?: string): Promise<void> {
-    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3000'}/verify-email?token=${token}`
+    const verifyUrl = `${process.env.FRONTEND_URL || 'http://localhost:3100'}/verify-email?token=${token}`
     const expiryHours = 24
 
-    const template = this.templates.get('email_verification')
-    if (!template) {
-      throw new Error('Email verification template not found')
-    }
-
-    const html = template({
+    const html = this.replaceTemplate(this.getEmailVerificationTemplate(), {
       firstName: firstName || 'there',
       verifyUrl,
       expiryHours,
@@ -523,57 +406,67 @@ export class EmailService {
       <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0">
-        <title>Email Verification - Test Platform</title>
+        <title>Email Verification - Mithqal</title>
         <style>
-          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; line-height: 1.6; color: #333; margin: 0; padding: 0; }
-          .container { max-width: 600px; margin: 0 auto; padding: 20px; }
-          .header { background: #3b82f6; color: white; padding: 30px; text-align: center; border-radius: 8px 8px 0 0; }
-          .header h1 { margin: 0; font-size: 24px; }
-          .content { background: #f8fafc; padding: 30px; border-radius: 0 0 8px 8px; }
-          .button { display: inline-block; background: #3b82f6; color: white !important; padding: 14px 28px; text-decoration: none; border-radius: 6px; margin: 20px 0; font-weight: 600; }
-          .footer { text-align: center; margin-top: 30px; color: #64748b; font-size: 14px; }
-          .warning { background: #fef3c7; border: 1px solid #f59e0b; padding: 15px; border-radius: 6px; margin: 20px 0; }
-          .link-box { word-break: break-all; background: #e2e8f0; padding: 10px; border-radius: 4px; font-family: monospace; font-size: 13px; }
-          .icon { display: inline-block; width: 60px; height: 60px; margin: 0 auto; }
+          body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif; line-height: 1.6; color: #1f2937; margin: 0; padding: 0; background-color: #f9fafb; }
+          .container { max-width: 600px; margin: 40px auto; background: #ffffff; border-radius: 12px; overflow: hidden; box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1); }
+          .header { background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white; padding: 40px 30px; text-align: center; }
+          .logo { width: 80px; height: 80px; margin: 0 auto 20px; background: white; border-radius: 16px; padding: 12px; }
+          .header h1 { margin: 0; font-size: 28px; font-weight: 700; letter-spacing: -0.5px; }
+          .header p { margin: 8px 0 0; font-size: 16px; opacity: 0.95; }
+          .content { padding: 40px 30px; background: #ffffff; }
+          .greeting { font-size: 18px; font-weight: 600; color: #1f2937; margin-bottom: 16px; }
+          .button { display: inline-block; background: linear-gradient(135deg, #6366f1 0%, #8b5cf6 100%); color: white !important; padding: 16px 32px; text-decoration: none; border-radius: 8px; margin: 24px 0; font-weight: 600; font-size: 16px; box-shadow: 0 4px 12px rgba(99, 102, 241, 0.3); transition: transform 0.2s; }
+          .button:hover { transform: translateY(-2px); }
+          .footer { text-align: center; padding: 30px; background: #f9fafb; color: #6b7280; font-size: 14px; border-top: 1px solid #e5e7eb; }
+          .info-box { background: #f0f9ff; border-left: 4px solid #3b82f6; padding: 16px; border-radius: 6px; margin: 20px 0; }
+          .link-box { word-break: break-all; background: #f3f4f6; padding: 12px; border-radius: 6px; font-family: 'Courier New', monospace; font-size: 13px; color: #4b5563; margin: 20px 0; }
+          .divider { height: 1px; background: #e5e7eb; margin: 30px 0; }
         </style>
       </head>
       <body>
         <div class="container">
           <div class="header">
-            <h1>Verify Your Email Address</h1>
+            <div class="logo">
+              <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 100 100" width="56" height="56">
+                <circle cx="50" cy="50" r="40" fill="#6366f1"/>
+                <text x="50" y="65" font-family="Arial, sans-serif" font-size="48" font-weight="bold" fill="white" text-anchor="middle">M</text>
+              </svg>
+            </div>
+            <h1>Verify Your Email</h1>
+            <p>AI Benchmark Platform</p>
           </div>
           <div class="content">
-            <p>Hello {{firstName}},</p>
-            <p>Thank you for registering with Test Platform! We're excited to have you on board.</p>
+            <p class="greeting">Hello {{firstName}}! 👋</p>
+            <p>Welcome to <strong>Mithqal</strong> - the ultimate AI Benchmark Platform! We're excited to have you join our community.</p>
 
-            <p>Please verify your email address by clicking the button below:</p>
+            <p>To get started and unlock full access to our platform, please verify your email address by clicking the button below:</p>
+
             <div style="text-align: center;">
-              <a href="{{verifyUrl}}" class="button">Verify Email Address</a>
+              <a href="{{verifyUrl}}" class="button">✓ Verify Email Address</a>
             </div>
 
-            <p>Or copy and paste this link into your browser:</p>
-            <div class="link-box">
-              {{verifyUrl}}
-            </div>
+            <p style="color: #6b7280; font-size: 14px;">Or copy and paste this link into your browser:</p>
+            <div class="link-box">{{verifyUrl}}</div>
 
-            <div class="warning">
-              <strong>Important:</strong>
-              <ul style="margin: 10px 0;">
-                <li>This link will expire in {{expiryHours}} hours</li>
-                <li>If you didn't create this account, please ignore this email</li>
-                <li>Never share this verification link with anyone</li>
+            <div class="info-box">
+              <strong style="color: #1f2937;">⏱️ Important Information:</strong>
+              <ul style="margin: 10px 0; padding-left: 20px; color: #4b5563;">
+                <li>This verification link expires in <strong>{{expiryHours}} hours</strong></li>
+                <li>If you didn't create this account, you can safely ignore this email</li>
+                <li>Keep this link confidential and don't share it with anyone</li>
               </ul>
             </div>
 
-            <p>Once verified, you'll have full access to all Test Platform features.</p>
+            <div class="divider"></div>
 
-            <p>If you have any questions, please contact our support team.</p>
+            <p style="color: #6b7280;">Need help? Our support team is here for you at <a href="mailto:support@mithqal.com" style="color: #6366f1; text-decoration: none;">support@mithqal.com</a></p>
 
-            <p>Best regards,<br>The Test Platform Team</p>
+            <p style="margin-top: 30px;">Best regards,<br><strong>The Mithqal Team</strong></p>
           </div>
           <div class="footer">
-            <p>This is an automated message. Please do not reply to this email.</p>
-            <p>&copy; {{currentYear}} Test Platform. All rights reserved.</p>
+            <p style="margin: 0;">This is an automated message. Please do not reply to this email.</p>
+            <p style="margin: 8px 0 0;">&copy; {{currentYear}} Mithqal - AI Benchmark Platform. All rights reserved.</p>
           </div>
         </div>
       </body>

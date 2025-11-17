@@ -7,12 +7,26 @@ import { zodResolver } from '@hookform/resolvers/zod';
 import { useAuth } from '@/contexts/AuthContext';
 import { loginSchema, LoginFormData } from '@/lib/utils/validation';
 
+const backgroundImages = [
+  '/background/1.png',
+  '/background/2.png',
+  '/background/3.jpeg',
+  '/background/4.jpeg',
+  '/background/5.jpeg',
+  '/background/6.jpeg',
+  '/background/7.png',
+  '/background/8.png',
+  '/background/9.png',
+  '/background/10.png',
+];
+
 export default function LoginPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
-  const { login, isAuthenticated, error: authError, clearError } = useAuth();
+  const { login, isAuthenticated, user, error: authError, clearError } = useAuth();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [showPassword, setShowPassword] = useState(false);
+  const [backgroundImage] = useState(() => backgroundImages[Math.floor(Math.random() * backgroundImages.length)]);
 
   const {
     register,
@@ -28,10 +42,15 @@ export default function LoginPage() {
   // Redirect if already authenticated
   useEffect(() => {
     if (isAuthenticated) {
-      const returnUrl = searchParams.get('returnUrl') || '/dashboard';
-      router.push(returnUrl);
+      // Check if email is verified
+      if (user && !user.emailVerified) {
+        router.push(`/verify-email?email=${encodeURIComponent(user.email)}`);
+      } else {
+        const returnUrl = searchParams.get('returnUrl') || '/dashboard';
+        router.push(returnUrl);
+      }
     }
-  }, [isAuthenticated, router, searchParams]);
+  }, [isAuthenticated, user, router, searchParams]);
 
   // Clear errors when component unmounts
   useEffect(() => {
@@ -61,13 +80,26 @@ export default function LoginPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div
+      className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-cover bg-center bg-no-repeat"
+      style={{
+        backgroundImage: `url(${backgroundImage})`,
+        backgroundSize: 'cover',
+        position: 'relative'
+      }}
+    >
+      {/* Dark overlay for better readability */}
+      <div className="absolute inset-0 bg-black/40" style={{ zIndex: 0 }} />
+
+      <div className="relative z-10">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         {/* Logo/Branding */}
         <div className="flex justify-center">
-          <div className="h-12 w-12 bg-primary-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-2xl font-bold">T</span>
-          </div>
+          <img
+            src="/logo.png"
+            alt="Logo"
+            className="h-32 w-32 object-contain"
+          />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Sign in to your account
@@ -78,7 +110,7 @@ export default function LoginPage() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-white/60 backdrop-blur-sm py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
             {/* Error Alert */}
             {authError && (
@@ -299,6 +331,7 @@ export default function LoginPage() {
             </div>
           </div>
         </div>
+      </div>
       </div>
     </div>
   );

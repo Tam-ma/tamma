@@ -43,7 +43,7 @@ const changePasswordSchema = z.object({
 })
 
 const refreshTokenSchema = z.object({
-  refreshToken: z.string().min(1, 'Refresh token is required'),
+  refreshToken: z.string().min(1, 'Refresh token is required').optional(),
 })
 
 const resendVerificationSchema = z.object({
@@ -269,6 +269,7 @@ authRoutes.post(
       return c.json({
         message: 'Token refreshed successfully',
         accessToken,
+        expiresIn: 900, // 15 minutes
       })
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Token refresh failed'

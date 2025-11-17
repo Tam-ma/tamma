@@ -22,11 +22,13 @@ import {
 } from '../utils/crypto'
 import { generateTokenPair } from '../utils/jwt'
 import { validateEmail, validatePassword } from '../utils/validation'
+import { EmailService } from './email.service'
 
 export interface AuthServiceContext {
   db: DrizzleD1Database<typeof import('../db/schema')>
   jwtSecret: string
   kv?: KVNamespace
+  emailService?: EmailService
 }
 
 export interface LoginResponse {
@@ -39,11 +41,13 @@ export class AuthService {
   private db: DrizzleD1Database<typeof import('../db/schema')>
   private jwtSecret: string
   private kv?: KVNamespace
+  private emailService?: EmailService
 
-  constructor({ db, jwtSecret, kv }: AuthServiceContext) {
+  constructor({ db, jwtSecret, kv, emailService }: AuthServiceContext) {
     this.db = db
     this.jwtSecret = jwtSecret
     this.kv = kv
+    this.emailService = emailService || new EmailService()
   }
 
   /**
@@ -202,10 +206,8 @@ export class AuthService {
       throw new Error('Invalid email or password')
     }
 
-    // Check if email is verified
-    if (!user.emailVerified) {
-      throw new Error('Please verify your email before logging in')
-    }
+    // Note: We allow login even if email is not verified
+    // The frontend will handle redirecting to verification page if needed
 
     // Generate JWT tokens
     const { accessToken, refreshToken } = await generateTokenPair(
@@ -478,12 +480,29 @@ export class AuthService {
 
     await this.db.insert(verificationTokens).values(tokenData)
 
-    // Log email sending (to be replaced with actual email service)
-    console.log('Email verification link (resent):', {
-      to: email,
-      token: verificationToken,
-      link: `https://aibaas.com/verify-email?token=${verificationToken}`,
-    })
+    // Send verification email
+    console.log('📧 Attempting to send verification email...', { email, hasEmailService: !!this.emailService })
+    if (this.emailService) {
+      try {
+        console.log('📧 Calling sendEmailVerification...')
+        await this.emailService.sendEmailVerification(
+          email,
+          verificationToken,
+          user.fullName || undefined
+        )
+        console.log('✅ Email sent successfully!')
+      } catch (error) {
+        console.error('❌ Failed to send verification email:', error)
+        // Don't throw error - token is created, email sending is best effort
+      }
+    } else {
+      console.log('⚠️ No email service - logging link instead')
+      console.log('Email verification link (resent):', {
+        to: email,
+        token: verificationToken,
+        link: `http://localhost:3100/verify-email?token=${verificationToken}`,
+      })
+    }
   }
 
   /**

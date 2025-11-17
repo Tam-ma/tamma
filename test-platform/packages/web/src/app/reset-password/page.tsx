@@ -25,6 +25,19 @@ const resetPasswordSchema = z.object({
 
 type ResetPasswordFormData = z.infer<typeof resetPasswordSchema>;
 
+const backgroundImages = [
+  '/background/1.png',
+  '/background/2.png',
+  '/background/3.jpeg',
+  '/background/4.jpeg',
+  '/background/5.jpeg',
+  '/background/6.jpeg',
+  '/background/7.png',
+  '/background/8.png',
+  '/background/9.png',
+  '/background/10.png',
+];
+
 export default function ResetPasswordPage() {
   const router = useRouter();
   const searchParams = useSearchParams();
@@ -32,6 +45,7 @@ export default function ResetPasswordPage() {
   const [showPassword, setShowPassword] = useState(false);
   const [showConfirmPassword, setShowConfirmPassword] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
+  const [backgroundImage] = useState(() => backgroundImages[Math.floor(Math.random() * backgroundImages.length)]);
 
   const token = searchParams.get('token');
 
@@ -72,9 +86,20 @@ export default function ResetPasswordPage() {
 
   if (!token) {
     return (
-      <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+      <div
+        className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-cover bg-center bg-no-repeat"
+        style={{
+          backgroundImage: `url(${backgroundImage})`,
+          backgroundSize: 'cover',
+          position: 'relative'
+        }}
+      >
+        {/* Dark overlay for better readability */}
+        <div className="absolute inset-0 bg-black/40" style={{ zIndex: 0 }} />
+
+        <div className="relative z-10">
         <div className="sm:mx-auto sm:w-full sm:max-w-md">
-          <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+          <div className="bg-white/60 backdrop-blur-sm py-8 px-4 shadow sm:rounded-lg sm:px-10">
             <div className="text-center">
               <div className="mx-auto flex items-center justify-center h-12 w-12 rounded-full bg-red-100">
                 <svg className="h-6 w-6 text-red-600" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -91,17 +116,31 @@ export default function ResetPasswordPage() {
             </div>
           </div>
         </div>
+        </div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div
+      className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-cover bg-center bg-no-repeat"
+      style={{
+        backgroundImage: `url(${backgroundImage})`,
+        backgroundSize: 'cover',
+        position: 'relative'
+      }}
+    >
+      {/* Dark overlay for better readability */}
+      <div className="absolute inset-0 bg-black/40" style={{ zIndex: 0 }} />
+
+      <div className="relative z-10">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <div className="flex justify-center">
-          <div className="h-12 w-12 bg-primary-600 rounded-lg flex items-center justify-center">
-            <span className="text-white text-2xl font-bold">T</span>
-          </div>
+          <img
+            src="/logo.png"
+            alt="Logo"
+            className="h-32 w-32 object-contain"
+          />
         </div>
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Reset your password
@@ -112,7 +151,7 @@ export default function ResetPasswordPage() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-white/60 backdrop-blur-sm py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
             {apiError && (
               <div className="rounded-md bg-red-50 p-4" role="alert">
@@ -179,6 +218,7 @@ export default function ResetPasswordPage() {
             </button>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );

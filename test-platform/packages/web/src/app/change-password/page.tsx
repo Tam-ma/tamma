@@ -29,11 +29,25 @@ const changePasswordSchema = z.object({
 
 type ChangePasswordFormData = z.infer<typeof changePasswordSchema>;
 
+const backgroundImages = [
+  '/background/1.png',
+  '/background/2.png',
+  '/background/3.jpeg',
+  '/background/4.jpeg',
+  '/background/5.jpeg',
+  '/background/6.jpeg',
+  '/background/7.png',
+  '/background/8.png',
+  '/background/9.png',
+  '/background/10.png',
+];
+
 export default function ChangePasswordPage() {
   const router = useRouter();
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+  const [backgroundImage] = useState(() => backgroundImages[Math.floor(Math.random() * backgroundImages.length)]);
 
   const {
     register,
@@ -74,7 +88,18 @@ export default function ChangePasswordPage() {
   };
 
   return (
-    <div className="min-h-screen bg-gray-50 flex flex-col justify-center py-12 sm:px-6 lg:px-8">
+    <div
+      className="min-h-screen flex flex-col justify-center py-12 sm:px-6 lg:px-8 bg-cover bg-center bg-no-repeat"
+      style={{
+        backgroundImage: `url(${backgroundImage})`,
+        backgroundSize: 'cover',
+        position: 'relative'
+      }}
+    >
+      {/* Dark overlay for better readability */}
+      <div className="absolute inset-0 bg-black/40" style={{ zIndex: 0 }} />
+
+      <div className="relative z-10">
       <div className="sm:mx-auto sm:w-full sm:max-w-md">
         <h2 className="mt-6 text-center text-3xl font-extrabold text-gray-900">
           Change your password
@@ -85,7 +110,7 @@ export default function ChangePasswordPage() {
       </div>
 
       <div className="mt-8 sm:mx-auto sm:w-full sm:max-w-md">
-        <div className="bg-white py-8 px-4 shadow sm:rounded-lg sm:px-10">
+        <div className="bg-white/60 backdrop-blur-sm py-8 px-4 shadow sm:rounded-lg sm:px-10">
           <form className="space-y-6" onSubmit={handleSubmit(onSubmit)} noValidate>
             {apiError && (
               <div className="rounded-md bg-red-50 p-4" role="alert">
@@ -179,6 +204,7 @@ export default function ChangePasswordPage() {
             </div>
           </form>
         </div>
+      </div>
       </div>
     </div>
   );
