@@ -6,7 +6,13 @@
     "deploy": "wrangler deploy --minify",
     "cf-typegen": "wrangler types --env-interface CloudflareBindings",
     "test": "vitest",
-    "test:simple": "ts-node src/index.spec.ts"
+    "test:simple": "ts-node src/index.spec.ts",
+    "db:generate": "drizzle-kit generate",
+    "db:migrate": "wrangler d1 migrations apply aibaas --local",
+    "db:seed": "tsx src/db/seeds/seed-test-bank.ts",
+    "db:seed-models": "tsx src/db/seeds/seed-llm-models.ts",
+    "benchmark": "tsx src/scripts/run-benchmark.ts",
+    "benchmark:example": "tsx src/scripts/run-benchmark.ts --model=claude-3-5-sonnet-20241022 --difficulty=easy --limit=5 --verbose"
   },
   "dependencies": {
     "@hono/zod-validator": "^0.7.4",
@@ -18,6 +24,7 @@
     "handlebars": "^4.7.8",
     "hono": "^4.10.5",
     "isomorphic-dompurify": "^2.31.0",
+    "nanoid": "^5.1.6",
     "resend": "^6.4.2",
     "slugify": "^1.6.6",
     "zod": "^3.25.76"
@@ -26,6 +33,7 @@
     "@types/bcryptjs": "^2.4.6",
     "dotenv": "^17.2.3",
     "drizzle-kit": "^0.31.7",
+    "tsx": "^4.20.6",
     "vitest": "^4.0.8",
     "wrangler": "^4.4.0"
   }

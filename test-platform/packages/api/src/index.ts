@@ -21,6 +21,7 @@ export interface HonoContext {
   Bindings: Env
   Variables: {
     db: ReturnType<typeof drizzle<typeof schema>>
+    userId?: string
   }
 }
 
@@ -60,6 +61,7 @@ app.get('/', (c) => {
     endpoints: {
       auth: '/auth',
       apiKeys: '/api-keys',
+      models: '/models',
     },
     status: 'healthy',
   })
@@ -68,8 +70,10 @@ app.get('/', (c) => {
 // Import and mount routes
 import { authRoutes } from './routes/auth.routes'
 import { apiKeyRoutes } from './routes/api-key.routes'
+import modelsRoutes from './routes/models.routes'
 
 app.route('/auth', authRoutes)
 app.route('/api-keys', apiKeyRoutes)
+app.route('/models', modelsRoutes)
 
 export default app
