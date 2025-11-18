@@ -1,0 +1,533 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<stateMachine name="AutonomousJuniorDeveloperMentorship" version="1.0">
+  <description>
+    Autonomous state machine for mentoring junior developers through AI-driven guidance.
+    Monitors progress, detects blockers, provides targeted instruction, and maintains quality standards.
+  </description>
+  
+  <!-- Global Configuration -->
+  <globalSettings>
+    <timeouts>
+      <simpleTask>15</simpleTask>
+      <complexTask>30</complexTask>
+      <researchTask>45</researchTask>
+      <stuckTimeout>60</stuckTimeout>
+      <noProgressTimeout>120</noProgressTimeout>
+    </timeouts>
+    <qualityGates>
+      <testCoverage>90</testCoverage>
+      <maxLintErrors>0</maxLintErrors>
+      <maxTypeErrors>0</maxTypeErrors>
+      <buildRequired>true</buildRequired>
+    </qualityGates>
+    <escalationTriggers>
+      <maxTimeouts>3</maxTimeouts>
+      <maxRepeatedErrors>5</maxRepeatedErrors>
+      <maxNoProgress>120</maxNoProgress>
+    </escalationTriggers>
+  </globalSettings>
+
+  <!-- States Definition -->
+  <states>
+    <state id="INIT_STORY_PROCESSING" name="Initialize Story Processing">
+      <description>Load and analyze the assigned story for the junior developer</description>
+      <transitions>
+        <transition to="ASSESS_JUNIOR_CAPABILITY" event="storyLoaded"/>
+      </transitions>
+      <actions>
+        <action id="loadStoryContext" type="file" path="StoryContext.xml"/>
+        <action id="parseAcceptanceCriteria" type="parse"/>
+        <action id="analyzeTechnicalRequirements" type="analyze"/>
+        <action id="identifyComponents" type="categorize"/>
+        <action id="generateImplementationPlan" type="plan"/>
+        <action id="createDevelopmentChecklist" type="checklist"/>
+      </actions>
+    </state>
+
+    <state id="ASSESS_JUNIOR_CAPABILITY" name="Assess Junior Capability">
+      <description>Evaluate junior developer's understanding of the story requirements</description>
+      <transitions>
+        <transition to="PLAN_DECOMPOSITION" event="correctUnderstanding"/>
+        <transition to="CLARIFY_REQUIREMENTS" event="partialUnderstanding"/>
+        <transition to="RE_EXPLAIN_STORY" event="misunderstanding"/>
+        <transition to="ESCALATE_DIFFICULTY" event="timeout"/>
+      </transitions>
+      <actions>
+        <action id="sendComprehensionCheck" type="communication">
+          <questions>
+            <question>What do you understand needs to be built?</question>
+            <question>What technical challenges do you foresee?</question>
+            <question>What's your planned approach?</question>
+          </questions>
+        </action>
+        <action id="setResponseTimeout" type="timer" duration="5"/>
+        <action id="monitorResponse" type="monitor"/>
+        <action id="analyzeResponseQuality" type="analyze"/>
+      </actions>
+    </state>
+
+    <state id="RE_EXPLAIN_STORY" name="Re-explain Story">
+      <description>Provide simpler explanation when junior misunderstood requirements</description>
+      <transitions>
+        <transition to="PLAN_DECOMPOSITION" event="understandingConfirmed"/>
+        <transition to="REDUCE_STORY_SCOPE" event="stillConfused"/>
+      </transitions>
+      <actions>
+        <action id="breakDownSimply" type="communication"/>
+        <action id="provideConcreteExamples" type="example"/>
+        <action id="showSimilarFeatures" type="reference"/>
+        <action id="askTargetedQuestions" type="communication"/>
+        <action id="setResponseTimeout" type="timer" duration="3"/>
+      </actions>
+    </state>
+
+    <state id="PLAN_DECOMPOSITION" name="Plan Decomposition">
+      <description>Request and analyze junior's implementation plan</description>
+      <transitions>
+        <transition to="APPROVE_PLAN" event="goodPlan"/>
+        <transition to="REFINE_PLAN" event="missingSteps"/>
+        <transition to="CORRECT_PLAN" event="wrongApproach"/>
+        <transition to="PROVIDE_TEMPLATE_PLAN" event="timeout"/>
+      </transitions>
+      <actions>
+        <action id="requestImplementationPlan" type="communication">
+          <prompts>
+            <prompt>Break this down into 5-7 concrete steps</prompt>
+            <prompt>What will you build first, second, third?</prompt>
+            <prompt>What testing approach will you use?</prompt>
+          </prompts>
+        </action>
+        <action id="setResponseTimeout" type="timer" duration="10"/>
+        <action id="analyzePlanQuality" type="analyze"/>
+      </actions>
+    </state>
+
+    <state id="PROVIDE_TEMPLATE_PLAN" name="Provide Template Plan">
+      <description>Give junior a structured template when they can't create a plan</description>
+      <transitions>
+        <transition to="START_IMPLEMENTATION" event="templateProvided"/>
+      </transitions>
+      <actions>
+        <action id="generateStepByStepTemplate" type="template"/>
+        <action id="provideTDDFramework" type="framework"/>
+        <action id="showCodeStructurePatterns" type="pattern"/>
+        <action id="giveSpecificFirstStep" type="instruction"/>
+        <action id="setCheckinExpectation" type="communication"/>
+      </actions>
+    </state>
+
+    <state id="START_IMPLEMENTATION" name="Start Implementation">
+      <description>Begin the implementation process with specific first task</description>
+      <transitions>
+        <transition to="NEXT_IMPLEMENTATION_STEP" event="taskCompleted"/>
+        <transition to="GUIDE_COMPLETION" event="partialProgress"/>
+        <transition to="CORRECT_APPROACH" event="wrongApproach"/>
+        <transition to="PROVIDE_HINT" event="helpRequested"/>
+        <transition to="DIAGNOSE_BLOCKER" event="timeout"/>
+      </transitions>
+      <actions>
+        <action id="giveSpecificFirstTask" type="instruction">
+          <task>Create test file: [filename]</task>
+          <task>Write test for: [specific functionality]</task>
+          <task>Run test to confirm it fails</task>
+        </action>
+        <action id="setTaskTimeout" type="timer" duration="15"/>
+        <action id="monitorCompletionSignals" type="monitor"/>
+      </actions>
+    </state>
+
+    <state id="DIAGNOSE_BLOCKER" name="Diagnose Blocker">
+      <description>Analyze why junior is stuck and provide targeted solution</description>
+      <transitions>
+        <transition to="FIX_TECHNICAL_ISSUE" event="technicalError"/>
+        <transition to="EXPLAIN_CONCEPT" event="conceptualConfusion"/>
+        <transition to="FIX_ENVIRONMENT" event="environmentIssue"/>
+        <transition to="BREAK_DOWN_TASK" event="analysisParalysis"/>
+        <transition to="REQUEST_CLARIFICATION" event="unknownIssue"/>
+        <transition to="RESUME_IMPLEMENTATION" event="solutionProvided"/>
+      </transitions>
+      <actions>
+        <action id="analyzeCurrentState" type="analyze">
+          <check>lastGitCommit</check>
+          <check>recentTerminalOutput</check>
+          <check>errorMessages</check>
+          <check>codeChanges</check>
+          <check>testResults</check>
+        </action>
+        <action id="categorizeBlockerType" type="categorize"/>
+        <action id="provideTargetedSolution" type="solution"/>
+        <action id="setShorterTimeout" type="timer" duration="5"/>
+      </actions>
+    </state>
+
+    <state id="FIX_TECHNICAL_ISSUE" name="Fix Technical Issue">
+      <description>Provide specific fix for technical errors</description>
+      <transitions>
+        <transition to="VERIFY_FIX" event="fixProvided"/>
+      </transitions>
+      <actions>
+        <action id="parseErrorMessage" type="parse"/>
+        <action id="identifyRootCause" type="analyze"/>
+        <action id="provideSpecificFixCommand" type="instruction">
+          <fix type="buildError">Run: [fix command]</fix>
+          <fix type="typeError">Add: [type annotation]</fix>
+          <fix type="importError">Fix import: [correct import]</fix>
+          <fix type="testError">Update test: [specific change]</fix>
+          <fix type="lintError">Run: [lint fix command]</fix>
+        </action>
+        <action id="explainWhyFixWorks" type="explanation"/>
+        <action id="setVerificationTimeout" type="timer" duration="3"/>
+      </actions>
+    </state>
+
+    <state id="VERIFY_FIX" name="Verify Fix">
+      <description>Confirm that the provided fix resolved the issue</description>
+      <transitions>
+        <transition to="NEXT_IMPLEMENTATION_STEP" event="fixConfirmed"/>
+        <transition to="REFINE_FIX" event="partialFix"/>
+        <transition to="ALTERNATIVE_SOLUTION" event="stillBroken"/>
+        <transition to="AUTO_VERIFY" event="noResponse"/>
+      </transitions>
+      <actions>
+        <action id="requestConfirmation" type="communication">
+          <message>Did the fix work?</message>
+        </action>
+        <action id="setResponseTimeout" type="timer" duration="2"/>
+        <action id="monitorSuccessSignals" type="monitor"/>
+      </actions>
+    </state>
+
+    <state id="AUTO_VERIFY" name="Auto Verify">
+      <description>Automatically verify fix when junior doesn't respond</description>
+      <transitions>
+        <transition to="NEXT_IMPLEMENTATION_STEP" event="allChecksPass"/>
+        <transition to="PROVIDE_ADDITIONAL_FIXES" event="someIssuesRemain"/>
+        <transition to="ESCALATE_ISSUE" event="stillFailing"/>
+      </transitions>
+      <actions>
+        <action id="runAutomatedChecks" type="verify">
+          <check>executeBuildCommand</check>
+          <check>runTestSuite</check>
+          <check>checkLintStatus</check>
+          <check>verifyTypeChecking</check>
+          <check>scanErrorLogs</check>
+        </action>
+        <action id="analyzeResults" type="analyze"/>
+      </actions>
+    </state>
+
+    <state id="NEXT_IMPLEMENTATION_STEP" name="Next Implementation Step">
+      <description>Determine and provide the next logical implementation step</description>
+      <transitions>
+        <transition to="MONITOR_PROGRESS" event="nextStepAssigned"/>
+      </transitions>
+      <actions>
+        <action id="checkImplementationProgress" type="analyze"/>
+        <action id="determineNextStep" type="decision">
+          <option trigger="testWritten" action="IMPLEMENT_FEATURE"/>
+          <option trigger="featureImplemented" action="WRITE_INTEGRATION_TESTS"/>
+          <option trigger="unitTestsPass" action="ADD_ERROR_HANDLING"/>
+          <option trigger="apiComplete" action="WRITE_E2E_TESTS"/>
+          <option trigger="allTestsPass" action="CODE_REVIEW"/>
+          <option trigger="documentationNeeded" action="UPDATE_DOCS"/>
+        </action>
+        <action id="provideSpecificInstruction" type="instruction"/>
+        <action id="setAppropriateTimeout" type="timer"/>
+      </actions>
+    </state>
+
+    <state id="MONITOR_PROGRESS" name="Monitor Progress">
+      <description>Monitor junior's progress on current task</description>
+      <transitions>
+        <transition to="CONTINUE_MONITORING" event="steadyProgress"/>
+        <transition to="ENCOURAGE_SPEED" event="slowingProgress"/>
+        <transition to="INVESTIGATE_STALL" event="noProgress"/>
+        <transition to="DETECT_PATTERN" event="circularActivity"/>
+      </transitions>
+      <actions>
+        <action id="setProgressCheckIntervals" type="timer">
+          <interval type="simple">5</interval>
+          <interval type="complex">10</interval>
+          <interval type="research">15</interval>
+        </action>
+        <action id="monitorActivityIndicators" type="monitor">
+          <indicator>gitCommits</indicator>
+          <indicator>fileChanges</indicator>
+          <indicator>terminalActivity</indicator>
+          <indicator>testRuns</indicator>
+          <indicator>buildAttempts</indicator>
+        </action>
+        <action id="analyzeProgressPatterns" type="analyze"/>
+      </actions>
+    </state>
+
+    <state id="DETECT_PATTERN" name="Detect Pattern">
+      <description>Detect and break circular or repetitive activity patterns</description>
+      <transitions>
+        <transition to="TEST_STRATEGY_ISSUE" event="sameTestFailing"/>
+        <transition to="BUILD_FOUNDATION_PROBLEM" event="sameBuildError"/>
+        <transition to="APPROACH_FUNDAMENTAL_FLAW" event="sameCodeChanges"/>
+        <transition to="ANALYSIS_PARALYSIS" event="researchLoop"/>
+        <transition to="CONCEPTUAL_GAP" event="helpRequests"/>
+        <transition to="STRATEGIC_REDIRECT" event="patternIdentified"/>
+      </transitions>
+      <actions>
+        <action id="analyzeActivityPattern" type="analyze"/>
+        <action id="breakPatternWithIntervention" type="communication">
+          <message>Stop. Let's try a different approach.</message>
+          <message>You've been working on this for [X] minutes.</message>
+          <message>Let's step back and reassess.</message>
+        </action>
+        <action id="provideAlternativeStrategy" type="strategy"/>
+        <action id="resetTaskWithNewGuidance" type="reset"/>
+      </actions>
+    </state>
+
+    <state id="STRATEGIC_REDIRECT" name="Strategic Redirect">
+      <description>Change approach when current method isn't working</description>
+      <transitions>
+        <transition to="MONITOR_PROGRESS" event="redirectComplete"/>
+      </transitions>
+      <actions>
+        <action id="explainWhyApproachNotWorking" type="explanation"/>
+        <action id="provideAlternativeStrategy" type="strategy"/>
+        <action id="breakDownNewApproach" type="breakdown"/>
+        <action id="giveEncouragement" type="communication"/>
+        <action id="setShorterTimeout" type="timer"/>
+        <action id="increaseMonitoringFrequency" type="monitor"/>
+      </actions>
+    </state>
+
+    <state id="QUALITY_GATE_CHECK" name="Quality Gate Check">
+      <description>Run comprehensive quality checks on implementation</description>
+      <transitions>
+        <transition to="PREPARE_CODE_REVIEW" event="allPass"/>
+        <transition to="AUTO_FIX_ISSUES" event="minorIssues"/>
+        <transition to="REQUIRE_FIXES" event="majorIssues"/>
+        <transition to="BLOCK_PROGRESS" event="criticalIssues"/>
+      </transitions>
+      <actions>
+        <action id="runComprehensiveQualityChecks" type="verify">
+          <check>unitTestsPassing</check>
+          <check>integrationTestsPassing</check>
+          <check>codeCoverage</check>
+          <check>lintingErrors</check>
+          <check>typescriptCompilation</check>
+          <check>buildSuccessful</check>
+          <check>securityScan</check>
+        </action>
+        <action id="analyzeQualityGateResults" type="analyze"/>
+      </actions>
+    </state>
+
+    <state id="AUTO_FIX_ISSUES" name="Auto Fix Issues">
+      <description>Automatically fix minor quality issues</description>
+      <transitions>
+        <transition to="QUALITY_GATE_CHECK" event="fixesApplied"/>
+      </transitions>
+      <actions>
+        <action id="categorizeAutoFixableIssues" type="categorize">
+          <category type="missingImports" action="addImports"/>
+          <category type="formattingIssues" action="runFormatter"/>
+          <category type="missingSemicolons" action="addSemicolons"/>
+          <category type="unusedVariables" action="removeVariables"/>
+          <category type="missingTypeAnnotations" action="addTypes"/>
+        </action>
+        <action id="generateFixCommands" type="command"/>
+        <action id="executeFixesAutomatically" type="execute"/>
+        <action id="rerunQualityChecks" type="verify"/>
+        <action id="reportFixesApplied" type="communication"/>
+      </actions>
+    </state>
+
+    <state id="PREPARE_CODE_REVIEW" name="Prepare Code Review">
+      <description>Prepare and submit code for review</description>
+      <transitions>
+        <transition to="MONITOR_REVIEW" event="prSubmitted"/>
+      </transitions>
+      <actions>
+        <action id="generateComprehensiveSummary" type="summary">
+          <section>featuresImplemented</section>
+          <section>testsWritten</section>
+          <section>designDecisions</section>
+          <section>knownLimitations</section>
+          <section>performanceConsiderations</section>
+        </action>
+        <action id="createPullRequest" type="git"/>
+        <action id="attachRelevantArtifacts" type="attachment">
+          <artifact>testReports</artifact>
+          <artifact>coverageReports</artifact>
+          <artifact>performanceBenchmarks</artifact>
+          <artifact>documentationUpdates</artifact>
+        </action>
+        <action id="notifyCodeReviewers" type="notification"/>
+        <action id="setReviewDeadline" type="deadline"/>
+      </actions>
+    </state>
+
+    <state id="MONITOR_REVIEW" name="Monitor Review">
+      <description>Monitor code review progress and handle feedback</description>
+      <transitions>
+        <transition to="MERGE_AND_COMPLETE" event="approved"/>
+        <transition to="GUIDE_FIXES" event="minorChanges"/>
+        <transition to="REWORK_REQUIRED" event="majorChanges"/>
+        <transition to="CLARIFY_FEEDBACK" event="questions"/>
+      </transitions>
+      <actions>
+        <action id="trackReviewProgress" type="monitor">
+          <indicator>reviewerResponses</indicator>
+          <indicator>commentsAndFeedback</indicator>
+          <indicator>approvalStatus</indicator>
+          <indicator>requestedChanges</indicator>
+        </action>
+        <action id="analyzeFeedbackPatterns" type="analyze"/>
+        <action id="setResponseTimeouts" type="timer">
+          <timeout type="initialReview">24</timeout>
+          <timeout type="followUpQuestions">4</timeout>
+          <timeout type="fixImplementation">8</timeout>
+        </action>
+      </actions>
+    </state>
+
+    <state id="GUIDE_FIXES" name="Guide Fixes">
+      <description>Guide junior through implementing review feedback</description>
+      <transitions>
+        <transition to="VERIFY_FIXES" event="fixesStarted"/>
+      </transitions>
+      <actions>
+        <action id="parseReviewFeedback" type="parse"/>
+        <action id="prioritizeFixes" type="prioritize"/>
+        <action id="createStepByStepFixPlan" type="plan"/>
+        <action id="provideSpecificGuidance" type="instruction">
+          <instruction>Update function: [function name] to...</instruction>
+          <instruction>Add test case for: [scenario]</instruction>
+          <instruction>Fix import: [correct import path]</instruction>
+          <instruction>Update documentation: [section]</instruction>
+        </action>
+        <action id="setImplementationTimeline" type="deadline"/>
+        <action id="monitorFixProgress" type="monitor"/>
+      </actions>
+    </state>
+
+    <state id="MERGE_AND_COMPLETE" name="Merge and Complete">
+      <description>Final merge and story completion</description>
+      <transitions>
+        <transition to="STORY_COMPLETE" event="mergeComplete"/>
+      </transitions>
+      <actions>
+        <action id="performFinalValidation" type="verify">
+          <check>allTestsPassing</check>
+          <check>buildSuccessful</check>
+          <check>noMergeConflicts</check>
+          <check>documentationComplete</check>
+        </action>
+        <action id="executeMerge" type="git"/>
+        <action id="updateStoryStatus" type="status" value="Done"/>
+        <action id="generateCompletionReport" type="report">
+          <section>implementationSummary</section>
+          <section>testCoverageMetrics</section>
+          <section>performanceBenchmarks</section>
+          <section>lessonsLearned</section>
+          <section>juniorSkillProgress</section>
+        </action>
+        <action id="archiveDevelopmentArtifacts" type="archive"/>
+        <action id="updateJuniorSkillProfile" type="profile"/>
+      </actions>
+    </state>
+
+    <state id="STORY_COMPLETE" name="Story Complete">
+      <description>Final state - story successfully completed</description>
+      <transitions>
+        <transition to="INIT_STORY_PROCESSING" event="newStoryAssigned"/>
+      </transitions>
+      <actions>
+        <action id="celebrateSuccess" type="communication"/>
+        <action id="updateMetrics" type="metrics"/>
+        <action id="prepareForNextStory" type="prepare"/>
+      </actions>
+    </state>
+  </states>
+
+  <!-- Event Definitions -->
+  <events>
+    <event id="storyLoaded" name="Story Loaded"/>
+    <event id="correctUnderstanding" name="Correct Understanding"/>
+    <event id="partialUnderstanding" name="Partial Understanding"/>
+    <event id="misunderstanding" name="Misunderstanding"/>
+    <event id="timeout" name="Timeout"/>
+    <event id="taskCompleted" name="Task Completed"/>
+    <event id="partialProgress" name="Partial Progress"/>
+    <event id="wrongApproach" name="Wrong Approach"/>
+    <event id="helpRequested" name="Help Requested"/>
+    <event id="technicalError" name="Technical Error"/>
+    <event id="conceptualConfusion" name="Conceptual Confusion"/>
+    <event id="environmentIssue" name="Environment Issue"/>
+    <event id="analysisParalysis" name="Analysis Paralysis"/>
+    <event id="unknownIssue" name="Unknown Issue"/>
+    <event id="fixProvided" name="Fix Provided"/>
+    <event id="fixConfirmed" name="Fix Confirmed"/>
+    <event id="partialFix" name="Partial Fix"/>
+    <event id="stillBroken" name="Still Broken"/>
+    <event id="noResponse" name="No Response"/>
+    <event id="allChecksPass" name="All Checks Pass"/>
+    <event id="someIssuesRemain" Name="Some Issues Remain"/>
+    <event id="stillFailing" Name="Still Failing"/>
+    <event id="steadyProgress" Name="Steady Progress"/>
+    <event id="slowingProgress" Name="Slowing Progress"/>
+    <event id="noProgress" Name="No Progress"/>
+    <event id="circularActivity" Name="Circular Activity"/>
+    <event id="sameTestFailing" Name="Same Test Failing"/>
+    <event id="sameBuildError" Name="Same Build Error"/>
+    <event id="sameCodeChanges" Name="Same Code Changes"/>
+    <event id="researchLoop" Name="Research Loop"/>
+    <event id="helpRequests" Name="Help Requests"/>
+    <event id="patternIdentified" Name="Pattern Identified"/>
+    <event id="redirectComplete" Name="Redirect Complete"/>
+    <event id="allPass" Name="All Pass"/>
+    <event id="minorIssues" Name="Minor Issues"/>
+    <event id="majorIssues" Name="Major Issues"/>
+    <event id="criticalIssues" Name="Critical Issues"/>
+    <event id="fixesApplied" Name="Fixes Applied"/>
+    <event id="prSubmitted" Name="PR Submitted"/>
+    <event id="approved" Name="Approved"/>
+    <event id="minorChanges" Name="Minor Changes"/>
+    <event id="majorChanges" Name="Major Changes"/>
+    <event id="questions" Name="Questions"/>
+    <event id="fixesStarted" Name="Fixes Started"/>
+    <event id="mergeComplete" Name="Merge Complete"/>
+    <event id="newStoryAssigned" Name="New Story Assigned"/>
+  </events>
+
+  <!-- Guard Conditions -->
+  <guards>
+    <guard id="isStoryValid" name="Is Story Valid">
+      <condition>storyContext.exists() AND storyContext.hasAcceptanceCriteria()</condition>
+    </guard>
+    <guard id="isJuniorResponsive" name="Is Junior Responsive">
+      <condition>lastResponse.time &lt;= timeout.duration</condition>
+    </guard>
+    <guard id="areQualityGatesMet" name="Are Quality Gates Met">
+      <condition>testCoverage >= 90 AND lintErrors == 0 AND typeErrors == 0</condition>
+    </guard>
+    <guard id="isPlanAdequate" name="Is Plan Adequate">
+      <condition>plan.steps >= 5 AND plan.steps <= 7 AND plan.includesTesting</condition>
+    </guard>
+  </guards>
+
+  <!-- Monitoring Configuration -->
+  <monitoring>
+    <metrics>
+      <metric name="responseTime" unit="seconds"/>
+      <metric name="taskCompletionTime" unit="minutes"/>
+      <metric name="errorRate" unit="percentage"/>
+      <metric name="helpRequests" unit="count"/>
+      <metric name="skillProgress" unit="level"/>
+    </metrics>
+    <alerts>
+      <alert condition="timeout.count > 3" action="escalate"/>
+      <alert condition="errorRate > 20%" action="intervene"/>
+      <alert condition="helpRequests > 5" action="provideTraining"/>
+    </alerts>
+  </monitoring>
+
+</stateMachine>
