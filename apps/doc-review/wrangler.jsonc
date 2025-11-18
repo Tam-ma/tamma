@@ -3,7 +3,11 @@
   "name": "tamma-doc-review",
   "compatibility_date": "2025-01-15",
   "compatibility_flags": ["nodejs_compat"],
-  "pages_build_output_dir": "./build/client",
+  "main": "./build/server/index.js",
+  "assets": {
+    "directory": "./build/client",
+    "binding": "ASSETS"
+  },
   "observability": {
     "enabled": true,
   },
