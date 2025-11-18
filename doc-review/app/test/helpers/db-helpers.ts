@@ -1,5 +1,3 @@
-import { vi } from 'vitest';
-import type { DrizzleD1Database } from 'drizzle-orm/d1';
 import * as schema from '~/lib/db/schema';
 
 /**
@@ -168,6 +166,9 @@ export function createMockDb(): any {
 
       // Apply filters (simplified - real implementation would parse conditions)
       // For now, just return all results
+      // Note: _selection, _whereConditions, _orderByFields, _joins are stored for future enhancement
+      void this._selection;
+      void this._orderByFields;
 
       // Apply limit and offset
       if (this._limitValue !== null) {
@@ -239,7 +240,7 @@ function getTableName(table: any): string {
   return 'unknown';
 }
 
-function extractIdFromCondition(condition: any): string | null {
+function extractIdFromCondition(_condition: any): string | null {
   // Simplified ID extraction from where condition
   // In real implementation, would parse Drizzle condition objects
   return null;

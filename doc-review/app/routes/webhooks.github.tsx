@@ -6,7 +6,7 @@
  */
 
 import type { ActionFunctionArgs } from 'react-router';
-import { json } from 'react-router';
+import { data as json } from 'react-router';
 import { WebhookStorage } from '~/lib/webhooks/storage.server';
 import { WebhookProcessor } from '~/lib/webhooks/processor.server';
 import type { GitHubWebhookHeaders } from '~/lib/webhooks/types';
@@ -78,19 +78,11 @@ function timingSafeEqual(a: string, b: string): boolean {
 /**
  * Check if IP is from GitHub
  */
-async function isGitHubIP(ip: string): Promise<boolean> {
+async function isGitHubIP(_ip: string): Promise<boolean> {
   try {
     // GitHub publishes their webhook IPs at https://api.github.com/meta
     // For production, you should fetch and cache this list
     // For now, we'll implement basic validation
-
-    // GitHub's IP ranges (simplified - fetch from API in production)
-    const githubIPRanges = [
-      '192.30.252.0/22',
-      '185.199.108.0/22',
-      '140.82.112.0/20',
-      '143.55.64.0/20'
-    ];
 
     // TODO: Implement proper IP range checking
     // For now, return true in development, implement properly in production

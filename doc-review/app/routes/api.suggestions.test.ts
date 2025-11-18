@@ -57,7 +57,7 @@ describe('Suggestions API', () => {
       const params = {};
 
       const response = await loader({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.suggestions).toEqual([]);
@@ -111,7 +111,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await loader({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.suggestion.id).toBe(suggestionId);
@@ -126,7 +126,7 @@ describe('Suggestions API', () => {
       const params = { id: 'non-existent' };
 
       const response = await loader({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(404);
       expect(data.error).toBe('Suggestion not found.');
@@ -155,7 +155,7 @@ describe('Suggestions API', () => {
       const params = {};
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(201);
       expect(data.ok).toBe(true);
@@ -173,7 +173,7 @@ describe('Suggestions API', () => {
       const params = {};
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(400);
       expect(data.error).toBeDefined();
@@ -207,7 +207,7 @@ describe('Suggestions API', () => {
       const params = {};
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(403);
       expect(data.error).toBe('Forbidden');
@@ -237,7 +237,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.ok).toBe(true);
@@ -264,7 +264,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(403);
       expect(data.error).toContain('Only admins');
@@ -301,7 +301,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.ok).toBe(true);
@@ -319,7 +319,7 @@ describe('Suggestions API', () => {
       const params = { id: 'non-existent' };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(404);
       expect(data.error).toBe('Suggestion not found.');
@@ -343,7 +343,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.ok).toBe(true);
@@ -373,7 +373,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(403);
       expect(data.error).toBe('Unauthorized to delete this suggestion.');
@@ -389,7 +389,7 @@ describe('Suggestions API', () => {
       const params = { id: 'non-existent' };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(404);
       expect(data.error).toBe('Suggestion not found.');
@@ -420,7 +420,7 @@ describe('Suggestions API', () => {
       const params = { id: suggestionId };
 
       const response = await action({ request, context, params });
-      const data = await response.json();
+      const data = await response.json() as any;
 
       expect(response.status).toBe(200);
       expect(data.ok).toBe(true);

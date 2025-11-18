@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Comment, User } from '../service.server';
 
 interface CommentNotificationProps {

@@ -25,8 +25,8 @@ export class EventBroadcaster implements DurableObject {
   private pingTimer?: number;
 
   constructor(
-    private state: DurableObjectState,
-    private env: Env
+    _state: DurableObjectState,
+    _env: any
   ) {}
 
   async fetch(request: Request): Promise<Response> {
@@ -57,8 +57,6 @@ export class EventBroadcaster implements DurableObject {
     }
 
     // Create SSE response with proper headers
-    const { readable, writable } = new TransformStream();
-    const writer = writable.getWriter();
     const encoder = new TextEncoder();
 
     // Store connection

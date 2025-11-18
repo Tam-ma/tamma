@@ -1,4 +1,3 @@
-import React from 'react';
 import type { ReviewSession, User } from '../service.server';
 
 interface ReviewRequestNotificationProps {

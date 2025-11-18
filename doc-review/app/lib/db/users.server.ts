@@ -1,9 +1,9 @@
 import { eq } from 'drizzle-orm';
-import type { OAuthUser } from '~/lib/auth/oauth.server';
+import type { UserWithRole } from '~/lib/auth/permissions';
 import { getDb, hasDatabase } from './client.server';
 import { users } from './schema';
 
-export async function syncUserRecord(env: { DB?: D1Database }, user: OAuthUser) {
+export async function syncUserRecord(env: { DB?: D1Database }, user: UserWithRole) {
   if (!hasDatabase(env)) {
     return null;
   }
@@ -30,8 +30,8 @@ export async function syncUserRecord(env: { DB?: D1Database }, user: OAuthUser) 
   await db.insert(users).values({
     id: user.id,
     email: user.email ?? '',
-    name: user.name ?? user.username,
-    avatarUrl: user.avatarUrl,
+    name: user.name ?? user.username ?? '',
+    avatarUrl: user.avatarUrl ?? '',
     role: 'reviewer',
     createdAt: now,
     updatedAt: now,

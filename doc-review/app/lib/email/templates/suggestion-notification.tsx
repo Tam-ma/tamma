@@ -1,4 +1,3 @@
-import React from 'react';
 import type { Suggestion, User } from '../service.server';
 
 interface SuggestionNotificationProps {

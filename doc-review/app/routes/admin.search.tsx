@@ -1,7 +1,7 @@
 import { useState } from 'react';
-import { useLoaderData, useFetcher, Link } from '@remix-run/react';
-import type { LoaderFunctionArgs, ActionFunctionArgs } from '@remix-run/cloudflare';
-import { json } from '@remix-run/cloudflare';
+import { useLoaderData, useFetcher, Link } from 'react-router';
+import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
+import { data as json } from 'react-router';
 import { requireAuth } from '../lib/auth/session.server';
 import { getDb } from '../lib/db/client.server';
 import { SearchAnalytics } from '../lib/search/analytics.server';

@@ -1,4 +1,5 @@
-import { json, redirect, type ActionFunction, type LoaderFunction } from '@react-router/cloudflare';
+import { data as json, redirect } from 'react-router';
+import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
 import { useLoaderData, Form, useNavigation, useActionData } from 'react-router';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
@@ -23,7 +24,7 @@ interface LoaderData {
   testEmailSent?: boolean;
 }
 
-export const loader: LoaderFunction = async ({ request, context }) => {
+export const loader = async ({ request, context }: LoaderFunctionArgs) => {
   const user = await requireAuth(request, context);
   const db = drizzle(context.env.DB);
 
@@ -44,21 +45,31 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   const url = new URL(request.url);
   const testEmailSent = url.searchParams.get('test') === 'sent';
 
+  // Convert DB preferences to LoaderData format
+  const preferences: LoaderData['preferences'] = prefs ? {
+    commentReplies: prefs.commentReplies,
+    newComments: prefs.newComments,
+    newSuggestions: prefs.newSuggestions,
+    suggestionStatus: prefs.suggestionStatus,
+    reviewRequests: prefs.reviewRequests,
+    digestFrequency: prefs.digestFrequency as 'none' | 'daily' | 'weekly',
+  } : {
+    commentReplies: true,
+    newComments: true,
+    newSuggestions: true,
+    suggestionStatus: true,
+    reviewRequests: true,
+    digestFrequency: 'none' as const,
+  };
+
   return json<LoaderData>({
-    preferences: prefs || {
-      commentReplies: true,
-      newComments: true,
-      newSuggestions: true,
-      suggestionStatus: true,
-      reviewRequests: true,
-      digestFrequency: 'none',
-    },
+    preferences,
     watchedDocuments: watches,
     testEmailSent,
   });
 };
 
-export const action: ActionFunction = async ({ request, context }) => {
+export const action = async ({ request, context }: ActionFunctionArgs) => {
   const user = await requireAuth(request, context);
   const db = drizzle(context.env.DB);
   const formData = await request.formData();

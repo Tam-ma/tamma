@@ -1,8 +1,9 @@
 import { redirect } from 'react-router';
+import type { LoaderFunctionArgs } from 'react-router';
 import { createOAuthService } from '~/lib/auth/oauth.server';
 import { resolveEnv } from '~/lib/auth/session.server';
 
-export async function loader({ request, context }: any) {
+export async function loader({ request, context }: LoaderFunctionArgs) {
   const env = resolveEnv(context);
   const provider = env.GIT_PROVIDER || 'github';
 

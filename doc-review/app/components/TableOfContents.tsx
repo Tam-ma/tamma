@@ -22,7 +22,7 @@ export function TableOfContents({ document }: TableOfContentsProps) {
 
     // Observe all headings
     document.headings.forEach((heading) => {
-      const element = document.getElementById(heading.id);
+      const element = window.document.getElementById(heading.id);
       if (element) {
         observer.observe(element);
       }

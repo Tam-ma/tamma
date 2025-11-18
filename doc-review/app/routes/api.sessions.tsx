@@ -1,4 +1,4 @@
-import { requireAuth } from '~/lib/auth/session.server';
+import { requireAuthWithRole } from '~/lib/auth/middleware';
 import { createSession, listSessions } from '~/lib/db/sessions.server';
 import { syncUserRecord } from '~/lib/db/users.server';
 import { hasDatabase } from '~/lib/db/client.server';
@@ -8,7 +8,7 @@ import { validateSessionPayload, ValidationError } from '~/lib/collaboration/val
 
 export async function loader({ request, context }: any) {
   const env = context.env ?? context.cloudflare?.env ?? {};
-  await requireAuth(request, { env });
+  await requireAuthWithRole(request, context);
 
   const url = new URL(request.url);
   const docPath = url.searchParams.get('docPath') ?? undefined;
@@ -27,7 +27,7 @@ export async function action({ request, context }: any) {
   }
 
   const env = context.env ?? context.cloudflare?.env ?? {};
-  const user = await requireAuth(request, { env });
+  const user = await requireAuthWithRole(request, context);
 
   if (!hasDatabase(env)) {
     return jsonResponse({ error: 'Database not configured.' }, { status: 503 });

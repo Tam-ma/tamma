@@ -1,5 +1,5 @@
 import { desc, eq } from 'drizzle-orm';
-import type { OAuthUser } from '~/lib/auth/oauth.server';
+import type { UserWithRole } from '~/lib/auth/permissions';
 import { getDb, hasDatabase } from './client.server';
 import { reviewSessions } from './schema';
 import { getGitProvider } from '~/lib/git/provider.server';
@@ -45,7 +45,7 @@ export async function listSessions(env: { DB?: D1Database; CACHE?: KVNamespace; 
 
 export async function createSession(
   env: { DB?: D1Database; CACHE?: KVNamespace; [key: string]: unknown },
-  user: OAuthUser,
+  user: UserWithRole,
   input: { title: string; summary?: string; docPaths: string[] }
 ): Promise<ReviewSession> {
   if (!hasDatabase(env)) {

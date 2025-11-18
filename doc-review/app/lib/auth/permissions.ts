@@ -68,6 +68,7 @@ export interface UserWithRole {
   username?: string;
   email?: string;
   name?: string;
+  avatarUrl?: string;
 }
 
 // Permission check results
@@ -319,6 +320,3 @@ export function logPermissionViolation(
     }
   );
 }
-
-// Export types
-export type { UserWithRole, PermissionCheckResult };

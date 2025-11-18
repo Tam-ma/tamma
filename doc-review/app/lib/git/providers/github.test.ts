@@ -1,6 +1,5 @@
 import { describe, it, expect, beforeEach, vi } from 'vitest';
 import { GitHubProvider } from './github';
-import type { GitPullRequestMeta, GitReviewComment } from '../types';
 
 // Mock fetch globally
 global.fetch = vi.fn();

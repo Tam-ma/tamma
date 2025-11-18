@@ -11,7 +11,7 @@
  * 4. Optional: Set SENTRY_ENVIRONMENT (defaults to NODE_ENV)
  */
 
-import type { AppLoadContext } from '@react-router/cloudflare';
+import type { AppLoadContext } from 'react-router';
 
 interface SentryConfig {
   dsn: string;
@@ -197,7 +197,7 @@ class SentryClient {
    */
   private parseStackTrace(
     stack?: string
-  ): SentryEvent['exception']['values'][0]['stacktrace'] | undefined {
+  ): NonNullable<SentryEvent['exception']>['values'][0]['stacktrace'] | undefined {
     if (!stack) return undefined;
 
     const frames = stack
@@ -244,7 +244,7 @@ class SentryClient {
  * Initialize Sentry client from context
  */
 export function initSentry(context: AppLoadContext): SentryClient {
-  const env = context.cloudflare.env;
+  const env = (context as any).cloudflare?.env || {};
 
   const config: SentryConfig = {
     dsn: env.SENTRY_DSN || '',

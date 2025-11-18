@@ -231,27 +231,7 @@ export function RealtimeExample({ docPath }: RealtimeExampleProps) {
   );
 }
 
-// Add CSS animation
-const styles = `
-@keyframes fadeIn {
-  from {
-    opacity: 0;
-    transform: translateY(-10px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
-}
-
-.animate-fadeIn {
-  animation: fadeIn 0.3s ease-out;
-}
-
-.line-clamp-2 {
-  display: -webkit-box;
-  -webkit-line-clamp: 2;
-  -webkit-box-orient: vertical;
-  overflow: hidden;
-}
-`;
+// CSS animation styles for activity feed
+// These styles can be added to global CSS or used with styled-components
+// .animate-fadeIn { animation: fadeIn 0.3s ease-out; }
+// .line-clamp-2 { display: -webkit-box; -webkit-line-clamp: 2; -webkit-box-orient: vertical; overflow: hidden; }

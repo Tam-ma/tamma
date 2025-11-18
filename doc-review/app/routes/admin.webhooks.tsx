@@ -5,14 +5,13 @@
  */
 
 import { useLoaderData, useActionData, Form, useNavigation } from 'react-router';
-import { json, redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router';
+import { data as json, redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router';
 import { useState } from 'react';
-import { getSession } from '~/lib/auth/session.server';
+import { getUser } from '~/lib/auth/session.server';
 import { WebhookStorage } from '~/lib/webhooks/storage.server';
 import type {
   WebhookEvent,
   WebhookStats,
-  WebhookProvider,
   WebhookConfiguration
 } from '~/lib/webhooks/types';
 
@@ -44,21 +43,21 @@ interface ActionData {
  * Check if user is admin
  */
 async function requireAdmin(request: Request, env: any) {
-  const session = await getSession(request, env);
+  const user = await getUser(request, { env });
 
-  if (!session?.user) {
+  if (!user) {
     throw redirect('/auth/login');
   }
 
   // Check if user is admin (implement your admin check logic)
-  const isAdmin = session.user.email?.endsWith('@admin.com') ||
-                  session.user.id === env.ADMIN_USER_ID;
+  const isAdmin = user.email?.endsWith('@admin.com') ||
+                  user.id === env.ADMIN_USER_ID;
 
   if (!isAdmin) {
     throw new Response('Unauthorized', { status: 403 });
   }
 
-  return session.user;
+  return user;
 }
 
 export async function loader({ request, context }: LoaderFunctionArgs) {

@@ -127,7 +127,7 @@ export function CommentForm({
 
       {hasError && (
         <div className="mb-3 rounded bg-red-50 px-3 py-2 text-xs text-red-700">
-          {fetcher.data.error}
+          {fetcher.data?.error}
         </div>
       )}
 

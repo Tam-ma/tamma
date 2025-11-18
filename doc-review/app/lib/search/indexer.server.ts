@@ -1,5 +1,4 @@
 import type { Database } from '../db/client.server';
-import { generateId } from '../utils/id';
 
 /**
  * Search Indexer Service
@@ -65,17 +64,17 @@ export class SearchIndexer {
   async indexDocument(doc: IndexableDocument): Promise<void> {
     try {
       // First, remove any existing entry
-      await this.db.run(
-        `DELETE FROM documents_fts WHERE doc_path = ?`,
-        [doc.docPath]
-      );
+      await this.db.$client
+        .prepare(`DELETE FROM documents_fts WHERE doc_path = ?`)
+        .bind(doc.docPath)
+        .run();
 
       // Insert new entry
-      await this.db.run(
-        `INSERT INTO documents_fts (doc_path, title, content, category)
-         VALUES (?, ?, ?, ?)`,
-        [doc.docPath, doc.title, doc.content || '', doc.category || '']
-      );
+      await this.db.$client
+        .prepare(`INSERT INTO documents_fts (doc_path, title, content, category)
+         VALUES (?, ?, ?, ?)`)
+        .bind(doc.docPath, doc.title, doc.content || '', doc.category || '')
+        .run();
     } catch (error) {
       console.error('Failed to index document:', error);
       throw new Error(`Failed to index document: ${doc.docPath}`);
@@ -88,18 +87,18 @@ export class SearchIndexer {
   async indexComment(comment: IndexableComment): Promise<void> {
     try {
       // Remove existing entry if updating
-      await this.db.run(
-        `DELETE FROM comments_fts WHERE comment_id = ?`,
-        [comment.id]
-      );
+      await this.db.$client
+        .prepare(`DELETE FROM comments_fts WHERE comment_id = ?`)
+        .bind(comment.id)
+        .run();
 
       // Insert new entry
-      await this.db.run(
-        `INSERT INTO comments_fts (
+      await this.db.$client
+        .prepare(`INSERT INTO comments_fts (
           comment_id, doc_path, content, author_name, line_content,
           user_id, created_at, resolved
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
           comment.id,
           comment.docPath,
           comment.content,
@@ -108,8 +107,8 @@ export class SearchIndexer {
           comment.userId,
           comment.createdAt,
           comment.resolved ? 1 : 0
-        ]
-      );
+        )
+        .run();
     } catch (error) {
       console.error('Failed to index comment:', error);
       throw new Error(`Failed to index comment: ${comment.id}`);
@@ -122,18 +121,18 @@ export class SearchIndexer {
   async indexSuggestion(suggestion: IndexableSuggestion): Promise<void> {
     try {
       // Remove existing entry if updating
-      await this.db.run(
-        `DELETE FROM suggestions_fts WHERE suggestion_id = ?`,
-        [suggestion.id]
-      );
+      await this.db.$client
+        .prepare(`DELETE FROM suggestions_fts WHERE suggestion_id = ?`)
+        .bind(suggestion.id)
+        .run();
 
       // Insert new entry
-      await this.db.run(
-        `INSERT INTO suggestions_fts (
+      await this.db.$client
+        .prepare(`INSERT INTO suggestions_fts (
           suggestion_id, doc_path, description, original_text, suggested_text,
           author_name, user_id, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
           suggestion.id,
           suggestion.docPath,
           suggestion.description || '',
@@ -143,8 +142,8 @@ export class SearchIndexer {
           suggestion.userId,
           suggestion.status,
           suggestion.createdAt
-        ]
-      );
+        )
+        .run();
     } catch (error) {
       console.error('Failed to index suggestion:', error);
       throw new Error(`Failed to index suggestion: ${suggestion.id}`);
@@ -157,18 +156,18 @@ export class SearchIndexer {
   async indexDiscussion(discussion: IndexableDiscussion): Promise<void> {
     try {
       // Remove existing entry if updating
-      await this.db.run(
-        `DELETE FROM discussions_fts WHERE discussion_id = ?`,
-        [discussion.id]
-      );
+      await this.db.$client
+        .prepare(`DELETE FROM discussions_fts WHERE discussion_id = ?`)
+        .bind(discussion.id)
+        .run();
 
       // Insert new entry
-      await this.db.run(
-        `INSERT INTO discussions_fts (
+      await this.db.$client
+        .prepare(`INSERT INTO discussions_fts (
           discussion_id, doc_path, title, description, author_name,
           user_id, status, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
           discussion.id,
           discussion.docPath,
           discussion.title,
@@ -177,8 +176,8 @@ export class SearchIndexer {
           discussion.userId,
           discussion.status,
           discussion.createdAt
-        ]
-      );
+        )
+        .run();
     } catch (error) {
       console.error('Failed to index discussion:', error);
       throw new Error(`Failed to index discussion: ${discussion.id}`);
@@ -191,25 +190,25 @@ export class SearchIndexer {
   async indexDiscussionMessage(message: IndexableDiscussionMessage): Promise<void> {
     try {
       // Remove existing entry if updating
-      await this.db.run(
-        `DELETE FROM discussion_messages_fts WHERE message_id = ?`,
-        [message.id]
-      );
+      await this.db.$client
+        .prepare(`DELETE FROM discussion_messages_fts WHERE message_id = ?`)
+        .bind(message.id)
+        .run();
 
       // Insert new entry
-      await this.db.run(
-        `INSERT INTO discussion_messages_fts (
+      await this.db.$client
+        .prepare(`INSERT INTO discussion_messages_fts (
           message_id, discussion_id, content, author_name, user_id, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?)`,
-        [
+        ) VALUES (?, ?, ?, ?, ?, ?)`)
+        .bind(
           message.id,
           message.discussionId,
           message.content,
           message.authorName,
           message.userId,
           message.createdAt
-        ]
-      );
+        )
+        .run();
     } catch (error) {
       console.error('Failed to index discussion message:', error);
       throw new Error(`Failed to index discussion message: ${message.id}`);
@@ -220,73 +219,73 @@ export class SearchIndexer {
    * Remove a comment from the search index
    */
   async removeComment(commentId: string): Promise<void> {
-    await this.db.run(
-      `DELETE FROM comments_fts WHERE comment_id = ?`,
-      [commentId]
-    );
+    await this.db.$client
+      .prepare(`DELETE FROM comments_fts WHERE comment_id = ?`)
+      .bind(commentId)
+      .run();
   }
 
   /**
    * Remove a suggestion from the search index
    */
   async removeSuggestion(suggestionId: string): Promise<void> {
-    await this.db.run(
-      `DELETE FROM suggestions_fts WHERE suggestion_id = ?`,
-      [suggestionId]
-    );
+    await this.db.$client
+      .prepare(`DELETE FROM suggestions_fts WHERE suggestion_id = ?`)
+      .bind(suggestionId)
+      .run();
   }
 
   /**
    * Remove a discussion from the search index
    */
   async removeDiscussion(discussionId: string): Promise<void> {
-    await this.db.run(
-      `DELETE FROM discussions_fts WHERE discussion_id = ?`,
-      [discussionId]
-    );
+    await this.db.$client
+      .prepare(`DELETE FROM discussions_fts WHERE discussion_id = ?`)
+      .bind(discussionId)
+      .run();
   }
 
   /**
    * Remove a discussion message from the search index
    */
   async removeDiscussionMessage(messageId: string): Promise<void> {
-    await this.db.run(
-      `DELETE FROM discussion_messages_fts WHERE message_id = ?`,
-      [messageId]
-    );
+    await this.db.$client
+      .prepare(`DELETE FROM discussion_messages_fts WHERE message_id = ?`)
+      .bind(messageId)
+      .run();
   }
 
   /**
    * Remove a document from the search index
    */
   async removeDocument(docPath: string): Promise<void> {
-    await this.db.run(
-      `DELETE FROM documents_fts WHERE doc_path = ?`,
-      [docPath]
-    );
+    await this.db.$client
+      .prepare(`DELETE FROM documents_fts WHERE doc_path = ?`)
+      .bind(docPath)
+      .run();
   }
 
   /**
    * Batch index multiple comments
    */
   async batchIndexComments(comments: IndexableComment[]): Promise<void> {
-    const stmt = await this.db.prepare(
+    const stmt = this.db.$client.prepare(
       `INSERT INTO comments_fts (
         comment_id, doc_path, content, author_name, line_content,
         user_id, created_at, resolved
       ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
     );
 
-    try {
-      for (const comment of comments) {
-        // Remove existing entry first
-        await this.db.run(
-          `DELETE FROM comments_fts WHERE comment_id = ?`,
-          [comment.id]
-        );
+    for (const comment of comments) {
+      // Remove existing entry first
+      await this.db.$client
+        .prepare(`DELETE FROM comments_fts WHERE comment_id = ?`)
+        .bind(comment.id)
+        .run();
 
-        // Insert new entry
-        await stmt.run(
+      // Insert new entry
+      await stmt
+        .bind(
           comment.id,
           comment.docPath,
           comment.content,
@@ -295,10 +294,8 @@ export class SearchIndexer {
           comment.userId,
           comment.createdAt,
           comment.resolved ? 1 : 0
-        );
-      }
-    } finally {
-      await stmt.finalize();
+        )
+        .run();
     }
   }
 
@@ -322,30 +319,32 @@ export class SearchIndexer {
 
     try {
       // Clear all FTS tables
-      await this.db.run(`DELETE FROM documents_fts`);
-      await this.db.run(`DELETE FROM comments_fts`);
-      await this.db.run(`DELETE FROM suggestions_fts`);
-      await this.db.run(`DELETE FROM discussions_fts`);
-      await this.db.run(`DELETE FROM discussion_messages_fts`);
+      await this.db.$client.prepare(`DELETE FROM documents_fts`).run();
+      await this.db.$client.prepare(`DELETE FROM comments_fts`).run();
+      await this.db.$client.prepare(`DELETE FROM suggestions_fts`).run();
+      await this.db.$client.prepare(`DELETE FROM discussions_fts`).run();
+      await this.db.$client.prepare(`DELETE FROM discussion_messages_fts`).run();
 
       // Re-index documents
-      const documents = await this.db.all(
-        `SELECT doc_path, title, description as content, category
-         FROM document_metadata`
-      );
+      const documentsResult = await this.db.$client
+        .prepare(`SELECT doc_path, title, description as content, category
+         FROM document_metadata`)
+        .all();
+      const documents = documentsResult.results as any[];
       for (const doc of documents) {
         await this.indexDocument(doc);
         counts.documents++;
       }
 
       // Re-index comments with user names
-      const comments = await this.db.all(
-        `SELECT c.id, c.doc_path, c.content, u.name as author_name,
+      const commentsResult = await this.db.$client
+        .prepare(`SELECT c.id, c.doc_path, c.content, u.name as author_name,
                 c.user_id, c.line_content, c.resolved, c.created_at
          FROM comments c
          JOIN users u ON c.user_id = u.id
-         WHERE c.deleted_at IS NULL`
-      );
+         WHERE c.deleted_at IS NULL`)
+        .all();
+      const comments = commentsResult.results as any[];
       for (const comment of comments) {
         await this.indexComment({
           ...comment,
@@ -355,14 +354,15 @@ export class SearchIndexer {
       }
 
       // Re-index suggestions with user names
-      const suggestions = await this.db.all(
-        `SELECT s.id, s.doc_path, s.description, s.original_text,
+      const suggestionsResult = await this.db.$client
+        .prepare(`SELECT s.id, s.doc_path, s.description, s.original_text,
                 s.suggested_text, u.name as author_name, s.user_id,
                 s.status, s.created_at
          FROM suggestions s
          JOIN users u ON s.user_id = u.id
-         WHERE s.deleted_at IS NULL`
-      );
+         WHERE s.deleted_at IS NULL`)
+        .all();
+      const suggestions = suggestionsResult.results as any[];
       for (const suggestion of suggestions) {
         await this.indexSuggestion({
           ...suggestion,
@@ -372,13 +372,14 @@ export class SearchIndexer {
       }
 
       // Re-index discussions with user names
-      const discussions = await this.db.all(
-        `SELECT d.id, d.doc_path, d.title, d.description, u.name as author_name,
+      const discussionsResult = await this.db.$client
+        .prepare(`SELECT d.id, d.doc_path, d.title, d.description, u.name as author_name,
                 d.user_id, d.status, d.created_at
          FROM discussions d
          JOIN users u ON d.user_id = u.id
-         WHERE d.deleted_at IS NULL`
-      );
+         WHERE d.deleted_at IS NULL`)
+        .all();
+      const discussions = discussionsResult.results as any[];
       for (const discussion of discussions) {
         await this.indexDiscussion({
           ...discussion,
@@ -388,13 +389,14 @@ export class SearchIndexer {
       }
 
       // Re-index discussion messages with user names
-      const messages = await this.db.all(
-        `SELECT dm.id, dm.discussion_id, dm.content, u.name as author_name,
+      const messagesResult = await this.db.$client
+        .prepare(`SELECT dm.id, dm.discussion_id, dm.content, u.name as author_name,
                 dm.user_id, dm.created_at
          FROM discussion_messages dm
          JOIN users u ON dm.user_id = u.id
-         WHERE dm.deleted_at IS NULL`
-      );
+         WHERE dm.deleted_at IS NULL`)
+        .all();
+      const messages = messagesResult.results as any[];
       for (const message of messages) {
         await this.indexDiscussionMessage({
           ...message,
@@ -421,23 +423,19 @@ export class SearchIndexer {
     messages: number;
     totalSize: number;
   }> {
-    const [docs, comments, suggestions, discussions, messages] = await Promise.all([
-      this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM documents_fts`
-      ),
-      this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM comments_fts`
-      ),
-      this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM suggestions_fts`
-      ),
-      this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM discussions_fts`
-      ),
-      this.db.get<{ count: number }>(
-        `SELECT COUNT(*) as count FROM discussion_messages_fts`
-      )
+    const [docsResult, commentsResult, suggestionsResult, discussionsResult, messagesResult] = await Promise.all([
+      this.db.$client.prepare(`SELECT COUNT(*) as count FROM documents_fts`).first(),
+      this.db.$client.prepare(`SELECT COUNT(*) as count FROM comments_fts`).first(),
+      this.db.$client.prepare(`SELECT COUNT(*) as count FROM suggestions_fts`).first(),
+      this.db.$client.prepare(`SELECT COUNT(*) as count FROM discussions_fts`).first(),
+      this.db.$client.prepare(`SELECT COUNT(*) as count FROM discussion_messages_fts`).first()
     ]);
+
+    const docs = docsResult as { count: number } | null;
+    const comments = commentsResult as { count: number } | null;
+    const suggestions = suggestionsResult as { count: number } | null;
+    const discussions = discussionsResult as { count: number } | null;
+    const messages = messagesResult as { count: number } | null;
 
     const totalSize =
       (docs?.count || 0) +

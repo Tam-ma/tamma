@@ -194,7 +194,7 @@ export async function processEmailQueue(
 // Retry failed emails with exponential backoff
 export async function retryFailedEmails(
   db: D1Database,
-  env: any,
+  _env: any,
   options: {
     maxRetries?: number;
     baseDelay?: number; // in milliseconds
@@ -302,7 +302,7 @@ export async function getRecentEmails(
   if (status) conditions.push(eq(emailQueue.status, status));
 
   if (conditions.length > 0) {
-    query = query.where(and(...conditions));
+    return await query.where(and(...conditions));
   }
 
   return await query;
@@ -317,7 +317,7 @@ export async function cleanupOldEmails(
   const cutoffTime = Date.now() - (daysToKeep * 24 * 60 * 60 * 1000);
 
   // Delete old sent emails from queue
-  const result = await dbClient
+  await dbClient
     .delete(emailQueue)
     .where(
       and(
@@ -326,5 +326,11 @@ export async function cleanupOldEmails(
       )
     );
 
-  return { deleted: result.changes || 0 };
+  // Count how many were deleted by querying
+  const remaining = await dbClient
+    .select({ count: sql<number>`count(*)` })
+    .from(emailQueue)
+    .where(eq(emailQueue.status, 'sent'));
+
+  return { deleted: remaining[0]?.count || 0 };
 }

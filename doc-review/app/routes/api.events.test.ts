@@ -3,7 +3,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import type { AppLoadContext } from '@remix-run/cloudflare';
+import type { AppLoadContext } from 'react-router';
 
 // Mock EventSource for testing
 class MockEventSource {
@@ -139,11 +139,11 @@ const createMockContext = (): AppLoadContext => {
       env: {
         EVENT_BROADCASTER: {
           idFromName: (name: string) => ({ toString: () => name }),
-          get: (id: any) => stub
+          get: (_id: any) => stub
         }
       }
     }
-  } as any;
+  };
 };
 
 describe('SSE Event Streaming', () => {
@@ -169,7 +169,7 @@ describe('SSE Event Streaming', () => {
     });
 
     it('should reject connection without user ID', async () => {
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
       const response = await stub.fetch(new Request('https://internal/sse'));
 
       expect(response.status).toBe(401);
@@ -207,7 +207,7 @@ describe('SSE Event Streaming', () => {
       await publishCommentEvent(mockContext, 'test-doc', 'created', comment, 'user-123');
 
       // Verify event was published
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
       const response = await stub.fetch(new Request('https://internal/recent'));
       const events = await response.json();
 
@@ -227,7 +227,7 @@ describe('SSE Event Streaming', () => {
 
       await publishSuggestionEvent(mockContext, 'test-doc', 'approved', suggestion, 'user-123');
 
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
       const response = await stub.fetch(new Request('https://internal/recent'));
       const events = await response.json();
 
@@ -246,7 +246,7 @@ describe('SSE Event Streaming', () => {
 
       await publishDiscussionEvent(mockContext, 'test-doc', 'message', message, 'user-123');
 
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
       const response = await stub.fetch(new Request('https://internal/recent'));
       const events = await response.json();
 
@@ -364,7 +364,7 @@ describe('SSE Event Streaming', () => {
     });
 
     it('should handle malformed event data', async () => {
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
 
       const response = await stub.fetch(new Request('https://internal/publish', {
         method: 'POST',
@@ -411,7 +411,7 @@ describe('SSE Event Streaming', () => {
       });
 
       // All connections should receive the event
-      const stub = mockContext.cloudflare.env.EVENT_BROADCASTER.get(null);
+      const stub = (mockContext.cloudflare as any).env.EVENT_BROADCASTER.get(null);
       const response = await stub.fetch(new Request('https://internal/recent'));
       const events = await response.json();
 

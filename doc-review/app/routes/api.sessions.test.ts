@@ -55,7 +55,7 @@ describe('Sessions API Integration Tests', () => {
     // Mock sessions module
     const sessionsModule = await import('~/lib/db/sessions.server');
     vi.spyOn(sessionsModule, 'listSessions').mockImplementation(
-      async (env: any, docPath?: string) => {
+      async (_env: any, docPath?: string) => {
         if (docPath) {
           return testSessions.filter(s =>
             JSON.parse(s.docPaths).includes(docPath)
@@ -66,8 +66,8 @@ describe('Sessions API Integration Tests', () => {
     );
 
     vi.spyOn(sessionsModule, 'createSession').mockImplementation(
-      async (env: any, user: any, input: any) => {
-        const session = createTestReviewSession({
+      async (_env: any, user: any, input: any) => {
+        const sessionFixture = createTestReviewSession({
           id: crypto.randomUUID(),
           title: input.title,
           summary: input.summary,
@@ -75,8 +75,12 @@ describe('Sessions API Integration Tests', () => {
           primaryDocPath: input.docPaths[0],
           ownerId: user.id,
         });
-        testSessions.push(session);
-        return session;
+        testSessions.push(sessionFixture);
+        // Return the transformed version matching ReviewSession type
+        return {
+          ...sessionFixture,
+          docPaths: input.docPaths, // Transform from JSON string to array
+        };
       }
     );
   });

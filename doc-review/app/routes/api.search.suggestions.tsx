@@ -1,7 +1,6 @@
-import type { LoaderFunctionArgs } from '@remix-run/cloudflare';
-import { json } from '@remix-run/cloudflare';
+import type { LoaderFunctionArgs } from 'react-router';
+import { data as json } from 'react-router';
 import { getDb } from '../lib/db/client.server';
-import { SearchQueryBuilder } from '../lib/search/query-builder.server';
 
 /**
  * Search Suggestions/Autocomplete Endpoint
@@ -44,18 +43,19 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     const seen = new Set<string>();
 
     // 1. Get popular searches matching the query
-    const popularSearches = await db.all<{
-      query: string;
-      search_count: number;
-      last_searched_at: number;
-    }>(
-      `SELECT query, search_count, last_searched_at
+    const popularSearchesResult = await db.$client
+      .prepare(`SELECT query, search_count, last_searched_at
        FROM search_popular
        WHERE LOWER(query) LIKE LOWER(?) || '%'
        ORDER BY search_count DESC, last_searched_at DESC
-       LIMIT ?`,
-      [query, Math.ceil(limit / 2)]
-    );
+       LIMIT ?`)
+      .bind(query, Math.ceil(limit / 2))
+      .all<{
+        query: string;
+        search_count: number;
+        last_searched_at: number;
+      }>();
+    const popularSearches = popularSearchesResult.results || [];
 
     for (const search of popularSearches) {
       if (!seen.has(search.query.toLowerCase())) {
@@ -74,21 +74,22 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     if (authHeader && authHeader.includes('auth-session')) {
       try {
         // Extract user ID from session (simplified - you'd use proper session validation)
-        const userId = await getUserIdFromSession(request, context);
+        const userId = await getUserIdFromSession(request);
 
         if (userId) {
-          const recentSearches = await db.all<{
-            query: string;
-            created_at: number;
-          }>(
-            `SELECT DISTINCT query, MAX(created_at) as created_at
+          const recentSearchesResult = await db.$client
+            .prepare(`SELECT DISTINCT query, MAX(created_at) as created_at
              FROM search_history
              WHERE user_id = ? AND LOWER(query) LIKE LOWER(?) || '%'
              GROUP BY query
              ORDER BY created_at DESC
-             LIMIT ?`,
-            [userId, query, Math.ceil(limit / 3)]
-          );
+             LIMIT ?`)
+            .bind(userId, query, Math.ceil(limit / 3))
+            .all<{
+              query: string;
+              created_at: number;
+            }>();
+          const recentSearches = recentSearchesResult.results || [];
 
           for (const search of recentSearches) {
             if (!seen.has(search.query.toLowerCase())) {
@@ -107,11 +108,8 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     }
 
     // 3. Get document titles matching the query
-    const documents = await db.all<{
-      doc_path: string;
-      title: string;
-    }>(
-      `SELECT doc_path, title
+    const documentsResult = await db.$client
+      .prepare(`SELECT doc_path, title
        FROM document_metadata
        WHERE LOWER(title) LIKE '%' || LOWER(?) || '%'
        ORDER BY
@@ -120,9 +118,13 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
            ELSE 2
          END,
          LENGTH(title)
-       LIMIT ?`,
-      [query, query, Math.ceil(limit / 3)]
-    );
+       LIMIT ?`)
+      .bind(query, query, Math.ceil(limit / 3))
+      .all<{
+        doc_path: string;
+        title: string;
+      }>();
+    const documents = documentsResult.results || [];
 
     for (const doc of documents) {
       if (!seen.has(doc.title.toLowerCase()) && suggestions.length < limit) {
@@ -135,19 +137,20 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
     }
 
     // 4. Get author names matching the query
-    const authors = await db.all<{
-      name: string;
-      comment_count: number;
-    }>(
-      `SELECT u.name, COUNT(c.id) as comment_count
+    const authorsResult = await db.$client
+      .prepare(`SELECT u.name, COUNT(c.id) as comment_count
        FROM users u
        LEFT JOIN comments c ON u.id = c.user_id
        WHERE LOWER(u.name) LIKE '%' || LOWER(?) || '%'
        GROUP BY u.id, u.name
        ORDER BY comment_count DESC
-       LIMIT ?`,
-      [query, Math.ceil(limit / 4)]
-    );
+       LIMIT ?`)
+      .bind(query, Math.ceil(limit / 4))
+      .all<{
+        name: string;
+        comment_count: number;
+      }>();
+    const authors = authorsResult.results || [];
 
     for (const author of authors) {
       const searchText = `author:${author.name}`;
@@ -221,13 +224,12 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
  * Helper to extract user ID from session
  */
 async function getUserIdFromSession(
-  request: Request,
-  context: any
+  request: Request
 ): Promise<string | null> {
   try {
-    const { getSession } = await import('../lib/auth/session.server');
-    const session = await getSession(request.headers.get('Cookie'));
-    return session.get('userId') || null;
+    const { getUser } = await import('../lib/auth/session.server');
+    const user = await getUser(request, { env: {} });
+    return user?.id || null;
   } catch {
     return null;
   }

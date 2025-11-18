@@ -1,5 +1,23 @@
-import { json, type LoaderFunctionArgs } from 'react-router';
-import type { AppLoadContext } from '@react-router/cloudflare';
+import { data as json, type LoaderFunctionArgs } from 'react-router';
+
+interface CloudflareContext {
+  cloudflare: {
+    env: {
+      DB: D1Database;
+      CACHE: KVNamespace;
+      STORAGE: R2Bucket;
+      GIT_PROVIDER?: string;
+      GIT_OWNER?: string;
+      GIT_REPO?: string;
+      GITHUB_CLIENT_ID?: string;
+      GITHUB_CLIENT_SECRET?: string;
+      GITLAB_CLIENT_ID?: string;
+      GITLAB_CLIENT_SECRET?: string;
+      APP_VERSION?: string;
+      NODE_ENV?: string;
+    };
+  };
+}
 
 interface HealthCheckResult {
   status: 'healthy' | 'degraded' | 'unhealthy';
@@ -30,7 +48,7 @@ interface HealthCheckResult {
   };
 }
 
-async function checkDatabase(context: AppLoadContext): Promise<HealthCheckResult['checks']['database']> {
+async function checkDatabase(context: CloudflareContext): Promise<HealthCheckResult['checks']['database']> {
   try {
     const startTime = Date.now();
 
@@ -60,7 +78,7 @@ async function checkDatabase(context: AppLoadContext): Promise<HealthCheckResult
   }
 }
 
-async function checkKV(context: AppLoadContext): Promise<HealthCheckResult['checks']['kv']> {
+async function checkKV(context: CloudflareContext): Promise<HealthCheckResult['checks']['kv']> {
   try {
     const startTime = Date.now();
 
@@ -97,7 +115,7 @@ async function checkKV(context: AppLoadContext): Promise<HealthCheckResult['chec
   }
 }
 
-async function checkStorage(context: AppLoadContext): Promise<HealthCheckResult['checks']['storage']> {
+async function checkStorage(context: CloudflareContext): Promise<HealthCheckResult['checks']['storage']> {
   try {
     // Check if R2 bucket is accessible
     // Note: R2 list operation to check bucket existence
@@ -123,7 +141,7 @@ async function checkStorage(context: AppLoadContext): Promise<HealthCheckResult[
   }
 }
 
-function checkGit(context: AppLoadContext): HealthCheckResult['checks']['git'] {
+function checkGit(context: CloudflareContext): HealthCheckResult['checks']['git'] {
   try {
     const env = context.cloudflare.env;
     const provider = env.GIT_PROVIDER;
@@ -173,14 +191,15 @@ function checkGit(context: AppLoadContext): HealthCheckResult['checks']['git'] {
 }
 
 export async function loader({ context }: LoaderFunctionArgs) {
-  const env = context.cloudflare.env;
+  const cfContext = context as unknown as CloudflareContext;
+  const env = cfContext.cloudflare.env;
 
   // Run all health checks in parallel
   const [databaseCheck, kvCheck, storageCheck, gitCheck] = await Promise.all([
-    checkDatabase(context),
-    checkKV(context),
-    checkStorage(context),
-    Promise.resolve(checkGit(context)),
+    checkDatabase(cfContext),
+    checkKV(cfContext),
+    checkStorage(cfContext),
+    Promise.resolve(checkGit(cfContext)),
   ]);
 
   // Determine overall health status

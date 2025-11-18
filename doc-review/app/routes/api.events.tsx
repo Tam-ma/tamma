@@ -2,15 +2,15 @@
  * SSE endpoint for real-time event streaming
  */
 
-import type { LoaderFunctionArgs } from '@remix-run/cloudflare';
-import { json } from '@remix-run/cloudflare';
-import { getSession } from '~/lib/auth/session.server';
+import type { LoaderFunctionArgs } from 'react-router';
+import { data as json } from 'react-router';
+import { getSessionId } from '~/lib/auth/session.server';
 import { subscribeToEvents, publishPresenceEvent } from '~/lib/events/publisher.server';
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   // Check authentication
-  const session = await getSession(request);
-  if (!session) {
+  const sessionId = getSessionId(request);
+  if (!sessionId) {
     return json({ error: 'Unauthorized' }, { status: 401 });
   }
 
@@ -30,10 +30,10 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   }
 
   // Publish user online presence event
-  await publishPresenceEvent(context, docPath, session.id, 'online');
+  await publishPresenceEvent(context, docPath, sessionId, 'online');
 
   // Subscribe to events for this document
-  const response = await subscribeToEvents(context, docPath, session.id);
+  const response = await subscribeToEvents(context, docPath, sessionId);
 
   // Add CORS headers if needed
   const headers = new Headers(response.headers);
@@ -44,7 +44,7 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   // Note: This is best-effort, may not always fire
   request.signal.addEventListener('abort', async () => {
     try {
-      await publishPresenceEvent(context, docPath, session.id, 'offline');
+      await publishPresenceEvent(context, docPath, sessionId, 'offline');
     } catch (error) {
       console.error('Error publishing offline event:', error);
     }

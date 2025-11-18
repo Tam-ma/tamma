@@ -6,7 +6,7 @@
  */
 
 import type { ActionFunctionArgs } from 'react-router';
-import { json } from 'react-router';
+import { data as json } from 'react-router';
 import { WebhookStorage } from '~/lib/webhooks/storage.server';
 import { WebhookProcessor } from '~/lib/webhooks/processor.server';
 import type { GitLabWebhookHeaders } from '~/lib/webhooks/types';
@@ -49,17 +49,10 @@ function timingSafeEqual(a: string, b: string): boolean {
 /**
  * Check if IP is from GitLab
  */
-async function isGitLabIP(ip: string): Promise<boolean> {
+async function isGitLabIP(_ip: string): Promise<boolean> {
   try {
     // GitLab.com IP ranges (for GitLab.com hosted projects)
     // For self-hosted GitLab, you would need to configure your own IP ranges
-    const gitlabIPRanges = [
-      '35.231.0.0/16',
-      '34.74.0.0/16',
-      '34.75.0.0/16',
-      // Add more GitLab IP ranges as needed
-    ];
-
     // TODO: Implement proper IP range checking
     // For now, return true in development, implement properly in production
     return true;

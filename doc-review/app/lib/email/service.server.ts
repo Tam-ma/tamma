@@ -4,7 +4,7 @@ import { renderCommentNotification } from './templates/comment-notification';
 import { renderSuggestionNotification } from './templates/suggestion-notification';
 import { renderReviewRequestNotification } from './templates/review-request';
 import { renderDigest } from './templates/digest';
-import { queueEmail, type QueuedEmail } from './queue.server';
+import { queueEmail } from './queue.server';
 import { generateUnsubscribeToken } from '../auth/tokens.server';
 
 export interface User {
@@ -76,16 +76,19 @@ export class ResendEmailService implements IEmailService {
   private fromEmail: string;
   private appUrl: string;
   private isDevelopment: boolean;
+  private db: D1Database;
 
   constructor(
     apiKey: string,
     fromEmail: string,
     appUrl: string,
+    db: D1Database,
     isDevelopment = false
   ) {
     this.resend = new Resend(apiKey);
     this.fromEmail = fromEmail;
     this.appUrl = appUrl;
+    this.db = db;
     this.isDevelopment = isDevelopment;
   }
 
@@ -106,7 +109,7 @@ export class ResendEmailService implements IEmailService {
         subject: options.subject,
         html: options.html,
         text: options.text,
-        reply_to: options.replyTo,
+        replyTo: options.replyTo,
         headers: options.headers,
         tags: options.tags,
       });
@@ -146,7 +149,7 @@ export class ResendEmailService implements IEmailService {
           commentId: comment.id,
           docPath: comment.docPath,
         },
-      });
+      }, this.db);
     }
   }
 
@@ -178,7 +181,7 @@ export class ResendEmailService implements IEmailService {
           docPath: suggestion.docPath,
           status: suggestion.status,
         },
-      });
+      }, this.db);
     }
   }
 
@@ -205,7 +208,7 @@ export class ResendEmailService implements IEmailService {
           sessionId: session.id,
           prNumber: session.prNumber?.toString(),
         },
-      });
+      }, this.db);
     }
   }
 
@@ -234,7 +237,7 @@ export class ResendEmailService implements IEmailService {
         commentCount: digest.comments.length.toString(),
         suggestionCount: digest.suggestions.length.toString(),
       },
-    });
+    }, this.db);
   }
 }
 
@@ -244,6 +247,7 @@ export function createEmailService(env: {
   RESEND_FROM_EMAIL?: string;
   APP_URL?: string;
   ENVIRONMENT?: string;
+  DB: D1Database;
 }): IEmailService {
   const apiKey = env.RESEND_API_KEY || '';
   const fromEmail = env.RESEND_FROM_EMAIL || 'notifications@doc-review.com';
@@ -254,5 +258,5 @@ export function createEmailService(env: {
     throw new Error('RESEND_API_KEY is required in production');
   }
 
-  return new ResendEmailService(apiKey, fromEmail, appUrl, isDevelopment);
+  return new ResendEmailService(apiKey, fromEmail, appUrl, env.DB, isDevelopment);
 }

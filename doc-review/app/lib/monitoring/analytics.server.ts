@@ -10,7 +10,7 @@
  * - User behavior analytics
  */
 
-import type { AppLoadContext } from '@react-router/cloudflare';
+import type { AppLoadContext } from 'react-router';
 
 interface AnalyticsEvent {
   name: string;
@@ -37,7 +37,7 @@ export async function trackEvent(
   context: AppLoadContext,
   event: AnalyticsEvent
 ): Promise<void> {
-  const env = context.cloudflare.env;
+  const env = (context as any).cloudflare?.env || {};
 
   // Check if analytics is enabled
   if (env.ENABLE_ANALYTICS !== 'true') {
@@ -72,11 +72,9 @@ export async function trackEvent(
  * Track performance metric
  */
 export async function trackMetric(
-  context: AppLoadContext,
+  _context: AppLoadContext,
   metric: PerformanceMetric
 ): Promise<void> {
-  const env = context.cloudflare.env;
-
   try {
     // Log metric for Cloudflare Analytics
     console.log(JSON.stringify({
@@ -215,17 +213,15 @@ export async function withMetrics<T>(
  * Get analytics summary for a time period
  */
 export async function getAnalyticsSummary(
-  context: AppLoadContext,
-  startTime: number,
-  endTime: number
+  _context: AppLoadContext,
+  _startTime: number,
+  _endTime: number
 ): Promise<{
   pageViews: number;
   apiRequests: number;
   userActions: number;
   errors: number;
 }> {
-  const env = context.cloudflare.env;
-
   // This is a simplified implementation
   // In production, you'd want to aggregate data from KV or use Cloudflare Analytics API
 

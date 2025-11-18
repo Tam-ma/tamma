@@ -2,7 +2,7 @@
  * RBAC middleware functions for API route protection
  */
 
-import type { LoaderFunctionArgs, ActionFunctionArgs } from '@remix-run/node';
+import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
 import { jsonResponse } from '~/lib/utils/responses';
 import { requireAuth, getUser } from './session.server';
 import { getUserById } from '~/lib/db/users.server';
@@ -15,8 +15,6 @@ import {
   canManageUsers,
   canModifyResource,
   canDeleteResource,
-  requirePermission as assertPermission,
-  requireMinimumRole as assertMinimumRole,
   logPermissionViolation,
   type UserWithRole,
 } from './permissions';
@@ -46,6 +44,7 @@ export async function getUserWithRole(
       username: sessionUser.username,
       email: sessionUser.email,
       name: sessionUser.name,
+      avatarUrl: sessionUser.avatarUrl,
     };
   }
 
@@ -55,6 +54,7 @@ export async function getUserWithRole(
     username: sessionUser.username,
     email: dbUser.email,
     name: dbUser.name,
+    avatarUrl: sessionUser.avatarUrl,
   };
 }
 
@@ -79,6 +79,7 @@ export async function requireAuthWithRole(
       username: sessionUser.username,
       email: sessionUser.email,
       name: sessionUser.name,
+      avatarUrl: sessionUser.avatarUrl,
     };
   }
 
@@ -88,6 +89,7 @@ export async function requireAuthWithRole(
     username: sessionUser.username,
     email: dbUser.email,
     name: dbUser.name,
+    avatarUrl: sessionUser.avatarUrl,
   };
 }
 
@@ -104,7 +106,8 @@ export function requireRole(minRole: Role) {
       const user = await requireAuthWithRole(request, context);
 
       if (!hasMinimumRole(user, minRole)) {
-        logPermissionViolation(user, undefined, {
+        // Use ADMIN as a generic permission for role-based violations
+        logPermissionViolation(user, Permission.ADMIN, {
           requiredRole: minRole,
           endpoint: new URL(request.url).pathname,
           method: request.method,

@@ -1,6 +1,6 @@
 import { vi } from 'vitest';
 import type { UserWithRole } from '~/lib/auth/permissions';
-import { Role } from '~/lib/auth/permissions';
+import type { OAuthUser } from '~/lib/auth/oauth.server';
 
 /**
  * Test user roles (matching RBAC system)
@@ -89,12 +89,15 @@ export async function mockAuth(user: TestUser | null = null) {
     vi.spyOn(middlewareModule, 'getUserWithRole').mockResolvedValue(null);
   } else {
     // Mock authenticated request
-    const sessionUser = {
+    const sessionUser: OAuthUser = {
       id: user.id,
       email: user.email,
-      username: user.username,
+      username: user.username ?? user.email.split('@')[0],
       name: user.name,
-      avatarUrl: user.avatarUrl,
+      avatarUrl: user.avatarUrl ?? '',
+      provider: 'github',
+      accessToken: 'mock-access-token',
+      role: user.role,
     };
 
     const userWithRole: UserWithRole = {
@@ -118,7 +121,7 @@ export async function mockAuth(user: TestUser | null = null) {
       id: user.id,
       email: user.email,
       name: user.name,
-      avatarUrl: user.avatarUrl,
+      avatarUrl: user.avatarUrl ?? null,
       role: user.role,
       createdAt: Date.now(),
       updatedAt: Date.now(),
@@ -215,6 +218,6 @@ export function createAuthTestContext(resourceOwnerId: string) {
  */
 export async function mockUserSync() {
   const userModule = await import('~/lib/db/users.server');
-  vi.spyOn(userModule, 'syncUserRecord').mockResolvedValue(undefined);
+  vi.spyOn(userModule, 'syncUserRecord').mockResolvedValue(null);
   return userModule;
 }

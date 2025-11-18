@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { type LoaderFunctionArgs, type ActionFunctionArgs } from '@remix-run/node';
-import { useLoaderData, useFetcher, redirect } from '@remix-run/react';
-import { requireAuthWithRole, requireRole } from '~/lib/auth/middleware';
-import { Role, Permission, isValidRole, normalizeRole } from '~/lib/auth/permissions';
+import { type LoaderFunctionArgs, type ActionFunctionArgs, data } from 'react-router';
+import { useLoaderData, useFetcher } from 'react-router';
+import { requireRole } from '~/lib/auth/middleware';
+import { Role, isValidRole, normalizeRole } from '~/lib/auth/permissions';
 import { getAllUsers, updateUserRole } from '~/lib/db/users.server';
 import { jsonResponse } from '~/lib/utils/responses';
 import { parseRequestPayload } from '~/lib/utils/request.server';
@@ -18,11 +18,12 @@ interface User {
 }
 
 // GET /admin/users - List all users (admin only)
-export async function loader({ request, context }: LoaderFunctionArgs) {
+export async function loader(args: LoaderFunctionArgs) {
+  const { context } = args;
   const env = context.env ?? context.cloudflare?.env ?? {};
 
   // Require admin role
-  const authResult = await requireRole(Role.ADMIN)({ request, context });
+  const authResult = await requireRole(Role.ADMIN)(args);
 
   // If authResult is a Response (forbidden), throw it
   if (authResult instanceof Response) {
@@ -32,18 +33,19 @@ export async function loader({ request, context }: LoaderFunctionArgs) {
   // Get all users from database
   const users = await getAllUsers(env);
 
-  return jsonResponse({
+  return data({
     users,
     currentUser: authResult,
   });
 }
 
 // POST /admin/users - Update user role (admin only)
-export async function action({ request, context }: ActionFunctionArgs) {
+export async function action(args: ActionFunctionArgs) {
+  const { request, context } = args;
   const env = context.env ?? context.cloudflare?.env ?? {};
 
   // Require admin role
-  const authResult = await requireRole(Role.ADMIN)({ request, context });
+  const authResult = await requireRole(Role.ADMIN)(args);
 
   // If authResult is a Response (forbidden), return it
   if (authResult instanceof Response) {
@@ -54,7 +56,7 @@ export async function action({ request, context }: ActionFunctionArgs) {
     return jsonResponse({ error: 'Method not allowed' }, { status: 405 });
   }
 
-  const body = await parseRequestPayload(request);
+  const body = await parseRequestPayload(request) as { userId?: string; role?: string };
   const { userId, role } = body;
 
   if (!userId || !role) {
@@ -99,7 +101,9 @@ export async function action({ request, context }: ActionFunctionArgs) {
 
 // Admin users management UI
 export default function AdminUsers() {
-  const { users, currentUser } = useLoaderData<typeof loader>();
+  const data = useLoaderData<typeof loader>();
+  const users = data.users as User[];
+  const currentUser = data.currentUser as User;
   const fetcher = useFetcher();
   const [selectedUser, setSelectedUser] = useState<string | null>(null);
   const [selectedRole, setSelectedRole] = useState<string>('');

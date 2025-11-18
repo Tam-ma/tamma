@@ -47,8 +47,8 @@ const createMockEnv = () => ({
     get: vi.fn().mockResolvedValue(null),
     put: vi.fn().mockResolvedValue(undefined)
   },
-  GITHUB_WEBHOOK_SECRET: 'test-github-secret',
-  GITLAB_WEBHOOK_TOKEN: 'test-gitlab-token'
+  GITHUB_WEBHOOK_SECRET: 'test-github-secret' as string | undefined,
+  GITLAB_WEBHOOK_TOKEN: 'test-gitlab-token' as string | undefined
 });
 
 // Helper to create mock request
@@ -63,11 +63,11 @@ const createMockRequest = (
   url: 'https://example.com/webhooks/github'
 });
 
-// Helper to create GitHub signature
-async function createGitHubSignature(payload: string, secret: string): Promise<string> {
-  // Simplified signature for testing
-  return `sha256=${Buffer.from(payload + secret).toString('base64')}`;
-}
+// Helper to create GitHub signature (currently unused)
+// async function createGitHubSignature(payload: string, secret: string): Promise<string> {
+//   // Simplified signature for testing
+//   return `sha256=${Buffer.from(payload + secret).toString('base64')}`;
+// }
 
 describe('GitHub Webhook Receiver', () => {
   let mockEnv: ReturnType<typeof createMockEnv>;
@@ -105,9 +105,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(400);
-    expect(data.error).toContain('Missing required GitHub headers');
+    expect(response.init?.status).toBe(400);
+    expect((response.data as any).error).toContain('Missing required GitHub headers');
   });
 
   it('should accept valid pull_request event', async () => {
@@ -145,10 +144,9 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.message).toBe('Webhook received');
-    expect(data.eventType).toBe('pull_request');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).message).toBe('Webhook received');
+    expect((response.data as any).eventType).toBe('pull_request');
   });
 
   it('should reject invalid signature', async () => {
@@ -167,9 +165,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(401);
-    expect(data.error).toContain('Invalid webhook signature');
+    expect(response.init?.status).toBe(401);
+    expect((response.data as any).error).toContain('Invalid webhook signature');
   });
 
   it('should ignore unsupported events', async () => {
@@ -185,9 +182,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.message).toContain('not supported');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).message).toContain('not supported');
   });
 
   it('should handle pull_request_review event', async () => {
@@ -224,9 +220,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.eventType).toBe('pull_request_review');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).eventType).toBe('pull_request_review');
   });
 
   it('should handle issue_comment event on PR', async () => {
@@ -262,9 +257,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.eventType).toBe('issue_comment');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).eventType).toBe('issue_comment');
   });
 
   it('should enforce rate limiting', async () => {
@@ -286,9 +280,8 @@ describe('GitHub Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(429);
-    expect(data.error).toContain('Rate limit exceeded');
+    expect(response.init?.status).toBe(429);
+    expect((response.data as any).error).toContain('Rate limit exceeded');
   });
 });
 
@@ -319,9 +312,8 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(400);
-    expect(data.error).toContain('Missing required GitLab headers');
+    expect(response.init?.status).toBe(400);
+    expect((response.data as any).error).toContain('Missing required GitLab headers');
   });
 
   it('should accept valid merge_request event', async () => {
@@ -358,10 +350,9 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.message).toBe('Webhook received');
-    expect(data.eventType).toBe('merge_request');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).message).toBe('Webhook received');
+    expect((response.data as any).eventType).toBe('merge_request');
   });
 
   it('should reject invalid token', async () => {
@@ -379,9 +370,8 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(401);
-    expect(data.error).toContain('Invalid webhook token');
+    expect(response.init?.status).toBe(401);
+    expect((response.data as any).error).toContain('Invalid webhook token');
   });
 
   it('should handle note event', async () => {
@@ -418,9 +408,8 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.eventType).toBe('note');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).eventType).toBe('note');
   });
 
   it('should handle push event', async () => {
@@ -462,9 +451,8 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(200);
-    expect(data.eventType).toBe('push');
+    expect(response.init?.status).toBe(200);
+    expect((response.data as any).eventType).toBe('push');
   });
 
   it('should handle invalid JSON payload', async () => {
@@ -481,9 +469,8 @@ describe('GitLab Webhook Receiver', () => {
       params: {}
     } as any);
 
-    const data = await response.json();
-    expect(response.status).toBe(400);
-    expect(data.error).toContain('Invalid JSON payload');
+    expect(response.init?.status).toBe(400);
+    expect((response.data as any).error).toContain('Invalid JSON payload');
   });
 
   it('should map GitLab event names correctly', async () => {
@@ -512,8 +499,7 @@ describe('GitLab Webhook Receiver', () => {
         params: {}
       } as any);
 
-      const data = await response.json();
-      expect(data.eventType).toBe(mapping.expected);
+      expect((response.data as any).eventType).toBe(mapping.expected);
     }
   });
 });

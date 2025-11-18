@@ -15,7 +15,6 @@
  */
 
 import { GitHubProvider } from './github';
-import type { GitPullRequestMeta } from '../types';
 
 async function main() {
   // Initialize the provider

@@ -2,7 +2,7 @@
  * Server-side event publisher for real-time collaboration
  */
 
-import type { AppLoadContext } from '@remix-run/cloudflare';
+import type { AppLoadContext } from 'react-router';
 import type { EventMessage } from './event-broadcaster';
 
 export type EventType =
@@ -27,7 +27,8 @@ export interface PublishOptions {
  * Get the Durable Object namespace for event broadcasting
  */
 function getEventBroadcasterNamespace(context: AppLoadContext): DurableObjectNamespace {
-  const env = context.cloudflare.env as any;
+  const cloudflare = context.cloudflare as { env: any };
+  const env = cloudflare.env;
 
   if (!env.EVENT_BROADCASTER) {
     throw new Error('EVENT_BROADCASTER Durable Object namespace not configured');
@@ -45,8 +46,6 @@ function getDurableObjectId(
 ): DurableObjectId {
   // Use document path as the unique identifier
   // This ensures all events for the same document go to the same DO instance
-  const encoder = new TextEncoder();
-  const data = encoder.encode(docPath);
   return namespace.idFromName(docPath);
 }
 

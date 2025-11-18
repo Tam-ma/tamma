@@ -46,8 +46,7 @@ if (typeof globalThis.crypto === 'undefined' || !globalThis.crypto.randomUUID) {
   });
 } else {
   // Override randomUUID for deterministic tests
-  const originalRandomUUID = globalThis.crypto.randomUUID;
-  globalThis.crypto.randomUUID = () => {
+  (globalThis.crypto.randomUUID as any) = () => {
     idCounter++;
     return `test-uuid-${idCounter.toString().padStart(3, '0')}`;
   };

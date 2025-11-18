@@ -1,5 +1,5 @@
 import { and, asc, count, eq, isNull } from 'drizzle-orm';
-import { requireAuth } from '~/lib/auth/session.server';
+import { requireAuthWithRole } from '~/lib/auth/middleware';
 import { getDb, hasDatabase } from '~/lib/db/client.server';
 import { discussions, discussionMessages, users } from '~/lib/db/schema';
 import { syncUserRecord } from '~/lib/db/users.server';
@@ -14,7 +14,7 @@ import { publishDiscussionEvent } from '~/lib/events/publisher.server';
 // GET /api/discussions/:id/messages - List messages in a discussion
 export async function loader({ request, context, params }: any) {
   const env = context.env ?? context.cloudflare?.env ?? {};
-  await requireAuth(request, { env });
+  await requireAuthWithRole(request, context);
 
   if (!hasDatabase(env)) {
     return jsonResponse({ error: 'Database not configured.' }, { status: 503 });
@@ -103,7 +103,7 @@ export async function action({ request, context, params }: any) {
   }
 
   const env = context.env ?? context.cloudflare?.env ?? {};
-  const user = await requireAuth(request, { env });
+  const user = await requireAuthWithRole(request, context);
 
   if (!hasDatabase(env)) {
     return jsonResponse({ error: 'Database not configured.' }, { status: 503 });

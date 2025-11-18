@@ -24,7 +24,7 @@ export async function loader({ request, context, params }: any) {
   const env = context.env ?? context.cloudflare?.env ?? {};
 
   // Get user if available (optional - docs can be viewed without auth)
-  const user = await getUser(request, { env });
+  await getUser(request, { env });
 
   const { documentId } = params;
 

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
-import { useFetcher, useNavigate } from '@remix-run/react';
+import { useFetcher, useNavigate } from 'react-router';
 import { debounce } from '../../lib/utils/debounce';
 
 interface SearchBarProps {

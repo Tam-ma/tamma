@@ -20,11 +20,13 @@ export function resolveEnv(context: { env?: Record<string, unknown>; cloudflare?
       GIT_PROVIDER: 'github',
       GITHUB_CLIENT_ID: process.env.GITHUB_CLIENT_ID || '',
       GITHUB_CLIENT_SECRET: process.env.GITHUB_CLIENT_SECRET || '',
+      GITLAB_CLIENT_ID: process.env.GITLAB_CLIENT_ID || '',
+      GITLAB_CLIENT_SECRET: process.env.GITLAB_CLIENT_SECRET || '',
       CACHE: null as any,
     };
   }
 
-  return env as { CACHE: KVNamespace; [key: string]: any };
+  return env as { CACHE: KVNamespace; GITHUB_CLIENT_ID?: string; GITLAB_CLIENT_ID?: string; [key: string]: any };
 }
 
 export async function requireAuth(

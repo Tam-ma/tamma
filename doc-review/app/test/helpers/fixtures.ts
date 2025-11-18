@@ -2,9 +2,6 @@
  * Test data fixtures for integration tests
  */
 
-import type { TestUser } from './auth-helpers';
-import { createTestUser } from './auth-helpers';
-
 /**
  * Comment fixture
  */

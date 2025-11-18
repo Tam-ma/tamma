@@ -55,3 +55,43 @@ export interface DocumentNavigation {
     path: string;
   }>;
 }
+
+// Re-export types from other modules for convenience
+export type { Comment, CommentThread, CommentsByLine } from './comment';
+export type { Suggestion, SuggestionStatus, SuggestionFilter, DiffLine, DiffHunk, ParsedDiff } from './suggestion';
+
+// Discussion types
+export interface Discussion {
+  id: string;
+  docPath: string;
+  title: string;
+  description: string | null;
+  status: 'open' | 'resolved' | 'closed';
+  userId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  author?: {
+    id: string | null;
+    name: string | null;
+    avatarUrl: string | null;
+    role: string | null;
+  };
+  messageCount?: number;
+}
+
+export interface DiscussionMessage {
+  id: string;
+  discussionId: string;
+  content: string;
+  userId: string;
+  createdAt: number;
+  updatedAt: number;
+  deletedAt: number | null;
+  author?: {
+    id: string | null;
+    name: string | null;
+    avatarUrl: string | null;
+    role: string | null;
+  };
+}

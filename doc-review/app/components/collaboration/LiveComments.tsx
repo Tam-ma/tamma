@@ -101,6 +101,7 @@ export function LiveComments({ docPath, initialComments = [] }: LiveCommentsProp
 
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [connectionStatus, connecting, reconnect]);
 
   return (
@@ -125,7 +126,7 @@ export function LiveComments({ docPath, initialComments = [] }: LiveCommentsProp
           {onlineUsers.size > 0 && (
             <div className="flex items-center space-x-1">
               <div className="flex -space-x-2">
-                {Array.from(onlineUsers).slice(0, 3).map((userId, i) => (
+                {Array.from(onlineUsers).slice(0, 3).map((userId) => (
                   <div
                     key={userId}
                     className="w-6 h-6 bg-blue-500 rounded-full border-2 border-white flex items-center justify-center"
@@ -211,6 +212,7 @@ function CommentCard({ comment, isLive }: CommentCardProps) {
       const timer = setTimeout(() => setIsNew(false), 500);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [comment.id, isLive]);
 
   return (
@@ -225,7 +227,7 @@ function CommentCard({ comment, isLive }: CommentCardProps) {
           {comment.author?.avatarUrl ? (
             <img
               src={comment.author.avatarUrl}
-              alt={comment.author.name}
+              alt={comment.author.name ?? undefined}
               className="w-8 h-8 rounded-full"
             />
           ) : (
@@ -254,7 +256,7 @@ function CommentCard({ comment, isLive }: CommentCardProps) {
             {comment.lineNumber && (
               <div className="text-xs text-gray-600 mt-1">
                 Line {comment.lineNumber}: <code className="bg-gray-100 px-1 rounded">
-                  {comment.lineContent?.substring(0, 50)}...
+                  {comment.lineContent?.substring(0, 50) ?? ''}...
                 </code>
               </div>
             )}

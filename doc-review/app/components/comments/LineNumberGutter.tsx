@@ -1,5 +1,4 @@
 import { MessageCircle } from 'lucide-react';
-import type { Comment } from '~/lib/types/comment';
 
 interface LineNumberGutterProps {
   lineNumber: number;

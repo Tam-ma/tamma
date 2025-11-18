@@ -1,7 +1,8 @@
-import { json, type LoaderFunction, type ActionFunction } from '@react-router/cloudflare';
+import { data as json } from 'react-router';
+import type { LoaderFunctionArgs, ActionFunctionArgs } from 'react-router';
 import { useLoaderData, Form, useNavigation, useActionData } from 'react-router';
 import { drizzle } from 'drizzle-orm/d1';
-import { eq, desc, and, gte } from 'drizzle-orm';
+import { eq, desc, gte } from 'drizzle-orm';
 import { emailQueue, emailLog } from '../lib/db/schema';
 import { requireAuth } from '../lib/auth/session.server';
 import { processEmailQueue, retryFailedEmails, getQueueStats, cleanupOldEmails } from '../lib/email/queue.server';
@@ -33,7 +34,7 @@ interface LoaderData {
   };
 }
 
-export const loader: LoaderFunction = async ({ request, context }) => {
+export const loader = async ({ request, context }: LoaderFunctionArgs) => {
   const user = await requireAuth(request, context);
 
   // Check if user is admin
@@ -96,7 +97,7 @@ export const loader: LoaderFunction = async ({ request, context }) => {
   });
 };
 
-export const action: ActionFunction = async ({ request, context }) => {
+export const action = async ({ request, context }: ActionFunctionArgs) => {
   const user = await requireAuth(request, context);
 
   // Check if user is admin

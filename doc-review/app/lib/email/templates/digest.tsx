@@ -1,4 +1,3 @@
-import React from 'react';
 import type { DigestData } from '../service.server';
 
 interface DigestNotificationProps {

@@ -1,4 +1,4 @@
-import { and, desc, eq, isNull, or } from 'drizzle-orm';
+import { and, desc, eq, isNull } from 'drizzle-orm';
 import * as Diff from 'diff';
 import { requireAuthWithRole } from '~/lib/auth/middleware';
 import { Permission, hasPermission, canApprove, canDeleteResource, logPermissionViolation } from '~/lib/auth/permissions';
@@ -10,7 +10,6 @@ import { jsonResponse } from '~/lib/utils/responses';
 import { parseRequestPayload } from '~/lib/utils/request.server';
 import { parseDocPaths } from '~/lib/db/sessions.server';
 import { getGitProvider } from '~/lib/git/provider.server';
-import type { GitProvider } from '~/lib/git/types';
 import { publishSuggestionEvent } from '~/lib/events/publisher.server';
 
 interface LoaderParams {
@@ -32,7 +31,7 @@ interface ActionParams {
 export async function loader({ request, context, params }: LoaderParams) {
   const env = context.env ?? context.cloudflare?.env ?? {};
   // Anyone authenticated can read suggestions
-  const user = await requireAuthWithRole(request, context);
+  await requireAuthWithRole(request, context);
 
   if (!hasDatabase(env)) {
     return jsonResponse({ suggestions: [], message: 'Database not configured.' });
@@ -330,7 +329,7 @@ export async function action({ request, context, params }: ActionParams) {
             );
 
             // Apply the suggestion to the session's branch
-            const result = await provider.appendSuggestionPatch({
+            await provider.appendSuggestionPatch({
               sessionId: existing.sessionId,
               docPath: existing.docPath,
               diff

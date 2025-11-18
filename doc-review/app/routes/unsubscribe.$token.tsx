@@ -1,4 +1,4 @@
-import { json, redirect, type LoaderFunction, type ActionFunction } from '@react-router/cloudflare';
+import { data as json, redirect, type LoaderFunctionArgs, type ActionFunctionArgs } from 'react-router';
 import { useLoaderData, Form, useNavigation } from 'react-router';
 import { drizzle } from 'drizzle-orm/d1';
 import { eq } from 'drizzle-orm';
@@ -23,8 +23,8 @@ interface LoaderData {
   error?: string;
 }
 
-export const loader: LoaderFunction = async ({ params, context }) => {
-  const token = params.token;
+export const loader = async ({ params, context }: LoaderFunctionArgs) => {
+  const token = params.token as string;
 
   if (!token) {
     return json<LoaderData>({
@@ -84,8 +84,8 @@ export const loader: LoaderFunction = async ({ params, context }) => {
   });
 };
 
-export const action: ActionFunction = async ({ params, request, context }) => {
-  const token = params.token;
+export const action = async ({ params, request, context }: ActionFunctionArgs) => {
+  const token = params.token as string;
 
   if (!token) {
     return json({ error: 'Invalid unsubscribe link' }, { status: 400 });

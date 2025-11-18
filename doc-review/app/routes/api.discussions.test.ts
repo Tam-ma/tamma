@@ -514,7 +514,6 @@ describe('Discussions API Integration Tests', () => {
       const params = { id: 'discussion-001' };
 
       const response = await actionSingle({ request, context, params });
-      const data = await parseResponse(response);
 
       expect(response.status).toBe(200);
     });
@@ -545,7 +544,6 @@ describe('Discussions API Integration Tests', () => {
       const params = { id: 'discussion-001' };
 
       const response = await actionSingle({ request, context, params });
-      const data = await parseResponse(response);
 
       expect(response.status).toBe(200);
     });

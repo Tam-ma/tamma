@@ -1,5 +1,5 @@
-import type { LoaderFunctionArgs } from '@remix-run/cloudflare';
-import { json } from '@remix-run/cloudflare';
+import type { LoaderFunctionArgs } from 'react-router';
+import { data as json } from 'react-router';
 import { getDb } from '../lib/db/client.server';
 import { SearchQueryBuilder } from '../lib/search/query-builder.server';
 import { requireAuth } from '../lib/auth/session.server';
@@ -11,10 +11,8 @@ import { requireAuth } from '../lib/auth/session.server';
 
 export async function loader({ request, context }: LoaderFunctionArgs) {
   // Check if user is authenticated (optional - can allow anonymous search)
-  let userId: string | undefined;
   try {
-    const user = await requireAuth(request, context);
-    userId = user.id;
+    await requireAuth(request, context);
   } catch {
     // Allow anonymous search
   }

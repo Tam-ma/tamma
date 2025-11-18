@@ -172,9 +172,11 @@ export class SearchQueryBuilder {
 
       // Apply pagination to combined results
       total = results.length;
+      const offset = this.options.offset ?? 0;
+      const limit = this.options.limit ?? 20;
       const paginatedResults = results.slice(
-        this.options.offset,
-        this.options.offset + this.options.limit
+        offset,
+        offset + limit
       );
 
       // Build facets from all results (not just paginated)
@@ -272,7 +274,8 @@ export class SearchQueryBuilder {
 
     sql += ` ORDER BY rank LIMIT 100`;
 
-    const rows = await this.db.all(sql, params);
+    const result = await this.db.$client.prepare(sql).bind(...params).all();
+    const rows = result.results as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -344,7 +347,8 @@ export class SearchQueryBuilder {
 
     sql += ` ORDER BY rank, created_at DESC LIMIT 100`;
 
-    const rows = await this.db.all(sql, params);
+    const result = await this.db.$client.prepare(sql).bind(...params).all();
+    const rows = result.results as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -412,7 +416,8 @@ export class SearchQueryBuilder {
 
     sql += ` ORDER BY rank, created_at DESC LIMIT 100`;
 
-    const rows = await this.db.all(sql, params);
+    const result = await this.db.$client.prepare(sql).bind(...params).all();
+    const rows = result.results as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -479,7 +484,8 @@ export class SearchQueryBuilder {
 
     sql += ` ORDER BY rank, created_at DESC LIMIT 100`;
 
-    const rows = await this.db.all(sql, params);
+    const result = await this.db.$client.prepare(sql).bind(...params).all();
+    const rows = result.results as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -543,7 +549,8 @@ export class SearchQueryBuilder {
 
     sql += ` ORDER BY dm.rank, dm.created_at DESC LIMIT 100`;
 
-    const rows = await this.db.all(sql, params);
+    const result = await this.db.$client.prepare(sql).bind(...params).all();
+    const rows = result.results as any[];
 
     return rows.map(row => ({
       id: row.id,
@@ -611,12 +618,12 @@ export class SearchQueryBuilder {
       const id = crypto.randomUUID();
       const now = Date.now();
 
-      await this.db.run(
-        `INSERT INTO search_queries (
+      await this.db.$client
+        .prepare(`INSERT INTO search_queries (
           id, user_id, query, query_type, filters, result_count,
           response_time_ms, created_at
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`,
-        [
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+        .bind(
           id,
           filters.userId || null,
           query,
@@ -625,31 +632,32 @@ export class SearchQueryBuilder {
           resultCount,
           responseTime,
           now
-        ]
-      );
+        )
+        .run();
 
       // Update popular searches
-      const existing = await this.db.get<{ id: string; search_count: number }>(
-        `SELECT id, search_count FROM search_popular WHERE query = ?`,
-        [query]
-      );
+      const existingResult = await this.db.$client
+        .prepare(`SELECT id, search_count FROM search_popular WHERE query = ?`)
+        .bind(query)
+        .first();
+      const existing = existingResult as { id: string; search_count: number } | null;
 
       if (existing) {
-        await this.db.run(
-          `UPDATE search_popular
+        await this.db.$client
+          .prepare(`UPDATE search_popular
            SET search_count = search_count + 1,
                last_searched_at = ?,
                updated_at = ?
-           WHERE id = ?`,
-          [now, now, existing.id]
-        );
+           WHERE id = ?`)
+          .bind(now, now, existing.id)
+          .run();
       } else {
-        await this.db.run(
-          `INSERT INTO search_popular (
+        await this.db.$client
+          .prepare(`INSERT INTO search_popular (
             id, query, search_count, last_searched_at, updated_at
-          ) VALUES (?, ?, 1, ?, ?)`,
-          [crypto.randomUUID(), query, now, now]
-        );
+          ) VALUES (?, ?, 1, ?, ?)`)
+          .bind(crypto.randomUUID(), query, now, now)
+          .run();
       }
     } catch (error) {
       console.error('Failed to log search query:', error);
@@ -666,13 +674,14 @@ export class SearchQueryBuilder {
     }
 
     // Get popular searches that start with the partial query
-    const suggestions = await this.db.all<{ query: string }>(
-      `SELECT query FROM search_popular
+    const result = await this.db.$client
+      .prepare(`SELECT query FROM search_popular
        WHERE query LIKE ? || '%'
        ORDER BY search_count DESC, last_searched_at DESC
-       LIMIT ?`,
-      [partialQuery, limit]
-    );
+       LIMIT ?`)
+      .bind(partialQuery, limit)
+      .all();
+    const suggestions = result.results as { query: string }[];
 
     return suggestions.map(s => s.query);
   }

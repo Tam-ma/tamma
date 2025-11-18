@@ -51,7 +51,7 @@ describe('RBAC Middleware', () => {
       });
 
       const middleware = requireRole(Role.REVIEWER);
-      const args = { request: mockRequest, context: mockContext, params: {} };
+      const args = { request: mockRequest, context: mockContext, params: {}, unstable_pattern: '' };
 
       // Mock requireAuth to return a user
       const { requireAuth } = await import('./session.server');
@@ -82,7 +82,7 @@ describe('RBAC Middleware', () => {
       });
 
       const middleware = requireRole(Role.ADMIN);
-      const args = { request: mockRequest, context: mockContext, params: {} };
+      const args = { request: mockRequest, context: mockContext, params: {}, unstable_pattern: '' };
 
       // Mock requireAuth to return a user
       const { requireAuth } = await import('./session.server');
@@ -108,7 +108,7 @@ describe('RBAC Middleware', () => {
       mockGetUserById.mockResolvedValue(null);
 
       const middleware = requireRole(Role.REVIEWER);
-      const args = { request: mockRequest, context: mockContext, params: {} };
+      const args = { request: mockRequest, context: mockContext, params: {}, unstable_pattern: '' };
 
       // Mock requireAuth to return a user
       const { requireAuth } = await import('./session.server');
@@ -140,7 +140,7 @@ describe('RBAC Middleware', () => {
       });
 
       const middleware = requirePermission(Permission.COMMENT);
-      const args = { request: mockRequest, context: mockContext, params: {} };
+      const args = { request: mockRequest, context: mockContext, params: {}, unstable_pattern: '' };
 
       // Mock requireAuth
       const { requireAuth } = await import('./session.server');
@@ -170,7 +170,7 @@ describe('RBAC Middleware', () => {
       });
 
       const middleware = requirePermission(Permission.APPROVE);
-      const args = { request: mockRequest, context: mockContext, params: {} };
+      const args = { request: mockRequest, context: mockContext, params: {}, unstable_pattern: '' };
 
       // Mock requireAuth
       const { requireAuth } = await import('./session.server');

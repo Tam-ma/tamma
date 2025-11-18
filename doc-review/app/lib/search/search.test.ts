@@ -1,4 +1,4 @@
-import { describe, it, expect, beforeEach, afterEach, vi } from 'vitest';
+import { describe, it, expect, beforeEach } from 'vitest';
 import { SearchQueryBuilder } from './query-builder.server';
 import { SearchIndexer } from './indexer.server';
 import { SearchAnalytics } from './analytics.server';
@@ -9,14 +9,12 @@ import { SearchAnalytics } from './analytics.server';
 
 // Mock database
 class MockDatabase {
-  private data: Map<string, any[]> = new Map();
-
-  async run(sql: string, params: any[] = []) {
+  async run(_sql: string, _params: any[] = []) {
     // Mock implementation
     return { changes: 1 };
   }
 
-  async get<T>(sql: string, params: any[] = []): Promise<T | undefined> {
+  async get<T>(_sql: string, _params: any[] = []): Promise<T | undefined> {
     // Mock implementation
     return undefined;
   }

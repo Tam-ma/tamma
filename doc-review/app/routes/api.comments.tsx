@@ -17,7 +17,7 @@ export async function loader({ request, context }: any) {
   const env = context.env ?? context.cloudflare?.env ?? {};
 
   // Anyone authenticated can read comments
-  const user = await requireAuthWithRole(request, context);
+  await requireAuthWithRole(request, context);
 
   if (!hasDatabase(env)) {
     return jsonResponse({ comments: [], message: 'Database not configured.' });
