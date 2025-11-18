@@ -1,0 +1,9 @@
+../../knexfile.ts
+../../knexfile.js
+../../knexfile.d.ts
+../../database/
+../../dist/
+../../docs/
+node_modules/
+*.test.ts
+*.spec.ts
