@@ -6,7 +6,9 @@
 import { Hono } from 'hono'
 import { zValidator } from '@hono/zod-validator'
 import { z } from 'zod'
-import * as modelConfigService from '../services/model-config.service'
+import { drizzle } from 'drizzle-orm/d1'
+import { ModelConfigService, formatCost, calculateCost } from '../services/model-config.service'
+import * as schema from '../db/schema'
 import type { Context } from '../types'
 
 const models = new Hono<Context>()
@@ -34,7 +36,9 @@ models.get(
   ),
   async (c) => {
     const filters = c.req.valid('query')
-    const allModels = await modelConfigService.getAllModels(filters)
+    const db = drizzle(c.env.DB, { schema })
+    const service = new ModelConfigService(db)
+    const allModels = await service.getAllModels(filters)
 
     return c.json({
       success: true,
@@ -53,7 +57,9 @@ models.get(
  */
 models.get('/:id', async (c) => {
   const modelId = c.req.param('id')
-  const model = await modelConfigService.getModelById(modelId)
+  const db = drizzle(c.env.DB, { schema })
+  const service = new ModelConfigService(db)
+  const model = await service.getModelById(modelId)
 
   if (!model) {
     return c.json(
@@ -90,7 +96,9 @@ models.get('/configs/me', async (c) => {
     )
   }
 
-  const configs = await modelConfigService.getUserModelConfigs(userId)
+  const db = drizzle(c.env.DB, { schema })
+  const service = new ModelConfigService(db)
+  const configs = await service.getUserModelConfigs(userId)
 
   return c.json({
     success: true,
@@ -154,9 +162,11 @@ models.post(
     }
 
     const data = c.req.valid('json')
+    const db = drizzle(c.env.DB, { schema })
+    const service = new ModelConfigService(db)
 
     try {
-      const config = await modelConfigService.createUserModelConfig(userId, data)
+      const config = await service.createUserModelConfig(userId, data)
 
       return c.json(
         {
@@ -217,9 +227,11 @@ models.patch(
 
     const configId = c.req.param('id')
     const updates = c.req.valid('json')
+    const db = drizzle(c.env.DB, { schema })
+    const service = new ModelConfigService(db)
 
     try {
-      const config = await modelConfigService.updateUserModelConfig(userId, configId, updates)
+      const config = await service.updateUserModelConfig(userId, configId, updates)
 
       if (!config) {
         return c.json(
@@ -274,9 +286,11 @@ models.delete('/configs/:id', async (c) => {
   }
 
   const configId = c.req.param('id')
+  const db = drizzle(c.env.DB, { schema })
+  const service = new ModelConfigService(db)
 
   try {
-    await modelConfigService.deleteUserModelConfig(userId, configId)
+    await service.deleteUserModelConfig(userId, configId)
 
     return c.json({
       success: true,
@@ -321,17 +335,19 @@ models.get(
     }
 
     const options = c.req.valid('query')
-    const stats = await modelConfigService.getUserUsageStats(userId, options)
+    const db = drizzle(c.env.DB, { schema })
+    const service = new ModelConfigService(db)
+    const stats = await service.getUserUsageStats(userId, options)
 
     return c.json({
       success: true,
       data: {
         ...stats,
         // Format costs for display
-        totalCostFormatted: modelConfigService.formatCost(stats.totalCostUsd),
+        totalCostFormatted: formatCost(stats.totalCostUsd),
         byModel: stats.byModel.map((m) => ({
           ...m,
-          costFormatted: modelConfigService.formatCost(m.costUsd),
+          costFormatted: formatCost(m.costUsd),
         })),
       },
     })
@@ -355,17 +371,19 @@ models.get('/configs/:id/budget', async (c) => {
   }
 
   const configId = c.req.param('id')
+  const db = drizzle(c.env.DB, { schema })
+  const service = new ModelConfigService(db)
 
   try {
-    const budgetCheck = await modelConfigService.checkUserBudgetLimits(userId, configId)
+    const budgetCheck = await service.checkUserBudgetLimits(userId, configId)
 
     return c.json({
       success: true,
       data: {
         ...budgetCheck,
-        currentMonthCostFormatted: modelConfigService.formatCost(budgetCheck.currentMonthCostUsd),
+        currentMonthCostFormatted: formatCost(budgetCheck.currentMonthCostUsd),
         monthlyBudgetFormatted: budgetCheck.monthlyBudgetUsd
-          ? modelConfigService.formatCost(budgetCheck.monthlyBudgetUsd)
+          ? formatCost(budgetCheck.monthlyBudgetUsd)
           : null,
       },
     })
@@ -396,8 +414,10 @@ models.post(
   ),
   async (c) => {
     const { modelId, inputTokens, outputTokens } = c.req.valid('json')
+    const db = drizzle(c.env.DB, { schema })
+    const service = new ModelConfigService(db)
 
-    const model = await modelConfigService.getModelById(modelId)
+    const model = await service.getModelById(modelId)
     if (!model) {
       return c.json(
         {
@@ -408,15 +428,15 @@ models.post(
       )
     }
 
-    const cost = modelConfigService.calculateCost(model, inputTokens, outputTokens)
+    const cost = calculateCost(model, inputTokens, outputTokens)
 
     return c.json({
       success: true,
       data: {
         ...cost,
-        inputCostFormatted: modelConfigService.formatCost(cost.inputCostUsd),
-        outputCostFormatted: modelConfigService.formatCost(cost.outputCostUsd),
-        totalCostFormatted: modelConfigService.formatCost(cost.totalCostUsd),
+        inputCostFormatted: formatCost(cost.inputCostUsd),
+        outputCostFormatted: formatCost(cost.outputCostUsd),
+        totalCostFormatted: formatCost(cost.totalCostUsd),
       },
     })
   }

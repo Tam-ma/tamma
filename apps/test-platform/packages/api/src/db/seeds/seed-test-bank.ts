@@ -8,16 +8,18 @@ import { testBank } from '../schema'
 import { typescriptCodeGenEasyTasks } from './test-bank-ts-codegen-easy'
 import { typescriptCodeGenMediumTasks } from './test-bank-ts-codegen-medium'
 import { typescriptCodeGenHardTasks } from './test-bank-ts-codegen-hard'
+import { pythonCodeGenEasyTasks } from './test-bank-python-codegen-easy'
 import { nanoid } from 'nanoid'
 
 async function seedTestBank() {
   console.log('🌱 Seeding test bank...')
 
-  // Combine all task sets (Easy + Medium + Hard = 150 tasks)
+  // Combine all task sets
   const allTasks = [
     ...typescriptCodeGenEasyTasks,
     ...typescriptCodeGenMediumTasks,
     ...typescriptCodeGenHardTasks,
+    ...pythonCodeGenEasyTasks,
   ]
 
   const tasksToInsert = allTasks.map((task) => ({
@@ -45,7 +47,8 @@ async function seedTestBank() {
     console.log('   - TypeScript Code Generation (Easy): 50 tasks')
     console.log('   - TypeScript Code Generation (Medium): 50 tasks')
     console.log('   - TypeScript Code Generation (Hard): 50 tasks')
-    console.log(`\n📊 Total: ${tasksToInsert.length} TypeScript Code Generation tasks across all difficulty levels`)
+    console.log(`   - Python Code Generation (Easy): ${pythonCodeGenEasyTasks.length} tasks`)
+    console.log(`\n📊 Total: ${tasksToInsert.length} tasks across all languages and difficulty levels`)
   } catch (error) {
     console.error('❌ Error seeding test bank:', error)
     throw error

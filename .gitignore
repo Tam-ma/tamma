@@ -148,11 +148,13 @@ CLAUDE.md
 .cursor/
 .vscode/
 .clinerules/
-test-platform/.github/chatmodes/
 
 # Monorepo build artifacts
 packages/*/dist/
 packages/*/.tsbuildinfo
+apps/*/dist/
+apps/*/.tsbuildinfo
+
 
 # Database files (development only)
 *.db
