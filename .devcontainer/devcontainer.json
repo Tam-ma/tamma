@@ -1,0 +1,32 @@
+{
+  "name": "Tamma Dev Container",
+  "image": "mcr.microsoft.com/devcontainers/javascript-node:22",
+  "features": {
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": {},
+    "ghcr.io/devcontainers/features/python:1": {},
+    "ghcr.io/robbert229/devcontainer-features/postgresql-client:1": {}
+  },
+  "postCreateCommand": "sudo mkdir -p /home/node/.claude /home/node/.config/gh && sudo chown -R node:node /home/node/.claude /home/node/.config/gh && sudo corepack enable && pnpm install && sudo npm install -g @anthropic-ai/claude-code && curl -LsSf https://astral.sh/uv/install.sh | sh",
+  "postStartCommand": "echo \"export GITHUB_PERSONAL_ACCESS_TOKEN=$(gh auth token 2>/dev/null)\" >> ~/.bashrc",
+  "remoteEnv": {
+    "ANTHROPIC_API_KEY": "${localEnv:ANTHROPIC_API_KEY}"
+  },
+  "mounts": [
+    "source=tamma-claude-config,target=/home/node/.claude,type=volume",
+    "source=tamma-gh-config,target=/home/node/.config/gh,type=volume"
+  ],
+  "runArgs": ["-p", "3000:3000", "-p", "3187:3187", "-p", "6700:6700", "-p", "8787:8787", "-p", "24282:24282"],
+  "forwardPorts": [3000, 3187, 6700, 8787, 24282],
+  "otherPortsAttributes": {
+    "onAutoForward": "notify"
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "dbaeumer.vscode-eslint",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}
