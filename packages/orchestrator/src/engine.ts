@@ -1,0 +1,712 @@
+import * as readline from 'node:readline';
+import type { ILogger } from '@tamma/shared/contracts';
+import type {
+  TammaConfig,
+  IssueData,
+  DevelopmentPlan,
+  AgentTaskResult,
+  PullRequestInfo,
+} from '@tamma/shared';
+import { EngineState, sleep, slugify, extractIssueReferences } from '@tamma/shared';
+import { WorkflowError, EngineError } from '@tamma/shared';
+import type { IAgentProvider } from '@tamma/providers';
+import type { IGitPlatform } from '@tamma/platforms';
+
+export interface EngineContext {
+  config: TammaConfig;
+  platform: IGitPlatform;
+  agent: IAgentProvider;
+  logger: ILogger;
+}
+
+export class TammaEngine {
+  private state: EngineState = EngineState.IDLE;
+  private currentIssue: IssueData | null = null;
+  private currentPlan: DevelopmentPlan | null = null;
+  private currentBranch: string | null = null;
+  private currentPR: PullRequestInfo | null = null;
+  private running = false;
+
+  private readonly config: TammaConfig;
+  private readonly platform: IGitPlatform;
+  private readonly agent: IAgentProvider;
+  private readonly logger: ILogger;
+
+  constructor(ctx: EngineContext) {
+    this.config = ctx.config;
+    this.platform = ctx.platform;
+    this.agent = ctx.agent;
+    this.logger = ctx.logger;
+  }
+
+  async initialize(): Promise<void> {
+    const available = await this.agent.isAvailable();
+    if (!available) {
+      throw new EngineError('Agent provider is not available. Check ANTHROPIC_API_KEY.');
+    }
+    this.logger.info('TammaEngine initialized', {
+      mode: this.config.mode,
+      model: this.config.agent.model,
+      approvalMode: this.config.engine.approvalMode,
+    });
+  }
+
+  async dispose(): Promise<void> {
+    this.running = false;
+    await this.agent.dispose();
+    await this.platform.dispose();
+    this.logger.info('TammaEngine disposed');
+  }
+
+  async run(): Promise<void> {
+    this.running = true;
+    this.logger.info('TammaEngine run loop started');
+
+    while (this.running) {
+      try {
+        await this.processOneIssue();
+      } catch (err: unknown) {
+        const message = err instanceof Error ? err.message : String(err);
+        this.logger.error('Error processing issue', {
+          error: message,
+          state: this.state,
+        });
+        this.resetCurrentWork();
+      }
+
+      if (this.running) {
+        this.logger.info('Polling for next issue', {
+          intervalMs: this.config.engine.pollIntervalMs,
+        });
+        await sleep(this.config.engine.pollIntervalMs);
+      }
+    }
+  }
+
+  async processOneIssue(): Promise<void> {
+    // Step 1: Select issue
+    const issue = await this.selectIssue();
+    if (issue === null) {
+      this.logger.info('No issues found, staying idle');
+      return;
+    }
+
+    try {
+      // Step 2: Analyze
+      const context = await this.analyzeIssue(issue);
+
+      // Step 3: Generate plan
+      const plan = await this.generatePlan(issue, context);
+
+      // Step 4: Await approval
+      await this.awaitApproval(plan);
+
+      // Step 5: Create branch
+      const branch = await this.createBranch(issue);
+
+      // Step 6: Implement
+      const implResult = await this.implementCode(issue, plan, branch);
+      if (!implResult.success) {
+        throw new WorkflowError(
+          `Implementation failed: ${implResult.error ?? 'Unknown error'}`,
+          { retryable: true, context: { issueNumber: issue.number } },
+        );
+      }
+
+      // Step 7: Create PR
+      const pr = await this.createPR(issue, plan, branch);
+
+      // Step 8: Monitor and merge
+      await this.monitorAndMerge(pr, issue);
+    } catch (err: unknown) {
+      this.setState(EngineState.ERROR);
+      throw err;
+    } finally {
+      this.resetCurrentWork();
+    }
+  }
+
+  async selectIssue(): Promise<IssueData | null> {
+    this.setState(EngineState.SELECTING_ISSUE);
+    const { owner, repo, issueLabels, excludeLabels, botUsername } =
+      this.config.github;
+
+    const result = await this.platform.listIssues(owner, repo, {
+      state: 'open',
+      labels: issueLabels,
+      sort: 'created',
+      direction: 'asc',
+    });
+
+    // Filter out issues with exclude labels
+    const candidates = result.data.filter((issue) => {
+      const hasExclude = issue.labels.some((label) =>
+        excludeLabels.includes(label),
+      );
+      return !hasExclude;
+    });
+
+    if (candidates.length === 0) {
+      this.setState(EngineState.IDLE);
+      return null;
+    }
+
+    const selected = candidates[0]!;
+
+    // Assign to bot
+    await this.platform.assignIssue(owner, repo, selected.number, [botUsername]);
+
+    // Comment on issue
+    await this.platform.addIssueComment(
+      owner,
+      repo,
+      selected.number,
+      `🤖 Tamma is picking up this issue and will begin working on it.`,
+    );
+
+    const issueData: IssueData = {
+      number: selected.number,
+      title: selected.title,
+      body: selected.body,
+      labels: selected.labels,
+      url: selected.url,
+      comments: selected.comments.map((c) => ({
+        id: c.id,
+        author: c.author,
+        body: c.body,
+        createdAt: c.createdAt,
+      })),
+      relatedIssueNumbers: extractIssueReferences(
+        selected.body + ' ' + selected.comments.map((c) => c.body).join(' '),
+      ),
+      createdAt: selected.createdAt,
+    };
+
+    this.currentIssue = issueData;
+    this.logger.info('Issue selected', {
+      number: issueData.number,
+      title: issueData.title,
+      url: issueData.url,
+    });
+
+    return issueData;
+  }
+
+  async analyzeIssue(issue: IssueData): Promise<string> {
+    this.setState(EngineState.ANALYZING);
+    const { owner, repo } = this.config.github;
+
+    // Fetch full issue with comments
+    const fullIssue = await this.platform.getIssue(owner, repo, issue.number);
+
+    // Fetch related issues
+    const relatedContexts: string[] = [];
+    for (const refNum of issue.relatedIssueNumbers) {
+      try {
+        const related = await this.platform.getIssue(owner, repo, refNum);
+        relatedContexts.push(
+          `Related Issue #${related.number}: ${related.title}\n${related.body}`,
+        );
+      } catch {
+        this.logger.warn('Failed to fetch related issue', {
+          issueNumber: refNum,
+        });
+      }
+    }
+
+    // Build context summary
+    const sections = [
+      `## Issue #${issue.number}: ${issue.title}`,
+      `**Labels:** ${issue.labels.join(', ')}`,
+      `**Created:** ${issue.createdAt}`,
+      '',
+      '### Description',
+      fullIssue.body,
+      '',
+    ];
+
+    if (fullIssue.comments.length > 0) {
+      sections.push('### Comments');
+      for (const comment of fullIssue.comments) {
+        sections.push(`**${comment.author}** (${comment.createdAt}):`);
+        sections.push(comment.body);
+        sections.push('');
+      }
+    }
+
+    if (relatedContexts.length > 0) {
+      sections.push('### Related Issues');
+      sections.push(...relatedContexts);
+      sections.push('');
+    }
+
+    const context = sections.join('\n');
+
+    this.logger.info('Issue analysis complete', {
+      issueNumber: issue.number,
+      contextLength: context.length,
+      relatedIssues: issue.relatedIssueNumbers.length,
+    });
+
+    return context;
+  }
+
+  async generatePlan(
+    issue: IssueData,
+    context: string,
+  ): Promise<DevelopmentPlan> {
+    this.setState(EngineState.PLANNING);
+
+    const planPrompt = `You are analyzing a GitHub issue to create a development plan.
+
+${context}
+
+Generate a structured development plan as JSON with the following fields:
+- issueNumber: ${issue.number}
+- summary: A brief summary of what needs to be done
+- approach: Detailed implementation approach
+- fileChanges: Array of { filePath, action ("create"|"modify"|"delete"), description }
+- testingStrategy: How to test the changes
+- estimatedComplexity: "low", "medium", or "high"
+- risks: Array of potential risks or concerns
+
+If requirements are ambiguous, note the ambiguity in the risks array and make reasonable assumptions.
+Consider multiple implementation options where appropriate and choose the best one, noting alternatives in the approach.
+
+Return ONLY valid JSON matching the schema.`;
+
+    const result = await this.agent.executeTask(
+      {
+        prompt: planPrompt,
+        cwd: this.config.engine.workingDirectory,
+        model: this.config.agent.model,
+        maxBudgetUsd: this.config.agent.maxBudgetUsd,
+        permissionMode: this.config.agent.permissionMode,
+        outputFormat: {
+          type: 'json_schema',
+          schema: {
+            type: 'object',
+            properties: {
+              issueNumber: { type: 'number' },
+              summary: { type: 'string' },
+              approach: { type: 'string' },
+              fileChanges: {
+                type: 'array',
+                items: {
+                  type: 'object',
+                  properties: {
+                    filePath: { type: 'string' },
+                    action: {
+                      type: 'string',
+                      enum: ['create', 'modify', 'delete'],
+                    },
+                    description: { type: 'string' },
+                  },
+                  required: ['filePath', 'action', 'description'],
+                },
+              },
+              testingStrategy: { type: 'string' },
+              estimatedComplexity: {
+                type: 'string',
+                enum: ['low', 'medium', 'high'],
+              },
+              risks: { type: 'array', items: { type: 'string' } },
+            },
+            required: [
+              'issueNumber',
+              'summary',
+              'approach',
+              'fileChanges',
+              'testingStrategy',
+              'estimatedComplexity',
+              'risks',
+            ],
+          },
+        },
+      },
+      (event) => {
+        this.logger.debug('Plan generation progress', {
+          type: event.type,
+          message: event.message,
+        });
+      },
+    );
+
+    if (!result.success) {
+      throw new WorkflowError(
+        `Plan generation failed: ${result.error ?? 'Unknown error'}`,
+        { retryable: true },
+      );
+    }
+
+    const plan = JSON.parse(result.output) as DevelopmentPlan;
+    this.currentPlan = plan;
+
+    this.logger.info('Plan generated', {
+      issueNumber: plan.issueNumber,
+      summary: plan.summary,
+      fileChanges: plan.fileChanges.length,
+      complexity: plan.estimatedComplexity,
+    });
+
+    return plan;
+  }
+
+  async awaitApproval(plan: DevelopmentPlan): Promise<void> {
+    this.setState(EngineState.AWAITING_APPROVAL);
+
+    if (this.config.engine.approvalMode === 'auto') {
+      this.logger.info('Auto-approval mode, skipping approval gate');
+      return;
+    }
+
+    // CLI approval
+    const planDisplay = [
+      `\n${'='.repeat(60)}`,
+      `Development Plan for Issue #${plan.issueNumber}`,
+      `${'='.repeat(60)}`,
+      `\nSummary: ${plan.summary}`,
+      `\nApproach: ${plan.approach}`,
+      `\nFile Changes:`,
+      ...plan.fileChanges.map(
+        (fc) => `  - [${fc.action}] ${fc.filePath}: ${fc.description}`,
+      ),
+      `\nTesting Strategy: ${plan.testingStrategy}`,
+      `Complexity: ${plan.estimatedComplexity}`,
+      `Risks: ${plan.risks.length > 0 ? plan.risks.join(', ') : 'None identified'}`,
+      `\n${'='.repeat(60)}`,
+    ].join('\n');
+
+    this.logger.info(planDisplay);
+
+    const approved = await this.promptUser('Approve this plan? (y/n): ');
+    if (approved.toLowerCase() !== 'y') {
+      throw new WorkflowError('Plan rejected by user', { retryable: false });
+    }
+
+    this.logger.info('Plan approved');
+  }
+
+  async createBranch(issue: IssueData): Promise<string> {
+    const { owner, repo } = this.config.github;
+    const slug = slugify(issue.title);
+    let branchName = `feature/${issue.number}-${slug}`;
+
+    // Check for conflict and append suffix
+    let attempt = 0;
+    while (true) {
+      try {
+        await this.platform.getBranch(owner, repo, branchName);
+        // Branch exists, try with suffix
+        attempt++;
+        branchName = `feature/${issue.number}-${slug}-${attempt}`;
+      } catch {
+        // Branch doesn't exist, we can use it
+        break;
+      }
+    }
+
+    // Get default branch
+    const repository = await this.platform.getRepository(owner, repo);
+    await this.platform.createBranch(
+      owner,
+      repo,
+      branchName,
+      repository.defaultBranch,
+    );
+
+    this.currentBranch = branchName;
+    this.logger.info('Branch created', {
+      branch: branchName,
+      issueNumber: issue.number,
+    });
+
+    return branchName;
+  }
+
+  async implementCode(
+    issue: IssueData,
+    plan: DevelopmentPlan,
+    branch: string,
+  ): Promise<AgentTaskResult> {
+    this.setState(EngineState.IMPLEMENTING);
+    const { owner, repo } = this.config.github;
+
+    const implPrompt = `You are an autonomous coding agent. Implement the following plan for issue #${issue.number}.
+
+## Issue: ${issue.title}
+${issue.body}
+
+## Plan
+Summary: ${plan.summary}
+Approach: ${plan.approach}
+
+## File Changes
+${plan.fileChanges.map((fc) => `- [${fc.action}] ${fc.filePath}: ${fc.description}`).join('\n')}
+
+## Testing Strategy
+${plan.testingStrategy}
+
+## Instructions
+1. Implement all the file changes described in the plan.
+2. Write or update tests as described in the testing strategy.
+3. Ensure TypeScript compiles without errors (run: npx tsc --noEmit).
+4. Ensure all tests pass (run the project's test command).
+5. Git add, commit, and push your changes to the branch: ${branch}
+   - Use remote: origin
+   - Repository: ${owner}/${repo}
+   - Commit message should reference issue #${issue.number}
+
+Follow existing project conventions and patterns.`;
+
+    const result = await this.agent.executeTask(
+      {
+        prompt: implPrompt,
+        cwd: this.config.engine.workingDirectory,
+        model: this.config.agent.model,
+        maxBudgetUsd: this.config.agent.maxBudgetUsd,
+        allowedTools: this.config.agent.allowedTools,
+        permissionMode: this.config.agent.permissionMode,
+      },
+      (event) => {
+        this.logger.debug('Implementation progress', {
+          type: event.type,
+          message: event.message,
+          costSoFar: event.costSoFar,
+        });
+      },
+    );
+
+    this.logger.info('Implementation complete', {
+      issueNumber: issue.number,
+      success: result.success,
+      costUsd: result.costUsd,
+      durationMs: result.durationMs,
+    });
+
+    return result;
+  }
+
+  async createPR(
+    issue: IssueData,
+    plan: DevelopmentPlan,
+    branch: string,
+  ): Promise<PullRequestInfo> {
+    this.setState(EngineState.CREATING_PR);
+    const { owner, repo } = this.config.github;
+
+    const repository = await this.platform.getRepository(owner, repo);
+
+    const prBody = [
+      `## Summary`,
+      plan.summary,
+      '',
+      `## Approach`,
+      plan.approach,
+      '',
+      `## Changes`,
+      ...plan.fileChanges.map(
+        (fc) => `- **${fc.action}** \`${fc.filePath}\`: ${fc.description}`,
+      ),
+      '',
+      `## Testing`,
+      plan.testingStrategy,
+      '',
+      `## Risks`,
+      plan.risks.length > 0
+        ? plan.risks.map((r) => `- ${r}`).join('\n')
+        : 'None identified',
+      '',
+      `Closes #${issue.number}`,
+      '',
+      '---',
+      '_This PR was automatically generated by Tamma._',
+    ].join('\n');
+
+    const pr = await this.platform.createPR(owner, repo, {
+      title: `feat: ${issue.title} (#${issue.number})`,
+      body: prBody,
+      head: branch,
+      base: repository.defaultBranch,
+      labels: ['tamma-automated'],
+    });
+
+    // Comment on the issue
+    await this.platform.addIssueComment(
+      owner,
+      repo,
+      issue.number,
+      `🤖 PR created: ${pr.url}`,
+    );
+
+    const prInfo: PullRequestInfo = {
+      number: pr.number,
+      url: pr.url,
+      title: pr.title,
+      body: pr.body,
+      branch,
+      status: 'open',
+    };
+
+    this.currentPR = prInfo;
+    this.logger.info('PR created', {
+      prNumber: pr.number,
+      url: pr.url,
+      issueNumber: issue.number,
+    });
+
+    return prInfo;
+  }
+
+  async monitorAndMerge(
+    pr: PullRequestInfo,
+    issue: IssueData,
+  ): Promise<void> {
+    this.setState(EngineState.MONITORING);
+    const { owner, repo } = this.config.github;
+    const pollInterval = 30000; // 30 seconds
+
+    // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
+    while (true) {
+      const prData = await this.platform.getPR(owner, repo, pr.number);
+
+      if (prData.state === 'closed') {
+        this.logger.warn('PR was closed externally', { prNumber: pr.number });
+        return;
+      }
+
+      if (prData.state === 'merged') {
+        this.logger.info('PR was merged externally', { prNumber: pr.number });
+        break;
+      }
+
+      // Check CI status
+      const ciStatus = await this.platform.getCIStatus(
+        owner,
+        repo,
+        pr.branch,
+      );
+
+      this.logger.debug('CI status check', {
+        prNumber: pr.number,
+        state: ciStatus.state,
+        success: ciStatus.successCount,
+        failure: ciStatus.failureCount,
+        pending: ciStatus.pendingCount,
+      });
+
+      if (ciStatus.state === 'failure' || ciStatus.state === 'error') {
+        this.logger.error('CI checks failed', {
+          prNumber: pr.number,
+          failures: ciStatus.failureCount,
+        });
+        throw new WorkflowError('CI checks failed for PR', {
+          retryable: false,
+          context: { prNumber: pr.number },
+        });
+      }
+
+      if (ciStatus.state === 'success') {
+        // Merge
+        this.setState(EngineState.MERGING);
+        this.logger.info('CI checks passed, merging PR', {
+          prNumber: pr.number,
+        });
+
+        const mergeResult = await this.platform.mergePR(owner, repo, pr.number, {
+          mergeMethod: 'squash',
+        });
+
+        if (!mergeResult.merged) {
+          throw new WorkflowError(
+            `Failed to merge PR: ${mergeResult.message}`,
+            { retryable: true, context: { prNumber: pr.number } },
+          );
+        }
+
+        // Cleanup
+        try {
+          await this.platform.deleteBranch(owner, repo, pr.branch);
+          this.logger.info('Branch deleted', { branch: pr.branch });
+        } catch (err: unknown) {
+          const msg = err instanceof Error ? err.message : String(err);
+          this.logger.warn('Failed to delete branch', {
+            branch: pr.branch,
+            error: msg,
+          });
+        }
+
+        // Close issue with comment
+        await this.platform.addIssueComment(
+          owner,
+          repo,
+          issue.number,
+          `✅ Resolved via PR #${pr.number}`,
+        );
+        await this.platform.updateIssue(owner, repo, issue.number, {
+          state: 'closed',
+        });
+
+        // Completion checkpoint
+        this.logger.info('Issue completed', {
+          issueNumber: issue.number,
+          prNumber: pr.number,
+          mergeSha: mergeResult.sha,
+        });
+
+        return;
+      }
+
+      // Wait before next poll
+      await sleep(pollInterval);
+    }
+  }
+
+  getState(): EngineState {
+    return this.state;
+  }
+
+  getCurrentIssue(): IssueData | null {
+    return this.currentIssue;
+  }
+
+  getCurrentPlan(): DevelopmentPlan | null {
+    return this.currentPlan;
+  }
+
+  getCurrentBranch(): string | null {
+    return this.currentBranch;
+  }
+
+  getCurrentPR(): PullRequestInfo | null {
+    return this.currentPR;
+  }
+
+  private setState(state: EngineState): void {
+    const prev = this.state;
+    this.state = state;
+    this.logger.debug('State transition', { from: prev, to: state });
+  }
+
+  private resetCurrentWork(): void {
+    this.currentIssue = null;
+    this.currentPlan = null;
+    this.currentBranch = null;
+    this.currentPR = null;
+    this.setState(EngineState.IDLE);
+  }
+
+  private async promptUser(question: string): Promise<string> {
+    const rl = readline.createInterface({
+      input: process.stdin,
+      output: process.stdout,
+    });
+
+    return new Promise((resolve) => {
+      rl.question(question, (answer) => {
+        rl.close();
+        resolve(answer);
+      });
+    });
+  }
+}
