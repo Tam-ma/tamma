@@ -44,6 +44,8 @@ function loadConfig(): TammaConfig {
       workingDirectory: optionalEnv('WORKING_DIR', process.cwd()),
       maxRetries: parseInt(optionalEnv('MAX_RETRIES', '3'), 10),
       approvalMode: optionalEnv('APPROVAL_MODE', 'cli') as 'cli' | 'auto',
+      ciPollIntervalMs: parseInt(optionalEnv('CI_POLL_INTERVAL_MS', '30000'), 10),
+      ciMonitorTimeoutMs: parseInt(optionalEnv('CI_MONITOR_TIMEOUT_MS', '3600000'), 10),
     },
   };
 }

@@ -12,6 +12,7 @@ import { WorkflowError, EngineError } from '@tamma/shared';
 import type { IAgentProvider } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
 
+/** Dependencies injected into TammaEngine at construction time. */
 export interface EngineContext {
   config: TammaConfig;
   platform: IGitPlatform;
@@ -19,6 +20,31 @@ export interface EngineContext {
   logger: ILogger;
 }
 
+/**
+ * Core autonomous development engine.
+ *
+ * Polls a GitHub repository for labeled issues, generates a development plan
+ * via the Claude Agent SDK, implements changes, opens a PR, and merges it
+ * once CI passes. Each cycle follows the state machine defined by
+ * {@link EngineState}.
+ *
+ * ## Lifecycle
+ * 1. Construct with {@link EngineContext}.
+ * 2. Call {@link initialize} to verify provider availability.
+ * 3. Call {@link run} for the continuous poll loop, or {@link processOneIssue}
+ *    for a single-shot execution.
+ * 4. Call {@link dispose} to tear down resources.
+ *
+ * ## Pipeline (per issue)
+ * selectIssue → analyzeIssue → generatePlan → awaitApproval →
+ * createBranch → implementCode → createPR → monitorAndMerge
+ *
+ * ## Error handling
+ * - On failure the state transitions to {@link EngineState.ERROR} and stays
+ *   there until the {@link run} loop resets it. This preserves diagnostic info
+ *   for callers inspecting {@link getState}.
+ * - {@link WorkflowError} with `retryable: true` signals transient failures.
+ */
 export class TammaEngine {
   private state: EngineState = EngineState.IDLE;
   private currentIssue: IssueData | null = null;
@@ -39,6 +65,7 @@ export class TammaEngine {
     this.logger = ctx.logger;
   }
 
+  /** Verify the agent provider is reachable. Must be called before {@link run}. */
   async initialize(): Promise<void> {
     const available = await this.agent.isAvailable();
     if (!available) {
@@ -51,6 +78,7 @@ export class TammaEngine {
     });
   }
 
+  /** Stop the run loop and release provider resources. */
   async dispose(): Promise<void> {
     this.running = false;
     await this.agent.dispose();
@@ -58,6 +86,13 @@ export class TammaEngine {
     this.logger.info('TammaEngine disposed');
   }
 
+  /**
+   * Continuous poll loop. Processes one issue per iteration, then sleeps for
+   * {@link EngineConfig.pollIntervalMs} before polling again. Errors are
+   * caught, logged, and the loop continues.
+   *
+   * Call {@link dispose} or send SIGINT/SIGTERM to break out.
+   */
   async run(): Promise<void> {
     this.running = true;
     this.logger.info('TammaEngine run loop started');
@@ -83,6 +118,14 @@ export class TammaEngine {
     }
   }
 
+  /**
+   * Execute the full pipeline for a single issue: select → analyze → plan →
+   * approve → branch → implement → PR → merge.
+   *
+   * On success, state ends at MERGING. On failure, state is set to ERROR and
+   * the error is re-thrown. In both cases, work references (currentIssue, etc.)
+   * are cleared in the finally block.
+   */
   async processOneIssue(): Promise<void> {
     // Step 1: Select issue
     const issue = await this.selectIssue();
@@ -122,10 +165,20 @@ export class TammaEngine {
       this.setState(EngineState.ERROR);
       throw err;
     } finally {
-      this.resetCurrentWork();
+      // Clear work references but preserve ERROR state if set by catch block.
+      // resetCurrentWork() would overwrite ERROR → IDLE which loses diagnostic info.
+      this.currentIssue = null;
+      this.currentPlan = null;
+      this.currentBranch = null;
+      this.currentPR = null;
     }
   }
 
+  /**
+   * Query the platform for open issues matching configured labels, pick the
+   * oldest one (FIFO), assign it to the bot, and post a pickup comment.
+   * Returns null when no eligible issues are found.
+   */
   async selectIssue(): Promise<IssueData | null> {
     this.setState(EngineState.SELECTING_ISSUE);
     const { owner, repo, issueLabels, excludeLabels, botUsername } =
@@ -192,6 +245,11 @@ export class TammaEngine {
     return issueData;
   }
 
+  /**
+   * Build a markdown context document from the issue body, comments, and any
+   * related issues referenced via `#N` syntax. Used as input for plan
+   * generation.
+   */
   async analyzeIssue(issue: IssueData): Promise<string> {
     this.setState(EngineState.ANALYZING);
     const { owner, repo } = this.config.github;
@@ -207,9 +265,11 @@ export class TammaEngine {
         relatedContexts.push(
           `Related Issue #${related.number}: ${related.title}\n${related.body}`,
         );
-      } catch {
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
         this.logger.warn('Failed to fetch related issue', {
           issueNumber: refNum,
+          error: msg,
         });
       }
     }
@@ -251,6 +311,14 @@ export class TammaEngine {
     return context;
   }
 
+  /**
+   * Use the agent provider to produce a structured {@link DevelopmentPlan} from
+   * the issue context. The plan JSON is validated for required fields before
+   * being returned.
+   *
+   * @throws {WorkflowError} If the agent fails, returns invalid JSON, or omits
+   *   required fields.
+   */
   async generatePlan(
     issue: IssueData,
     context: string,
@@ -339,7 +407,24 @@ Return ONLY valid JSON matching the schema.`;
       );
     }
 
-    const plan = JSON.parse(result.output) as DevelopmentPlan;
+    let plan: DevelopmentPlan;
+    try {
+      plan = JSON.parse(result.output) as DevelopmentPlan;
+    } catch (parseErr: unknown) {
+      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      throw new WorkflowError(
+        `Failed to parse plan output as JSON: ${msg}`,
+        { retryable: true, context: { rawOutput: result.output.slice(0, 200) } },
+      );
+    }
+
+    if (!plan.issueNumber || !plan.summary || !Array.isArray(plan.fileChanges)) {
+      throw new WorkflowError(
+        'Plan output missing required fields (issueNumber, summary, fileChanges)',
+        { retryable: true },
+      );
+    }
+
     this.currentPlan = plan;
 
     this.logger.info('Plan generated', {
@@ -352,6 +437,13 @@ Return ONLY valid JSON matching the schema.`;
     return plan;
   }
 
+  /**
+   * Gate that pauses execution until a human approves the plan.
+   * In `auto` approval mode this is a no-op. In `cli` mode it prints the plan
+   * to stdout and waits for `y` via readline.
+   *
+   * @throws {WorkflowError} If the user rejects the plan (non-retryable).
+   */
   async awaitApproval(plan: DevelopmentPlan): Promise<void> {
     this.setState(EngineState.AWAITING_APPROVAL);
 
@@ -387,43 +479,58 @@ Return ONLY valid JSON matching the schema.`;
     this.logger.info('Plan approved');
   }
 
+  /**
+   * Create a feature branch named `feature/{number}-{slug}`. If the branch
+   * already exists, appends a numeric suffix and retries up to 5 times.
+   * Uses an atomic try-create-catch-retry pattern to avoid TOCTOU races.
+   */
   async createBranch(issue: IssueData): Promise<string> {
     const { owner, repo } = this.config.github;
     const slug = slugify(issue.title);
-    let branchName = `feature/${issue.number}-${slug}`;
+    const repository = await this.platform.getRepository(owner, repo);
+    const maxAttempts = 5;
 
-    // Check for conflict and append suffix
-    let attempt = 0;
-    while (true) {
+    for (let attempt = 0; attempt < maxAttempts; attempt++) {
+      const branchName =
+        attempt === 0
+          ? `feature/${issue.number}-${slug}`
+          : `feature/${issue.number}-${slug}-${attempt}`;
+
       try {
-        await this.platform.getBranch(owner, repo, branchName);
-        // Branch exists, try with suffix
-        attempt++;
-        branchName = `feature/${issue.number}-${slug}-${attempt}`;
-      } catch {
-        // Branch doesn't exist, we can use it
-        break;
+        await this.platform.createBranch(
+          owner,
+          repo,
+          branchName,
+          repository.defaultBranch,
+        );
+
+        this.currentBranch = branchName;
+        this.logger.info('Branch created', {
+          branch: branchName,
+          issueNumber: issue.number,
+        });
+
+        return branchName;
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        this.logger.warn('Branch creation failed, retrying with suffix', {
+          branch: branchName,
+          attempt: attempt + 1,
+          error: msg,
+        });
       }
     }
 
-    // Get default branch
-    const repository = await this.platform.getRepository(owner, repo);
-    await this.platform.createBranch(
-      owner,
-      repo,
-      branchName,
-      repository.defaultBranch,
+    throw new WorkflowError(
+      `Failed to create branch after ${maxAttempts} attempts`,
+      { retryable: false, context: { issueNumber: issue.number } },
     );
-
-    this.currentBranch = branchName;
-    this.logger.info('Branch created', {
-      branch: branchName,
-      issueNumber: issue.number,
-    });
-
-    return branchName;
   }
 
+  /**
+   * Delegate autonomous code generation to the agent provider. The agent is
+   * given the plan, told to implement, test, and push to the feature branch.
+   */
   async implementCode(
     issue: IssueData,
     plan: DevelopmentPlan,
@@ -487,6 +594,11 @@ Follow existing project conventions and patterns.`;
     return result;
   }
 
+  /**
+   * Open a pull request from the feature branch to the default branch. The PR
+   * body includes the plan summary, changes, testing strategy, and a
+   * `Closes #N` footer for automatic issue linking.
+   */
   async createPR(
     issue: IssueData,
     plan: DevelopmentPlan,
@@ -558,16 +670,37 @@ Follow existing project conventions and patterns.`;
     return prInfo;
   }
 
+  /**
+   * Poll CI status until checks pass, then squash-merge the PR, delete the
+   * feature branch, and close the issue.
+   *
+   * The loop runs indefinitely until one of:
+   * - CI passes → merge and return
+   * - CI fails → throw WorkflowError
+   * - PR closed/merged externally → return/break
+   * - Timeout exceeded ({@link EngineConfig.ciMonitorTimeoutMs}) → throw
+   *
+   * Poll interval is configurable via {@link EngineConfig.ciPollIntervalMs}.
+   */
   async monitorAndMerge(
     pr: PullRequestInfo,
     issue: IssueData,
   ): Promise<void> {
     this.setState(EngineState.MONITORING);
     const { owner, repo } = this.config.github;
-    const pollInterval = 30000; // 30 seconds
+    const pollInterval = this.config.engine.ciPollIntervalMs;
+    const timeout = this.config.engine.ciMonitorTimeoutMs;
+    const startTime = Date.now();
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
+      if (Date.now() - startTime > timeout) {
+        throw new WorkflowError(
+          `CI monitoring timed out after ${Math.round(timeout / 60000)} minutes`,
+          { retryable: false, context: { prNumber: pr.number, timeoutMs: timeout } },
+        );
+      }
+
       const prData = await this.platform.getPR(owner, repo, pr.number);
 
       if (prData.state === 'closed') {
@@ -702,7 +835,15 @@ Follow existing project conventions and patterns.`;
       output: process.stdout,
     });
 
-    return new Promise((resolve) => {
+    return new Promise((resolve, reject) => {
+      rl.on('error', (err) => {
+        rl.close();
+        reject(err);
+      });
+      rl.on('close', () => {
+        // If closed without answer (e.g. stdin EOF), treat as rejection
+        resolve('n');
+      });
       rl.question(question, (answer) => {
         rl.close();
         resolve(answer);

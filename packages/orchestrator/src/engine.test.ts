@@ -34,6 +34,8 @@ function createMockConfig(): TammaConfig {
       workingDirectory: '/tmp/test-workspace',
       maxRetries: 3,
       approvalMode: 'auto',
+      ciPollIntervalMs: 100,
+      ciMonitorTimeoutMs: 60000,
     },
   };
 }
@@ -293,6 +295,60 @@ describe('TammaEngine', () => {
       expect(plan.summary).toBe('Fix auth');
     });
 
+    it('should throw on invalid JSON output', async () => {
+      const agent = createMockAgent();
+      vi.mocked(agent.executeTask).mockResolvedValue({
+        success: true,
+        output: 'not valid json at all',
+        costUsd: 0.01,
+        durationMs: 100,
+      });
+      const { engine } = createEngine({ agent });
+
+      await expect(
+        engine.generatePlan(
+          {
+            number: 1,
+            title: 'Test',
+            body: '',
+            labels: [],
+            url: '',
+            comments: [],
+            relatedIssueNumbers: [],
+            createdAt: '',
+          },
+          'context',
+        ),
+      ).rejects.toThrow('Failed to parse plan output as JSON');
+    });
+
+    it('should throw on missing required plan fields', async () => {
+      const agent = createMockAgent();
+      vi.mocked(agent.executeTask).mockResolvedValue({
+        success: true,
+        output: JSON.stringify({ issueNumber: 1 }),
+        costUsd: 0.01,
+        durationMs: 100,
+      });
+      const { engine } = createEngine({ agent });
+
+      await expect(
+        engine.generatePlan(
+          {
+            number: 1,
+            title: 'Test',
+            body: '',
+            labels: [],
+            url: '',
+            comments: [],
+            relatedIssueNumbers: [],
+            createdAt: '',
+          },
+          'context',
+        ),
+      ).rejects.toThrow('missing required fields');
+    });
+
     it('should throw on agent failure', async () => {
       const agent = createMockAgent();
       vi.mocked(agent.executeTask).mockResolvedValue({
@@ -360,9 +416,10 @@ describe('TammaEngine', () => {
 
     it('should handle branch name conflicts', async () => {
       const platform = createMockPlatform();
-      vi.mocked(platform.getBranch)
-        .mockResolvedValueOnce({ name: 'existing', sha: 'abc', isProtected: false })
-        .mockRejectedValueOnce(new Error('Not found'));
+      // First createBranch call fails (branch exists), second succeeds
+      vi.mocked(platform.createBranch)
+        .mockRejectedValueOnce(new Error('Reference already exists'))
+        .mockResolvedValueOnce({ name: 'feature/42-fix-auth-1', sha: 'abc123', isProtected: false });
 
       const { engine } = createEngine({ platform });
       const issue: IssueData = {
@@ -378,6 +435,7 @@ describe('TammaEngine', () => {
 
       const branch = await engine.createBranch(issue);
       expect(branch).toContain('-1');
+      expect(platform.createBranch).toHaveBeenCalledTimes(2);
     });
   });
 
@@ -498,6 +556,45 @@ describe('TammaEngine', () => {
       );
     });
 
+    it('should throw on CI monitor timeout', async () => {
+      const platform = createMockPlatform();
+      vi.mocked(platform.getCIStatus).mockResolvedValue({
+        state: 'pending',
+        totalCount: 1,
+        successCount: 0,
+        failureCount: 0,
+        pendingCount: 1,
+      });
+      const config = createMockConfig();
+      // Set a very short timeout so the test doesn't hang
+      config.engine.ciMonitorTimeoutMs = 1;
+      config.engine.ciPollIntervalMs = 1;
+      const { engine } = createEngine({ platform, config });
+
+      await expect(
+        engine.monitorAndMerge(
+          {
+            number: 99,
+            url: '',
+            title: '',
+            body: '',
+            branch: 'feature/42-fix',
+            status: 'open',
+          },
+          {
+            number: 42,
+            title: '',
+            body: '',
+            labels: [],
+            url: '',
+            comments: [],
+            relatedIssueNumbers: [],
+            createdAt: '',
+          },
+        ),
+      ).rejects.toThrow('CI monitoring timed out');
+    });
+
     it('should throw when CI fails', async () => {
       const platform = createMockPlatform();
       vi.mocked(platform.getCIStatus).mockResolvedValue({
@@ -544,7 +641,9 @@ describe('TammaEngine', () => {
       expect(agent.executeTask).toHaveBeenCalledTimes(2); // plan + implement
       expect(platform.createPR).toHaveBeenCalled();
       expect(platform.mergePR).toHaveBeenCalled();
-      expect(engine.getState()).toBe(EngineState.IDLE);
+      // After successful processOneIssue, state remains MERGING (last setState in success path)
+      // The run() loop is responsible for resetting to IDLE via resetCurrentWork()
+      expect(engine.getState()).toBe(EngineState.MERGING);
     });
 
     it('should handle no issues gracefully', async () => {
@@ -561,7 +660,7 @@ describe('TammaEngine', () => {
       expect(engine.getState()).toBe(EngineState.IDLE);
     });
 
-    it('should reset state on error', async () => {
+    it('should preserve ERROR state on failure but clear work references', async () => {
       const agent = createMockAgent();
       vi.mocked(agent.executeTask).mockResolvedValue({
         success: false,
@@ -573,7 +672,11 @@ describe('TammaEngine', () => {
       const { engine } = createEngine({ agent });
 
       await expect(engine.processOneIssue()).rejects.toThrow();
-      expect(engine.getState()).toBe(EngineState.IDLE);
+      expect(engine.getState()).toBe(EngineState.ERROR);
+      expect(engine.getCurrentIssue()).toBeNull();
+      expect(engine.getCurrentPlan()).toBeNull();
+      expect(engine.getCurrentBranch()).toBeNull();
+      expect(engine.getCurrentPR()).toBeNull();
     });
   });
 
