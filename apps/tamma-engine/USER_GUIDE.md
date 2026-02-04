@@ -1,6 +1,6 @@
 # Tamma Engine User Guide
 
-Tamma Engine is an autonomous development agent that monitors a GitHub repository for labeled issues, generates implementation plans, writes code via the Claude Agent SDK, and opens pull requests — all without manual intervention.
+Tamma Engine is an autonomous development agent that monitors a GitHub repository for labeled issues, generates implementation plans, writes code via headless Claude Code, and opens pull requests — all without manual intervention.
 
 ## Table of Contents
 
@@ -19,7 +19,10 @@ Tamma Engine is an autonomous development agent that monitors a GitHub repositor
 
 - **Node.js** 20+
 - **pnpm** 9+
-- **Anthropic API key** with access to Claude models
+- **Claude Code CLI** installed and authenticated (`claude --version` must work)
+  - Install: `npm install -g @anthropic-ai/claude-code` or `curl -fsSL https://claude.ai/install.sh | bash`
+  - Authenticate: run `claude` once interactively and log in with your Claude subscription
+  - Works with **Claude Pro, Team, or Enterprise subscriptions** — no separate API key needed
 - **GitHub Personal Access Token (PAT)** with `repo` scope
 - A GitHub account for the bot (or your own account) to assign issues and create PRs
 
@@ -45,8 +48,9 @@ export GITHUB_TOKEN="ghp_xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx"
 export GITHUB_OWNER="your-org"
 export GITHUB_REPO="your-repo"
 export BOT_USERNAME="your-bot-account"
-export ANTHROPIC_API_KEY="sk-ant-xxxxxxxxxxxxxxxxxxxxx"
 ```
+
+That's it — no API key needed. The engine uses your authenticated Claude Code CLI session.
 
 ### Full Configuration
 
@@ -56,12 +60,11 @@ GITHUB_TOKEN="ghp_..."       # GitHub PAT with repo scope
 GITHUB_OWNER="your-org"      # Repository owner
 GITHUB_REPO="your-repo"      # Repository name
 BOT_USERNAME="tamma-bot"     # GitHub username the engine operates as
-ANTHROPIC_API_KEY="sk-ant-..." # Anthropic API key (read by Claude Agent SDK)
 
 # --- Optional ---
 ISSUE_LABELS="tamma"          # Comma-separated labels to filter issues (default: "tamma")
 EXCLUDE_LABELS="wontfix,duplicate" # Comma-separated labels to skip (default: none)
-AGENT_MODEL="claude-sonnet-4-5"    # Claude model to use (default: "claude-sonnet-4-5")
+AGENT_MODEL="sonnet"          # Claude model: "sonnet", "opus", "haiku" (default: "sonnet")
 MAX_BUDGET_USD="5.0"          # Max spend per agent task in USD (default: 5.0)
 ALLOWED_TOOLS="Read,Write,Edit,Bash,Glob,Grep" # Tools the agent may use (default: all listed)
 PERMISSION_MODE="bypassPermissions" # "bypassPermissions" or "default" (default: "bypassPermissions")
@@ -90,13 +93,15 @@ node apps/tamma-engine/dist/index.js
 
 The engine will:
 
-1. Validate configuration and verify the Anthropic API key
+1. Validate configuration and verify `claude` CLI is installed
 2. Start the polling loop
 3. Log startup info (owner, repo, model, approval mode)
 
 Stop the engine with `Ctrl+C` (SIGINT) or `SIGTERM`. It shuts down gracefully, finishing any in-progress cleanup.
 
 ## How It Works
+
+The engine invokes Claude Code in headless mode (`claude -p`) as a subprocess for each AI task. This means it uses your existing Claude subscription — the same authentication you use when running `claude` interactively.
 
 Each polling cycle executes an 8-step pipeline:
 
@@ -110,7 +115,7 @@ The full issue is fetched including all comments. Related issues referenced via 
 
 ### 3. Plan Generation
 
-The context document is sent to the Claude agent, which produces a structured development plan containing:
+The context document is sent to Claude Code with `--json-schema` for structured output. It produces a development plan containing:
 
 - **Summary** — what needs to be done
 - **Approach** — how to implement it
@@ -135,7 +140,7 @@ If the branch already exists (e.g. from a previous attempt), a numeric suffix is
 
 ### 6. Code Implementation
 
-The Claude agent receives the plan and is instructed to:
+Claude Code receives the plan and is instructed to:
 
 - Implement all file changes
 - Write or update tests
@@ -143,7 +148,7 @@ The Claude agent receives the plan and is instructed to:
 - Run the test suite
 - Commit and push to the feature branch
 
-Progress is streamed to the debug log.
+The engine streams progress from Claude Code's `--output-format stream-json` output to the debug log, including tool usage and cost tracking.
 
 ### 7. Pull Request Creation
 
@@ -179,10 +184,9 @@ After completion (or failure), the engine returns to step 1 and polls for the ne
 | `GITHUB_OWNER` | Yes | — | Repository owner (org or user) |
 | `GITHUB_REPO` | Yes | — | Repository name |
 | `BOT_USERNAME` | Yes | — | GitHub username the engine assigns issues to |
-| `ANTHROPIC_API_KEY` | Yes | — | Anthropic API key (used by Claude Agent SDK) |
 | `ISSUE_LABELS` | No | `tamma` | Comma-separated inclusion labels |
 | `EXCLUDE_LABELS` | No | *(empty)* | Comma-separated exclusion labels |
-| `AGENT_MODEL` | No | `claude-sonnet-4-5` | Claude model identifier |
+| `AGENT_MODEL` | No | `sonnet` | Claude model (`sonnet`, `opus`, `haiku`, or full ID) |
 | `MAX_BUDGET_USD` | No | `5.0` | Per-task spending cap in USD |
 | `ALLOWED_TOOLS` | No | `Read,Write,Edit,Bash,Glob,Grep` | Agent tool allowlist |
 | `PERMISSION_MODE` | No | `bypassPermissions` | Agent permission mode |
@@ -193,6 +197,22 @@ After completion (or failure), the engine returns to step 1 and polls for the ne
 | `CI_POLL_INTERVAL_MS` | No | `30000` | CI status poll interval (ms) |
 | `CI_MONITOR_TIMEOUT_MS` | No | `3600000` | CI monitoring timeout (ms) |
 | `LOG_LEVEL` | No | `info` | Log verbosity |
+
+## Authentication
+
+The engine uses **headless Claude Code** (`claude -p`) rather than a direct API key. This means:
+
+1. **Claude subscription required** — You need an active Claude Pro, Team, or Enterprise subscription
+2. **No API key needed** — Authentication is handled by the Claude Code CLI's login session
+3. **One-time setup** — Run `claude` interactively once to authenticate, then the engine reuses that session
+4. **API key also works** — If you have `ANTHROPIC_API_KEY` set in your environment, Claude Code will use that instead
+
+To verify your setup:
+
+```bash
+claude --version          # Should print version number
+claude -p "Hello world"   # Should produce a response
+```
 
 ## State Machine
 
@@ -222,7 +242,7 @@ On any failure, the state moves to `ERROR` and stays there until the run loop re
 └──────┬───────────┘
        ▼
 ┌──────────────────┐
-│   PLANNING       │  agent generates development plan
+│   PLANNING       │  claude -p generates development plan
 └──────┬───────────┘
        ▼
 ┌──────────────────┐     rejected      ┌───────┐
@@ -231,7 +251,7 @@ On any failure, the state moves to `ERROR` and stays there until the run loop re
        │ approved
        ▼
 ┌──────────────────┐
-│ IMPLEMENTING     │  agent writes code, tests, pushes
+│ IMPLEMENTING     │  claude -p writes code, tests, pushes
 └──────┬───────────┘
        ▼
 ┌──────────────────┐
@@ -255,7 +275,7 @@ On any failure, the state moves to `ERROR` and stays there until the run loop re
 
 ### Budget Cap
 
-`MAX_BUDGET_USD` limits how much each individual agent task (plan generation or implementation) can spend. If the agent exceeds this budget, the task fails gracefully.
+`MAX_BUDGET_USD` limits how much each individual agent task (plan generation or implementation) can spend. Passed to Claude Code via `--max-budget-usd`. If the agent exceeds this budget, the task stops gracefully.
 
 ### CI Monitor Timeout
 
@@ -275,13 +295,21 @@ Only issues with the configured inclusion labels are picked up. Use `EXCLUDE_LAB
 
 ### Permission Mode
 
-`PERMISSION_MODE=default` restricts the agent to ask for confirmation before running potentially destructive operations. `bypassPermissions` gives the agent full autonomy within its allowed tools.
+`PERMISSION_MODE=default` restricts Claude Code to ask for confirmation before running potentially destructive operations. `bypassPermissions` (passed as `--dangerously-skip-permissions`) gives the agent full autonomy within its allowed tools.
 
 ## Troubleshooting
 
 ### "Agent provider is not available"
 
-The `ANTHROPIC_API_KEY` environment variable is missing or invalid. Verify it's set and has access to the configured model.
+The `claude` CLI is not installed or not in your PATH. Verify with:
+
+```bash
+claude --version
+```
+
+If not installed, see [Prerequisites](#prerequisites).
+
+If installed but still failing, ensure you've authenticated by running `claude` interactively at least once.
 
 ### "Missing required environment variable: GITHUB_TOKEN"
 
@@ -300,7 +328,7 @@ Increase `CI_MONITOR_TIMEOUT_MS` if your CI pipeline legitimately takes longer t
 In `cli` mode, typing anything other than `y` rejects the plan. If the agent consistently produces poor plans, try:
 
 - Providing more detail in the issue description
-- Using a more capable model (`AGENT_MODEL`)
+- Using a more capable model (`AGENT_MODEL=opus`)
 - Increasing the budget (`MAX_BUDGET_USD`)
 
 ### Rate limiting from GitHub

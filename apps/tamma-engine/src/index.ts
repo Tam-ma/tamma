@@ -34,7 +34,7 @@ function loadConfig(): TammaConfig {
       botUsername: requireEnv('BOT_USERNAME'),
     },
     agent: {
-      model: optionalEnv('AGENT_MODEL', 'claude-sonnet-4-5'),
+      model: optionalEnv('AGENT_MODEL', 'sonnet'),
       maxBudgetUsd: parseFloat(optionalEnv('MAX_BUDGET_USD', '5.0')),
       allowedTools: optionalEnv('ALLOWED_TOOLS', 'Read,Write,Edit,Bash,Glob,Grep').split(',').map((t) => t.trim()),
       permissionMode: optionalEnv('PERMISSION_MODE', 'bypassPermissions') as 'bypassPermissions' | 'default',
