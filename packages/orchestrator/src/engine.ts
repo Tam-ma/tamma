@@ -6,8 +6,9 @@ import type {
   DevelopmentPlan,
   AgentTaskResult,
   PullRequestInfo,
+  IEventStore,
 } from '@tamma/shared';
-import { EngineState, sleep, slugify, extractIssueReferences } from '@tamma/shared';
+import { EngineState, EngineEventType, sleep, slugify, extractIssueReferences } from '@tamma/shared';
 import { WorkflowError, EngineError } from '@tamma/shared';
 import type { IAgentProvider } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
@@ -18,6 +19,7 @@ export interface EngineContext {
   platform: IGitPlatform;
   agent: IAgentProvider;
   logger: ILogger;
+  eventStore?: IEventStore;
 }
 
 /**
@@ -57,12 +59,14 @@ export class TammaEngine {
   private readonly platform: IGitPlatform;
   private readonly agent: IAgentProvider;
   private readonly logger: ILogger;
+  private readonly eventStore: IEventStore | undefined;
 
   constructor(ctx: EngineContext) {
     this.config = ctx.config;
     this.platform = ctx.platform;
     this.agent = ctx.agent;
     this.logger = ctx.logger;
+    this.eventStore = ctx.eventStore;
   }
 
   /** Verify the agent provider is reachable. Must be called before {@link run}. */
@@ -150,6 +154,7 @@ export class TammaEngine {
       // Step 6: Implement
       const implResult = await this.implementCode(issue, plan, branch);
       if (!implResult.success) {
+        this.recordEvent(EngineEventType.IMPLEMENTATION_FAILED, issue.number, { error: implResult.error });
         throw new WorkflowError(
           `Implementation failed: ${implResult.error ?? 'Unknown error'}`,
           { retryable: true, context: { issueNumber: issue.number } },
@@ -162,6 +167,7 @@ export class TammaEngine {
       // Step 8: Monitor and merge
       await this.monitorAndMerge(pr, issue);
     } catch (err: unknown) {
+      this.recordEvent(EngineEventType.ERROR_OCCURRED, this.currentIssue?.number, { error: err instanceof Error ? err.message : String(err) });
       this.setState(EngineState.ERROR);
       throw err;
     } finally {
@@ -236,6 +242,7 @@ export class TammaEngine {
     };
 
     this.currentIssue = issueData;
+    this.recordEvent(EngineEventType.ISSUE_SELECTED, issueData.number, { title: issueData.title, url: issueData.url });
     this.logger.info('Issue selected', {
       number: issueData.number,
       title: issueData.title,
@@ -300,8 +307,24 @@ export class TammaEngine {
       sections.push('');
     }
 
+    // Fetch recent commits for additional context
+    try {
+      const commits = await this.platform.listCommits(owner, repo, { perPage: 10 });
+      if (commits.length > 0) {
+        sections.push('### Recent Commits');
+        for (const commit of commits) {
+          sections.push(`- \`${commit.sha.slice(0, 7)}\` ${commit.message.split('\n')[0]!} (${commit.author})`);
+        }
+        sections.push('');
+      }
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      this.logger.warn('Failed to fetch recent commits', { error: msg });
+    }
+
     const context = sections.join('\n');
 
+    this.recordEvent(EngineEventType.ISSUE_ANALYZED, issue.number, { contextLength: context.length, relatedIssues: issue.relatedIssueNumbers.length });
     this.logger.info('Issue analysis complete', {
       issueNumber: issue.number,
       contextLength: context.length,
@@ -427,6 +450,7 @@ Return ONLY valid JSON matching the schema.`;
 
     this.currentPlan = plan;
 
+    this.recordEvent(EngineEventType.PLAN_GENERATED, plan.issueNumber, { summary: plan.summary, complexity: plan.estimatedComplexity, fileChanges: plan.fileChanges.length });
     this.logger.info('Plan generated', {
       issueNumber: plan.issueNumber,
       summary: plan.summary,
@@ -448,6 +472,7 @@ Return ONLY valid JSON matching the schema.`;
     this.setState(EngineState.AWAITING_APPROVAL);
 
     if (this.config.engine.approvalMode === 'auto') {
+      this.recordEvent(EngineEventType.PLAN_APPROVED, plan.issueNumber, {});
       this.logger.info('Auto-approval mode, skipping approval gate');
       return;
     }
@@ -473,9 +498,11 @@ Return ONLY valid JSON matching the schema.`;
 
     const approved = await this.promptUser('Approve this plan? (y/n): ');
     if (approved.toLowerCase() !== 'y') {
+      this.recordEvent(EngineEventType.PLAN_REJECTED, plan.issueNumber, {});
       throw new WorkflowError('Plan rejected by user', { retryable: false });
     }
 
+    this.recordEvent(EngineEventType.PLAN_APPROVED, plan.issueNumber, {});
     this.logger.info('Plan approved');
   }
 
@@ -504,7 +531,15 @@ Return ONLY valid JSON matching the schema.`;
           repository.defaultBranch,
         );
 
+        // Validate branch was actually created
+        try {
+          await this.platform.getBranch(owner, repo, branchName);
+        } catch {
+          this.logger.warn('Branch validation failed, branch may not be available yet', { branch: branchName });
+        }
+
         this.currentBranch = branchName;
+        this.recordEvent(EngineEventType.BRANCH_CREATED, issue.number, { branch: branchName });
         this.logger.info('Branch created', {
           branch: branchName,
           issueNumber: issue.number,
@@ -566,6 +601,8 @@ ${plan.testingStrategy}
 
 Follow existing project conventions and patterns.`;
 
+    this.recordEvent(EngineEventType.IMPLEMENTATION_STARTED, issue.number, { branch });
+
     const result = await this.agent.executeTask(
       {
         prompt: implPrompt,
@@ -583,6 +620,10 @@ Follow existing project conventions and patterns.`;
         });
       },
     );
+
+    if (result.success) {
+      this.recordEvent(EngineEventType.IMPLEMENTATION_COMPLETED, issue.number, { costUsd: result.costUsd, durationMs: result.durationMs });
+    }
 
     this.logger.info('Implementation complete', {
       issueNumber: issue.number,
@@ -643,6 +684,12 @@ Follow existing project conventions and patterns.`;
       labels: ['tamma-automated'],
     });
 
+    // Validate PR was created
+    const createdPR = await this.platform.getPR(owner, repo, pr.number);
+    if (createdPR.state !== 'open') {
+      this.logger.warn('PR was created but is not in open state', { prNumber: pr.number, state: createdPR.state });
+    }
+
     // Comment on the issue
     await this.platform.addIssueComment(
       owner,
@@ -661,6 +708,7 @@ Follow existing project conventions and patterns.`;
     };
 
     this.currentPR = prInfo;
+    this.recordEvent(EngineEventType.PR_CREATED, issue.number, { prNumber: pr.number, url: pr.url });
     this.logger.info('PR created', {
       prNumber: pr.number,
       url: pr.url,
@@ -747,7 +795,7 @@ Follow existing project conventions and patterns.`;
         });
 
         const mergeResult = await this.platform.mergePR(owner, repo, pr.number, {
-          mergeMethod: 'squash',
+          mergeMethod: this.config.engine.mergeStrategy ?? 'squash',
         });
 
         if (!mergeResult.merged) {
@@ -757,16 +805,24 @@ Follow existing project conventions and patterns.`;
           );
         }
 
-        // Cleanup
-        try {
-          await this.platform.deleteBranch(owner, repo, pr.branch);
-          this.logger.info('Branch deleted', { branch: pr.branch });
-        } catch (err: unknown) {
-          const msg = err instanceof Error ? err.message : String(err);
-          this.logger.warn('Failed to delete branch', {
-            branch: pr.branch,
-            error: msg,
-          });
+        this.recordEvent(EngineEventType.PR_MERGED, issue.number, { prNumber: pr.number, sha: mergeResult.sha });
+
+        // Cleanup branch (configurable)
+        const shouldDeleteBranch = this.config.engine.deleteBranchOnMerge !== false;
+        if (shouldDeleteBranch) {
+          try {
+            await this.platform.deleteBranch(owner, repo, pr.branch);
+            this.recordEvent(EngineEventType.BRANCH_DELETED, issue.number, { branch: pr.branch });
+            this.logger.info('Branch deleted', { branch: pr.branch });
+          } catch (err: unknown) {
+            const msg = err instanceof Error ? err.message : String(err);
+            this.logger.warn('Failed to delete branch', {
+              branch: pr.branch,
+              error: msg,
+            });
+          }
+        } else {
+          this.logger.info('Branch deletion skipped (deleteBranchOnMerge=false)', { branch: pr.branch });
         }
 
         // Close issue with comment
@@ -779,6 +835,7 @@ Follow existing project conventions and patterns.`;
         await this.platform.updateIssue(owner, repo, issue.number, {
           state: 'closed',
         });
+        this.recordEvent(EngineEventType.ISSUE_CLOSED, issue.number, { prNumber: pr.number });
 
         // Completion checkpoint
         this.logger.info('Issue completed', {
@@ -815,9 +872,22 @@ Follow existing project conventions and patterns.`;
     return this.currentPR;
   }
 
+  getEventStore(): IEventStore | undefined {
+    return this.eventStore;
+  }
+
+  private recordEvent(type: EngineEventType, issueNumber?: number, data: Record<string, unknown> = {}): void {
+    this.eventStore?.record({
+      type,
+      ...(issueNumber !== undefined ? { issueNumber } : {}),
+      data,
+    });
+  }
+
   private setState(state: EngineState): void {
     const prev = this.state;
     this.state = state;
+    this.recordEvent(EngineEventType.STATE_TRANSITION, this.currentIssue?.number, { from: prev, to: state });
     this.logger.debug('State transition', { from: prev, to: state });
   }
 

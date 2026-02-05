@@ -62,3 +62,10 @@ export interface MergeResult {
   sha: string;
   message: string;
 }
+
+export interface CommitInfo {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}

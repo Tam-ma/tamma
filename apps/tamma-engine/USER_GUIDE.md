@@ -12,7 +12,9 @@ Tamma Engine is an autonomous development agent that monitors a GitHub repositor
 - [Approval Modes](#approval-modes)
 - [Environment Variables Reference](#environment-variables-reference)
 - [State Machine](#state-machine)
+- [Audit Trail & Event Store](#audit-trail--event-store)
 - [Safety Controls](#safety-controls)
+- [Integration Tests](#integration-tests)
 - [Troubleshooting](#troubleshooting)
 
 ## Prerequisites
@@ -74,6 +76,7 @@ MAX_RETRIES="3"               # Retries for transient failures (default: 3)
 APPROVAL_MODE="cli"           # "cli" for human-in-the-loop, "auto" for unattended (default: "cli")
 CI_POLL_INTERVAL_MS="30000"   # Delay between CI status checks in ms (default: 30000 / 30s)
 CI_MONITOR_TIMEOUT_MS="3600000" # Max time to wait for CI before giving up (default: 3600000 / 1h)
+MERGE_STRATEGY="squash"       # Merge method: "squash", "merge", or "rebase" (default: "squash")
 LOG_LEVEL="info"              # "debug", "info", "warn", or "error" (default: "info")
 ```
 
@@ -111,7 +114,7 @@ The engine queries GitHub for open issues matching your configured labels (`ISSU
 
 ### 2. Issue Analysis
 
-The full issue is fetched including all comments. Related issues referenced via `#N` syntax in the body or comments are also retrieved. This context is assembled into a structured markdown document.
+The full issue is fetched including all comments. Related issues referenced via `#N` syntax in the body or comments are also retrieved. The 10 most recent commits on the repository are also loaded to provide recent change context. All of this is assembled into a structured markdown document.
 
 ### 3. Plan Generation
 
@@ -136,7 +139,7 @@ A feature branch is created from the repository's default branch. The naming con
 feature/{issue-number}-{slugified-title}
 ```
 
-If the branch already exists (e.g. from a previous attempt), a numeric suffix is appended automatically (up to 5 attempts).
+If the branch already exists (e.g. from a previous attempt), a numeric suffix is appended automatically (up to 5 attempts). After creation, the engine validates the branch exists via the GitHub API before proceeding.
 
 ### 6. Code Implementation
 
@@ -148,7 +151,7 @@ Claude Code receives the plan and is instructed to:
 - Run the test suite
 - Commit and push to the feature branch
 
-The engine streams progress from Claude Code's `--output-format stream-json` output to the debug log, including tool usage and cost tracking.
+The engine streams progress from Claude Code's `--output-format stream-json` output to the debug log, including tool usage and cost tracking. Transient errors (network timeouts, rate limits, 503/529 responses) are automatically retried up to 2 times with exponential backoff.
 
 ### 7. Pull Request Creation
 
@@ -159,11 +162,13 @@ A PR is opened from the feature branch to the default branch with:
 - A `Closes #N` footer for automatic issue linking
 - A comment posted on the original issue linking to the PR
 
+After creation, the engine validates the PR exists and is in the expected state via the GitHub API.
+
 ### 8. Monitor and Merge
 
 The engine polls CI status on the PR branch:
 
-- **CI passes** — squash-merge the PR, delete the feature branch, close the issue with a completion comment
+- **CI passes** — merge the PR (using the configured `MERGE_STRATEGY`), optionally delete the feature branch, close the issue with a completion comment
 - **CI fails** — throw an error and move on to the next issue
 - **Timeout** — if CI neither passes nor fails within `CI_MONITOR_TIMEOUT_MS` (default 1 hour), the engine gives up on this issue
 
@@ -196,6 +201,7 @@ After completion (or failure), the engine returns to step 1 and polls for the ne
 | `APPROVAL_MODE` | No | `cli` | `cli` or `auto` |
 | `CI_POLL_INTERVAL_MS` | No | `30000` | CI status poll interval (ms) |
 | `CI_MONITOR_TIMEOUT_MS` | No | `3600000` | CI monitoring timeout (ms) |
+| `MERGE_STRATEGY` | No | `squash` | PR merge method: `squash`, `merge`, or `rebase` |
 | `LOG_LEVEL` | No | `info` | Log verbosity |
 
 ## Authentication
@@ -271,6 +277,47 @@ On any failure, the state moves to `ERROR` and stays there until the run loop re
      (IDLE)  ← run loop resets state
 ```
 
+## Audit Trail & Event Store
+
+The engine records structured events for every significant action during the pipeline. Events are stored in an in-memory event store and can be queried programmatically via `engine.getEventStore()`.
+
+### Event Types
+
+| Event | When |
+|-------|------|
+| `STATE_TRANSITION` | Engine moves between states |
+| `ISSUE_SELECTED` | An issue is picked up for processing |
+| `ISSUE_ANALYZED` | Issue context analysis completes |
+| `PLAN_GENERATED` | Development plan is produced |
+| `PLAN_APPROVED` | Plan passes approval gate |
+| `PLAN_REJECTED` | Plan is rejected by reviewer |
+| `BRANCH_CREATED` | Feature branch is created |
+| `IMPLEMENTATION_STARTED` | Code generation begins |
+| `IMPLEMENTATION_COMPLETED` | Code generation succeeds |
+| `IMPLEMENTATION_FAILED` | Code generation fails |
+| `PR_CREATED` | Pull request is opened |
+| `PR_MERGED` | Pull request is merged |
+| `BRANCH_DELETED` | Feature branch is cleaned up |
+| `ISSUE_CLOSED` | Issue is closed with completion comment |
+| `ERROR_OCCURRED` | An error is recorded |
+
+### Querying Events
+
+```typescript
+const store = engine.getEventStore();
+
+// All events
+const all = store.getEvents();
+
+// Events for a specific issue
+const issueEvents = store.getEvents(42);
+
+// Last event of a given type
+const lastMerge = store.getLastEvent('PR_MERGED');
+```
+
+Each event includes an `id`, `timestamp`, optional `issueNumber`, and a `data` object with context-specific details (cost, branch name, PR number, error message, etc.).
+
 ## Safety Controls
 
 ### Budget Cap
@@ -293,9 +340,48 @@ Only issues with the configured inclusion labels are picked up. Use `EXCLUDE_LAB
 
 `Ctrl+C` or `SIGTERM` triggers a clean shutdown — the engine stops polling, disposes of the agent and platform connections, and exits cleanly.
 
+### Automatic Retry
+
+The Claude Code provider automatically retries transient failures (network resets, timeouts, rate limits, 503/529 errors) up to 2 times with exponential backoff and jitter. Non-transient errors (e.g. invalid prompts, permission errors) fail immediately without retry.
+
 ### Permission Mode
 
 `PERMISSION_MODE=default` restricts Claude Code to ask for confirmation before running potentially destructive operations. `bypassPermissions` (passed as `--dangerously-skip-permissions`) gives the agent full autonomy within its allowed tools.
+
+### Creation Validation
+
+After creating branches and pull requests, the engine performs a validation read-back via the GitHub API to confirm the resource was created successfully before proceeding to the next pipeline step.
+
+## Integration Tests
+
+The engine includes integration tests that run against real services. These are skipped by default and enabled via environment variables.
+
+### Claude Code Provider
+
+```bash
+INTEGRATION_TEST_CLAUDE=true pnpm --filter @tamma/providers test
+```
+
+Tests: CLI availability check, simple task execution, progress event streaming, structured JSON output.
+
+### GitHub Platform
+
+```bash
+INTEGRATION_TEST_GITHUB_TOKEN="ghp_..."  \
+INTEGRATION_TEST_GITHUB_OWNER="your-org" \
+INTEGRATION_TEST_GITHUB_REPO="your-repo" \
+pnpm --filter @tamma/platforms test
+```
+
+Tests: repository info retrieval, issue listing, CI status checks, commit history, specific issue fetch.
+
+### Engine (Full Lifecycle)
+
+```bash
+INTEGRATION_TEST_ENGINE=true pnpm --filter @tamma/orchestrator test
+```
+
+Tests the full issue-to-merge pipeline using mocked dependencies with an event store to verify all events are recorded in order.
 
 ## Troubleshooting
 

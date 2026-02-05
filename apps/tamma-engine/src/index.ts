@@ -46,6 +46,7 @@ function loadConfig(): TammaConfig {
       approvalMode: optionalEnv('APPROVAL_MODE', 'cli') as 'cli' | 'auto',
       ciPollIntervalMs: parseInt(optionalEnv('CI_POLL_INTERVAL_MS', '30000'), 10),
       ciMonitorTimeoutMs: parseInt(optionalEnv('CI_MONITOR_TIMEOUT_MS', '3600000'), 10),
+      mergeStrategy: optionalEnv('MERGE_STRATEGY', 'squash') as 'squash' | 'merge' | 'rebase',
     },
   };
 }

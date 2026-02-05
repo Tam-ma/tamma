@@ -1,8 +1,21 @@
 import { describe, it, expect, vi, beforeEach } from 'vitest';
+
+const mockReadlineQuestion = vi.fn<(q: string, cb: (answer: string) => void) => void>();
+const mockReadlineClose = vi.fn();
+vi.mock('node:readline', () => ({
+  createInterface: vi.fn(() => ({
+    question: mockReadlineQuestion,
+    close: mockReadlineClose,
+    on: vi.fn().mockReturnThis(),
+  })),
+}));
+
 import { TammaEngine } from './engine.js';
 import type { EngineContext } from './engine.js';
 import {
   EngineState,
+  EngineEventType,
+  InMemoryEventStore,
   type TammaConfig,
   type IssueData,
   type DevelopmentPlan,
@@ -142,6 +155,9 @@ function createMockPlatform(): IGitPlatform {
     updateIssue: vi.fn().mockResolvedValue({}),
     addIssueComment: vi.fn().mockResolvedValue({ id: 2, author: 'bot', body: '', createdAt: '' }),
     assignIssue: vi.fn().mockResolvedValue({}),
+    listCommits: vi.fn().mockResolvedValue([
+      { sha: 'abc1234567890', message: 'fix: some fix', author: 'dev', date: '2024-01-01T00:00:00Z' },
+    ]),
     getCIStatus: vi.fn().mockResolvedValue({
       state: 'success',
       totalCount: 1,
@@ -274,6 +290,66 @@ describe('TammaEngine', () => {
       expect(context).toContain('#42');
       expect(context).toContain('Fix auth');
     });
+
+    it('should include recent commits in context', async () => {
+      const { engine } = createEngine();
+      const issue: IssueData = {
+        number: 42,
+        title: 'Fix auth',
+        body: 'See #10',
+        labels: ['tamma'],
+        url: 'https://example.com/42',
+        comments: [],
+        relatedIssueNumbers: [10],
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+      const context = await engine.analyzeIssue(issue);
+      expect(context).toContain('Recent Commits');
+      expect(context).toContain('abc1234');
+    });
+
+    it('should include all sections in context document', async () => {
+      const platform = createMockPlatform();
+      vi.mocked(platform.getIssue).mockResolvedValue({
+        number: 42,
+        title: 'Fix authentication bug',
+        body: 'The auth handler is broken when token expires',
+        state: 'open',
+        labels: ['tamma', 'bug'],
+        assignees: [],
+        url: 'https://github.com/test-owner/test-repo/issues/42',
+        createdAt: '2024-01-01T00:00:00Z',
+        updatedAt: '2024-01-02T00:00:00Z',
+        comments: [
+          { id: 1, author: 'user1', body: 'I can reproduce this', createdAt: '2024-01-01T12:00:00Z' },
+          { id: 2, author: 'user2', body: 'Related to #15', createdAt: '2024-01-01T13:00:00Z' },
+        ],
+      });
+      const { engine } = createEngine({ platform });
+
+      const issue: IssueData = {
+        number: 42,
+        title: 'Fix authentication bug',
+        body: 'The auth handler is broken',
+        labels: ['tamma', 'bug'],
+        url: 'https://github.com/test-owner/test-repo/issues/42',
+        comments: [],
+        relatedIssueNumbers: [10],
+        createdAt: '2024-01-01T00:00:00Z',
+      };
+
+      const context = await engine.analyzeIssue(issue);
+
+      // Verify structure
+      expect(context).toContain('## Issue #42: Fix authentication bug');
+      expect(context).toContain('**Labels:** tamma, bug');
+      expect(context).toContain('### Description');
+      expect(context).toContain('token expires');
+      expect(context).toContain('### Comments');
+      expect(context).toContain('user1');
+      expect(context).toContain('I can reproduce this');
+      expect(context).toContain('### Related Issues');
+    });
   });
 
   describe('generatePlan', () => {
@@ -392,6 +468,26 @@ describe('TammaEngine', () => {
       };
 
       await expect(engine.awaitApproval(plan)).resolves.toBeUndefined();
+    });
+
+    it('should reject plan in cli approval mode', async () => {
+      const config = createMockConfig();
+      config.engine.approvalMode = 'cli';
+      const { engine } = createEngine({ config });
+
+      mockReadlineQuestion.mockImplementation((_q: string, cb: (answer: string) => void) => { cb('n'); });
+
+      const plan: DevelopmentPlan = {
+        issueNumber: 42,
+        summary: 'Fix',
+        approach: 'x',
+        fileChanges: [],
+        testingStrategy: 'tests',
+        estimatedComplexity: 'low',
+        risks: [],
+      };
+
+      await expect(engine.awaitApproval(plan)).rejects.toThrow('rejected');
     });
   });
 
@@ -629,6 +725,95 @@ describe('TammaEngine', () => {
         ),
       ).rejects.toThrow('CI checks failed');
     });
+
+    it('should throw when merge fails', async () => {
+      const platform = createMockPlatform();
+      vi.mocked(platform.getCIStatus).mockResolvedValue({
+        state: 'success', totalCount: 1, successCount: 1, failureCount: 0, pendingCount: 0,
+      });
+      vi.mocked(platform.mergePR).mockResolvedValue({
+        merged: false, sha: '', message: 'Merge conflict',
+      });
+      const { engine } = createEngine({ platform });
+
+      await expect(
+        engine.monitorAndMerge(
+          { number: 99, url: '', title: '', body: '', branch: 'feature/42-fix', status: 'open' },
+          { number: 42, title: '', body: '', labels: [], url: '', comments: [], relatedIssueNumbers: [], createdAt: '' },
+        ),
+      ).rejects.toThrow('Failed to merge PR');
+    });
+
+    it('should handle PR closed externally', async () => {
+      const platform = createMockPlatform();
+      vi.mocked(platform.getPR).mockResolvedValue({
+        number: 99, state: 'closed', head: 'feature/42-fix', base: 'main',
+        title: '', body: '', url: '', mergeable: false, labels: [],
+        createdAt: '', updatedAt: '',
+      });
+      const { engine, logger } = createEngine({ platform });
+
+      await engine.monitorAndMerge(
+        { number: 99, url: '', title: '', body: '', branch: 'feature/42-fix', status: 'open' },
+        { number: 42, title: '', body: '', labels: [], url: '', comments: [], relatedIssueNumbers: [], createdAt: '' },
+      );
+
+      // Should not merge, should not throw
+      expect(platform.mergePR).not.toHaveBeenCalled();
+      expect(logger.warn).toHaveBeenCalledWith(
+        'PR was closed externally',
+        expect.objectContaining({ prNumber: 99 }),
+      );
+    });
+
+    it('should handle PR merged externally', async () => {
+      const platform = createMockPlatform();
+      vi.mocked(platform.getPR).mockResolvedValue({
+        number: 99, state: 'merged', head: 'feature/42-fix', base: 'main',
+        title: '', body: '', url: '', mergeable: false, labels: [],
+        createdAt: '', updatedAt: '',
+      });
+      const { engine } = createEngine({ platform });
+
+      await engine.monitorAndMerge(
+        { number: 99, url: '', title: '', body: '', branch: 'feature/42-fix', status: 'open' },
+        { number: 42, title: '', body: '', labels: [], url: '', comments: [], relatedIssueNumbers: [], createdAt: '' },
+      );
+
+      // Should not try to merge again
+      expect(platform.mergePR).not.toHaveBeenCalled();
+    });
+
+    it('should use configured merge strategy', async () => {
+      const config = createMockConfig();
+      config.engine.mergeStrategy = 'merge';
+      const platform = createMockPlatform();
+      const { engine } = createEngine({ config, platform });
+
+      await engine.monitorAndMerge(
+        { number: 99, url: '', title: '', body: '', branch: 'feature/42-fix', status: 'open' },
+        { number: 42, title: '', body: '', labels: [], url: '', comments: [], relatedIssueNumbers: [], createdAt: '' },
+      );
+
+      expect(platform.mergePR).toHaveBeenCalledWith(
+        'test-owner', 'test-repo', 99,
+        expect.objectContaining({ mergeMethod: 'merge' }),
+      );
+    });
+
+    it('should skip branch deletion when deleteBranchOnMerge is false', async () => {
+      const config = createMockConfig();
+      config.engine.deleteBranchOnMerge = false;
+      const platform = createMockPlatform();
+      const { engine } = createEngine({ config, platform });
+
+      await engine.monitorAndMerge(
+        { number: 99, url: '', title: '', body: '', branch: 'feature/42-fix', status: 'open' },
+        { number: 42, title: '', body: '', labels: [], url: '', comments: [], relatedIssueNumbers: [], createdAt: '' },
+      );
+
+      expect(platform.deleteBranch).not.toHaveBeenCalled();
+    });
   });
 
   describe('processOneIssue', () => {
@@ -687,6 +872,51 @@ describe('TammaEngine', () => {
 
       expect(agent.dispose).toHaveBeenCalled();
       expect(platform.dispose).toHaveBeenCalled();
+    });
+  });
+
+  describe('event store', () => {
+    it('should record events during full pipeline', async () => {
+      const eventStore = new InMemoryEventStore();
+      const { engine } = createEngine({ eventStore } as Partial<EngineContext>);
+      await engine.processOneIssue();
+
+      const events = eventStore.getEvents();
+      expect(events.length).toBeGreaterThan(0);
+
+      const eventTypes = events.map((e) => e.type);
+      expect(eventTypes).toContain(EngineEventType.STATE_TRANSITION);
+      expect(eventTypes).toContain(EngineEventType.ISSUE_SELECTED);
+      expect(eventTypes).toContain(EngineEventType.ISSUE_ANALYZED);
+      expect(eventTypes).toContain(EngineEventType.PLAN_GENERATED);
+      expect(eventTypes).toContain(EngineEventType.PLAN_APPROVED);
+      expect(eventTypes).toContain(EngineEventType.BRANCH_CREATED);
+      expect(eventTypes).toContain(EngineEventType.IMPLEMENTATION_STARTED);
+      expect(eventTypes).toContain(EngineEventType.IMPLEMENTATION_COMPLETED);
+      expect(eventTypes).toContain(EngineEventType.PR_CREATED);
+      expect(eventTypes).toContain(EngineEventType.PR_MERGED);
+      expect(eventTypes).toContain(EngineEventType.ISSUE_CLOSED);
+      expect(eventTypes).toContain(EngineEventType.BRANCH_DELETED);
+
+      // Verify issue-specific events can be retrieved
+      const issueEvents = eventStore.getEvents(42);
+      expect(issueEvents.length).toBeGreaterThan(0);
+    });
+
+    it('should work without event store (optional)', async () => {
+      const { engine } = createEngine(); // no eventStore
+      await expect(engine.processOneIssue()).resolves.toBeUndefined();
+    });
+
+    it('should expose event store via getter', () => {
+      const eventStore = new InMemoryEventStore();
+      const { engine } = createEngine({ eventStore } as Partial<EngineContext>);
+      expect(engine.getEventStore()).toBe(eventStore);
+    });
+
+    it('should return undefined when no event store provided', () => {
+      const { engine } = createEngine();
+      expect(engine.getEventStore()).toBeUndefined();
     });
   });
 });

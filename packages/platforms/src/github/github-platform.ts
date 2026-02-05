@@ -9,6 +9,7 @@ import type {
   Comment,
   CIStatus,
   MergeResult,
+  CommitInfo,
 } from '../types/models.js';
 import type {
   CreatePROptions,
@@ -16,6 +17,7 @@ import type {
   MergePROptions,
   ListIssuesOptions,
   UpdateIssueOptions,
+  ListCommitsOptions,
 } from '../types/options.js';
 import type { PaginatedResponse } from '../types/pagination.js';
 import {
@@ -25,6 +27,7 @@ import {
   mapComment,
   mapPullRequest,
   mapCIStatus,
+  mapCommit,
 } from './github-mappers.js';
 import { withRateLimit } from './github-rate-limiter.js';
 import { mapGitHubError } from './github-error-mapper.js';
@@ -311,6 +314,18 @@ export class GitHubPlatform implements IGitPlatform {
         assignees,
       });
       return mapIssue(data);
+    });
+  }
+
+  async listCommits(owner: string, repo: string, options?: ListCommitsOptions): Promise<CommitInfo[]> {
+    return this.wrap(async () => {
+      const { data } = await this.getClient().rest.repos.listCommits({
+        owner,
+        repo,
+        per_page: options?.perPage ?? 10,
+        ...(options?.sha !== undefined ? { sha: options.sha } : {}),
+      });
+      return data.map(mapCommit);
     });
   }
 

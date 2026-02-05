@@ -7,6 +7,7 @@ import type {
   Comment,
   CIStatus,
   MergeResult,
+  CommitInfo,
 } from './models.js';
 import type {
   CreatePROptions,
@@ -14,6 +15,7 @@ import type {
   MergePROptions,
   ListIssuesOptions,
   UpdateIssueOptions,
+  ListCommitsOptions,
 } from './options.js';
 import type { PaginatedResponse } from './pagination.js';
 
@@ -87,6 +89,9 @@ export interface IGitPlatform {
     issueNumber: number,
     assignees: string[],
   ): Promise<Issue>;
+
+  // Commits
+  listCommits(owner: string, repo: string, options?: ListCommitsOptions): Promise<CommitInfo[]>;
 
   // CI Status
   getCIStatus(owner: string, repo: string, ref: string): Promise<CIStatus>;

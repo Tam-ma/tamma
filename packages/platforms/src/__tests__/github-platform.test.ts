@@ -17,6 +17,7 @@ const mockOctokit = {
     repos: {
       get: vi.fn(),
       getCombinedStatusForRef: vi.fn(),
+      listCommits: vi.fn(),
     },
     git: {
       getRef: vi.fn(),
@@ -198,6 +199,22 @@ describe('GitHubPlatform', () => {
       const status = await platform.getCIStatus('owner', 'repo', 'abc123');
       expect(status.state).toBe('success');
       expect(status.totalCount).toBe(2);
+    });
+  });
+
+  describe('listCommits', () => {
+    it('should list commits', async () => {
+      mockOctokit.rest.repos.listCommits.mockResolvedValue({
+        data: [{
+          sha: 'abc123',
+          commit: { message: 'fix: something', author: { name: 'dev', date: '2024-01-01T00:00:00Z' } },
+        }],
+        headers: {},
+      });
+
+      const commits = await platform.listCommits('owner', 'repo');
+      expect(commits).toHaveLength(1);
+      expect(commits[0]!.sha).toBe('abc123');
     });
   });
 

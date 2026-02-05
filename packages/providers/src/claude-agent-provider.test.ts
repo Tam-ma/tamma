@@ -265,6 +265,111 @@ describe('ClaudeAgentProvider', () => {
       );
     });
 
+    it('should retry on transient error then succeed', async () => {
+      // Use lazy creation so the second process isn't created until spawn is called again
+      const successMsg = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'Recovered successfully',
+        cost_usd: 0.03,
+      });
+
+      let callCount = 0;
+      mockedSpawn.mockImplementation(() => {
+        callCount++;
+        if (callCount === 1) {
+          return createMockProcess([], 1, 'ECONNRESET: connection reset');
+        }
+        return createMockProcess([successMsg], 0);
+      });
+
+      const result = await provider.executeTask({
+        prompt: 'Do something',
+        cwd: '/tmp/test',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('Recovered successfully');
+      expect(mockedSpawn).toHaveBeenCalledTimes(2);
+    }, 15000);
+
+    it('should not retry on non-transient error', async () => {
+      const failProc = createMockProcess([], 1, 'invalid API key');
+
+      mockedSpawn.mockReturnValueOnce(failProc);
+
+      const result = await provider.executeTask({
+        prompt: 'Do something',
+        cwd: '/tmp/test',
+      });
+
+      expect(result.success).toBe(false);
+      expect(result.error).toContain('invalid API key');
+      expect(mockedSpawn).toHaveBeenCalledTimes(1);
+    });
+
+    it('should handle malformed JSON lines but still succeed with valid result', async () => {
+      const malformedLine = '{this is not valid json!!!';
+      const resultMsg = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'All good',
+        cost_usd: 0.01,
+      });
+
+      mockedSpawn.mockReturnValue(
+        createMockProcess([malformedLine, resultMsg], 0),
+      );
+
+      const result = await provider.executeTask({
+        prompt: 'Test',
+        cwd: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('All good');
+    });
+
+    it('should handle empty stdout with exit code 0', async () => {
+      mockedSpawn.mockReturnValue(createMockProcess([], 0));
+
+      const result = await provider.executeTask({
+        prompt: 'Test',
+        cwd: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('');
+    });
+
+    it('should use the last cost update from multiple result messages', async () => {
+      const result1 = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'Intermediate',
+        cost_usd: 0.01,
+      });
+      const result2 = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'Final answer',
+        cost_usd: 0.07,
+      });
+
+      mockedSpawn.mockReturnValue(
+        createMockProcess([result1, result2], 0),
+      );
+
+      const result = await provider.executeTask({
+        prompt: 'Test',
+        cwd: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.costUsd).toBe(0.07);
+      expect(result.output).toBe('Final answer');
+    });
+
     it('should handle non-JSON stdout lines gracefully', async () => {
       const resultMsg = JSON.stringify({
         type: 'result',
@@ -285,6 +390,56 @@ describe('ClaudeAgentProvider', () => {
 
       expect(result.success).toBe(true);
       expect(events.some((e) => e.type === 'text' && e.message === 'Some plain text output')).toBe(true);
+    });
+
+    it('should handle partial stream with no result message', async () => {
+      const assistantText = JSON.stringify({
+        type: 'assistant',
+        message: { content: [{ type: 'text', text: 'Started working...' }] },
+      });
+
+      mockedSpawn.mockReturnValue(createMockProcess([assistantText], 0));
+
+      const result = await provider.executeTask({
+        prompt: 'Test', cwd: '/tmp',
+      });
+
+      // No result message, but exit code 0 means success with empty output
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('');
+    });
+
+    it('should handle large output lines', async () => {
+      const largeResult = JSON.stringify({
+        type: 'result',
+        subtype: 'success',
+        result: 'x'.repeat(100000),
+        cost_usd: 0.1,
+      });
+
+      mockedSpawn.mockReturnValue(createMockProcess([largeResult], 0));
+
+      const result = await provider.executeTask({
+        prompt: 'Test', cwd: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.output.length).toBe(100000);
+    });
+
+    it('should use last cost update from result message', async () => {
+      const result1 = JSON.stringify({ type: 'result', subtype: 'success', result: 'interim', cost_usd: 0.01 });
+      const result2 = JSON.stringify({ type: 'result', subtype: 'success', result: 'Done', cost_usd: 0.05 });
+
+      mockedSpawn.mockReturnValue(createMockProcess([result1, result2], 0));
+
+      const result = await provider.executeTask({
+        prompt: 'Test', cwd: '/tmp',
+      });
+
+      expect(result.success).toBe(true);
+      expect(result.costUsd).toBe(0.05);
+      expect(result.output).toBe('Done');
     });
   });
 

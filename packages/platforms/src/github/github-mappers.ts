@@ -1,4 +1,4 @@
-import type { Repository, Branch, Issue, PullRequest, Comment, CIStatus } from '../types/models.js';
+import type { Repository, Branch, Issue, PullRequest, Comment, CIStatus, CommitInfo } from '../types/models.js';
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 
@@ -62,6 +62,15 @@ export function mapPullRequest(data: any): PullRequest {
     ),
     createdAt: data.created_at,
     updatedAt: data.updated_at,
+  };
+}
+
+export function mapCommit(data: any): CommitInfo {
+  return {
+    sha: data.sha,
+    message: data.commit.message,
+    author: data.commit.author?.name ?? 'unknown',
+    date: data.commit.author?.date ?? '',
   };
 }
 

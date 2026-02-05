@@ -11,6 +11,23 @@ import type {
 
 const execFileAsync = promisify(execFile);
 
+/** Errors considered transient and worth retrying. */
+function isRetryableError(error: string): boolean {
+  const transient = [
+    'ECONNRESET',
+    'ECONNREFUSED',
+    'ETIMEDOUT',
+    'EPIPE',
+    'socket hang up',
+    'rate limit',
+    'overloaded',
+    '529',  // Overloaded
+    '503',  // Service Unavailable
+  ];
+  const lower = error.toLowerCase();
+  return transient.some((t) => lower.includes(t.toLowerCase()));
+}
+
 function emitProgress(
   callback: AgentProgressCallback | undefined,
   event: Omit<AgentProgressEvent, 'timestamp'>,
@@ -64,7 +81,40 @@ export class ClaudeAgentProvider implements IAgentProvider {
     onProgress?: AgentProgressCallback,
   ): Promise<AgentTaskResult> {
     const start = Date.now();
+    const maxRetries = 2;
 
+    for (let attempt = 0; attempt <= maxRetries; attempt++) {
+      const result = await this.executeOnce(config, onProgress, start);
+
+      if (result.success || attempt >= maxRetries) {
+        return result;
+      }
+
+      // Only retry transient errors
+      if (result.error !== undefined && isRetryableError(result.error)) {
+        const delay = 1000 * Math.pow(2, attempt) + Math.random() * 500;
+        await new Promise((resolve) => setTimeout(resolve, delay));
+        continue;
+      }
+
+      return result;
+    }
+
+    // Should not reach here, but satisfy TypeScript
+    return {
+      success: false,
+      output: '',
+      costUsd: 0,
+      durationMs: Date.now() - start,
+      error: 'Retry logic exhausted',
+    };
+  }
+
+  private async executeOnce(
+    config: AgentTaskConfig,
+    onProgress: AgentProgressCallback | undefined,
+    start: number,
+  ): Promise<AgentTaskResult> {
     try {
       const args = this.buildArgs(config);
 

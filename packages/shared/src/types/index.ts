@@ -47,6 +47,10 @@ export interface EngineConfig {
    * Default: 3 600 000 ms (1 hour).
    */
   ciMonitorTimeoutMs: number;
+  /** Merge method to use when merging PRs. Default: 'squash'. */
+  mergeStrategy?: 'squash' | 'merge' | 'rebase';
+  /** Whether to delete the feature branch after merge. Default: true. */
+  deleteBranchOnMerge?: boolean;
 }
 
 // --- Engine State Machine (Story 1.5-1) ---
@@ -129,4 +133,42 @@ export interface LaunchContext {
   mode: 'cli' | 'service' | 'web' | 'worker';
   config: TammaConfig;
   logger: ILogger;
+}
+
+// --- Event Store (for audit trail) ---
+
+export enum EngineEventType {
+  ISSUE_SELECTED = 'ISSUE_SELECTED',
+  ISSUE_ANALYZED = 'ISSUE_ANALYZED',
+  PLAN_GENERATED = 'PLAN_GENERATED',
+  PLAN_APPROVED = 'PLAN_APPROVED',
+  PLAN_REJECTED = 'PLAN_REJECTED',
+  BRANCH_CREATED = 'BRANCH_CREATED',
+  IMPLEMENTATION_STARTED = 'IMPLEMENTATION_STARTED',
+  IMPLEMENTATION_COMPLETED = 'IMPLEMENTATION_COMPLETED',
+  IMPLEMENTATION_FAILED = 'IMPLEMENTATION_FAILED',
+  PR_CREATED = 'PR_CREATED',
+  CI_CHECK_STARTED = 'CI_CHECK_STARTED',
+  CI_CHECK_PASSED = 'CI_CHECK_PASSED',
+  CI_CHECK_FAILED = 'CI_CHECK_FAILED',
+  PR_MERGED = 'PR_MERGED',
+  ISSUE_CLOSED = 'ISSUE_CLOSED',
+  BRANCH_DELETED = 'BRANCH_DELETED',
+  ERROR_OCCURRED = 'ERROR_OCCURRED',
+  STATE_TRANSITION = 'STATE_TRANSITION',
+}
+
+export interface EngineEvent {
+  id: string;
+  type: EngineEventType;
+  timestamp: number;
+  issueNumber?: number;
+  data: Record<string, unknown>;
+}
+
+export interface IEventStore {
+  record(event: Omit<EngineEvent, 'id' | 'timestamp'>): EngineEvent;
+  getEvents(issueNumber?: number): EngineEvent[];
+  getLastEvent(type: EngineEventType): EngineEvent | undefined;
+  clear(): void;
 }

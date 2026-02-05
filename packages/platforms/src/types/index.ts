@@ -9,6 +9,7 @@ export type {
   CIStatus,
   CIStatusState,
   MergeResult,
+  CommitInfo,
 } from './models.js';
 export type {
   CreatePROptions,
@@ -16,6 +17,7 @@ export type {
   MergePROptions,
   ListIssuesOptions,
   UpdateIssueOptions,
+  ListCommitsOptions,
 } from './options.js';
 export type { PaginatedResponse } from './pagination.js';
 export {

@@ -32,3 +32,8 @@ export interface UpdateIssueOptions {
   body?: string;
   labels?: string[];
 }
+
+export interface ListCommitsOptions {
+  perPage?: number;
+  sha?: string;
+}
