@@ -22,12 +22,16 @@ export function sleep(ms: number): Promise<void> {
  * Lowercase, replace non-alphanumeric with hyphens, collapse multiple hyphens, trim, limit to 50 chars.
  */
 export function slugify(text: string): string {
-  return text
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-+|-+$/g, '')  // Remove leading/trailing hyphens in one pass
-    .slice(0, 50)
-    .replace(/-+$/, '');  // Remove trailing hyphen after truncation
+  const hyphenated = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
+  // Trim leading/trailing hyphens without regex to satisfy CodeQL
+  let start = 0;
+  while (start < hyphenated.length && hyphenated[start] === '-') start++;
+  let end = hyphenated.length;
+  while (end > start && hyphenated[end - 1] === '-') end--;
+  let slug = hyphenated.slice(start, end).slice(0, 50);
+  // Trim trailing hyphen after truncation
+  while (slug.endsWith('-')) slug = slug.slice(0, -1);
+  return slug;
 }
 
 /**
