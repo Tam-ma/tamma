@@ -1,9 +1,9 @@
-import React, { useState, useCallback } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { render, Box, Text } from 'ink';
 import { EngineState } from '@tamma/shared';
-import type { IssueData } from '@tamma/shared';
+import type { IssueData, DevelopmentPlan } from '@tamma/shared';
 import { TammaEngine } from '@tamma/orchestrator';
-import type { EngineStats } from '@tamma/orchestrator';
+import type { EngineStats, ApprovalHandler } from '@tamma/orchestrator';
 import { ClaudeAgentProvider } from '@tamma/providers';
 import { GitHubPlatform } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
@@ -11,28 +11,87 @@ import { loadConfig, validateConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
 import { writeLockfile, removeLockfile } from '../state.js';
 import EngineStatus from '../components/EngineStatus.js';
+import PlanApproval from '../components/PlanApproval.js';
+
+/** Listener that receives engine state updates. */
+type StateListener = (state: EngineState, issue: IssueData | null, stats: EngineStats) => void;
+
+/** Simple pub/sub bridge between the engine callback (non-React) and the React component. */
+interface StateEmitter {
+  listener: StateListener | null;
+  emit: StateListener;
+  /** Re-emit the last known state. Used by approvalHandler to notify React after setting the ref. */
+  reEmit: () => void;
+}
+
+function createStateEmitter(): StateEmitter {
+  let lastArgs: [EngineState, IssueData | null, EngineStats] | null = null;
+  const emitter: StateEmitter = {
+    listener: null,
+    emit(state, issue, stats) {
+      lastArgs = [state, issue, stats];
+      emitter.listener?.(state, issue, stats);
+    },
+    reEmit() {
+      if (lastArgs !== null) {
+        emitter.listener?.(...lastArgs);
+      }
+    },
+  };
+  return emitter;
+}
+
+/** Pending approval that the React component can resolve. */
+interface PendingApproval {
+  plan: DevelopmentPlan;
+  resolve: (decision: 'approve' | 'reject' | 'skip') => void;
+}
 
 interface StartAppProps {
   engine: TammaEngine;
   once: boolean;
+  stateEmitter: StateEmitter;
+  approvalRef: React.MutableRefObject<PendingApproval | null>;
 }
 
-function StartApp({ engine, once }: StartAppProps): React.JSX.Element {
+function StartApp({ engine, once, stateEmitter, approvalRef }: StartAppProps): React.JSX.Element {
   const [state, setState] = useState<EngineState>(EngineState.IDLE);
   const [issue, setIssue] = useState<{ number: number; title: string } | null>(null);
   const [stats, setStats] = useState<EngineStats>({ issuesProcessed: 0, totalCostUsd: 0, startedAt: Date.now() });
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
 
-  // These would be wired via onStateChange callback
-  const _handleStateChange = useCallback((_state: EngineState, _issue: IssueData | null, _stats: EngineStats) => {
-    setState(_state);
-    setIssue(_issue !== null ? { number: _issue.number, title: _issue.title } : null);
-    setStats(_stats);
-  }, []);
+  // Subscribe to engine state changes
+  useEffect(() => {
+    stateEmitter.listener = (newState, newIssue, newStats) => {
+      setState(newState);
+      setIssue(newIssue !== null ? { number: newIssue.number, title: newIssue.title } : null);
+      setStats(newStats);
+
+      // Check if there's a pending approval to display
+      if (newState === EngineState.AWAITING_APPROVAL && approvalRef.current !== null) {
+        setPendingApproval(approvalRef.current);
+      } else {
+        setPendingApproval(null);
+      }
+    };
+
+    return () => {
+      stateEmitter.listener = null;
+    };
+  }, [stateEmitter, approvalRef]);
+
+  const handleApprovalDecision = useCallback((decision: 'approve' | 'reject' | 'skip') => {
+    if (pendingApproval !== null) {
+      pendingApproval.resolve(decision);
+      setPendingApproval(null);
+      approvalRef.current = null;
+    }
+  }, [pendingApproval, approvalRef]);
 
   // Start the engine on first render
-  React.useEffect(() => {
+  useEffect(() => {
     void (async () => {
       try {
         await engine.initialize();
@@ -52,7 +111,7 @@ function StartApp({ engine, once }: StartAppProps): React.JSX.Element {
       void engine.dispose();
       removeLockfile();
     };
-  }, [engine, once, _handleStateChange]);
+  }, [engine, once]);
 
   if (error !== null) {
     return (
@@ -68,6 +127,11 @@ function StartApp({ engine, once }: StartAppProps): React.JSX.Element {
         <Text color="green" bold>Processing complete.</Text>
       </Box>
     );
+  }
+
+  // Show PlanApproval when awaiting approval
+  if (pendingApproval !== null) {
+    return <PlanApproval plan={pendingApproval.plan} onDecision={handleApprovalDecision} />;
   }
 
   return <EngineStatus state={state} issue={issue} stats={stats} />;
@@ -99,7 +163,23 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   // Set up agent provider
   const agent = new ClaudeAgentProvider();
 
-  // Create engine with lockfile updates on state change
+  // State emitter bridges engine callbacks → React state
+  const stateEmitter = createStateEmitter();
+
+  // Approval ref holds the pending promise for Ink-based approval
+  const approvalRef: { current: PendingApproval | null } = { current: null };
+
+  // Ink-based approval handler: sets up a promise and waits for the React component to resolve it.
+  // Note: onStateChange fires BEFORE approvalHandler is called (setState → onStateChange → approvalHandler),
+  // so we must re-emit after setting the ref to notify the React component.
+  const approvalHandler: ApprovalHandler = (plan) => {
+    return new Promise<'approve' | 'reject' | 'skip'>((resolve) => {
+      approvalRef.current = { plan, resolve };
+      stateEmitter.reEmit();
+    });
+  };
+
+  // Create engine with combined state change handler
   const engine = new TammaEngine({
     config,
     platform,
@@ -107,7 +187,9 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     logger,
     onStateChange: (state, issue, stats) => {
       writeLockfile(state, issue, stats);
+      stateEmitter.emit(state, issue, stats);
     },
+    approvalHandler,
   });
 
   // Handle graceful shutdown
@@ -165,6 +247,8 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     <StartApp
       engine={engine}
       once={options.once === true}
+      stateEmitter={stateEmitter}
+      approvalRef={approvalRef}
     />,
   );
 

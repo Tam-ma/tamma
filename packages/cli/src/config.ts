@@ -26,7 +26,7 @@ const DEFAULT_CONFIG: TammaConfig = {
     model: 'claude-sonnet-4-5',
     maxBudgetUsd: 1.0,
     allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
-    permissionMode: 'bypassPermissions',
+    permissionMode: 'default',
   },
   engine: {
     pollIntervalMs: 300_000,
@@ -205,7 +205,7 @@ export function generateConfigFile(answers: {
       model: 'claude-sonnet-4-5',
       maxBudgetUsd: 1.0,
       allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
-      permissionMode: 'bypassPermissions',
+      permissionMode: 'default',
     },
     engine: {
       pollIntervalMs: 300_000,

@@ -27,6 +27,9 @@ export type OnStateChangeCallback = (
   stats: EngineStats,
 ) => void;
 
+/** Callback that replaces the default readline approval prompt. */
+export type ApprovalHandler = (plan: DevelopmentPlan) => Promise<'approve' | 'reject' | 'skip'>;
+
 /** Dependencies injected into TammaEngine at construction time. */
 export interface EngineContext {
   config: TammaConfig;
@@ -35,6 +38,7 @@ export interface EngineContext {
   logger: ILogger;
   eventStore?: IEventStore;
   onStateChange?: OnStateChangeCallback;
+  approvalHandler?: ApprovalHandler;
 }
 
 /**
@@ -79,6 +83,7 @@ export class TammaEngine {
   private readonly logger: ILogger;
   private readonly eventStore: IEventStore | undefined;
   private readonly onStateChange: OnStateChangeCallback | undefined;
+  private readonly approvalHandler: ApprovalHandler | undefined;
 
   constructor(ctx: EngineContext) {
     this.config = ctx.config;
@@ -87,6 +92,7 @@ export class TammaEngine {
     this.logger = ctx.logger;
     this.eventStore = ctx.eventStore;
     this.onStateChange = ctx.onStateChange;
+    this.approvalHandler = ctx.approvalHandler;
     this.startedAt = Date.now();
   }
 
@@ -495,7 +501,23 @@ Return ONLY valid JSON matching the schema.`;
       return;
     }
 
-    // CLI approval
+    // Use custom approval handler if provided (e.g. Ink UI)
+    if (this.approvalHandler !== undefined) {
+      const decision = await this.approvalHandler(plan);
+      if (decision === 'reject') {
+        this.recordEvent(EngineEventType.PLAN_REJECTED, plan.issueNumber, {});
+        throw new WorkflowError('Plan rejected by user', { retryable: false });
+      }
+      if (decision === 'skip') {
+        this.recordEvent(EngineEventType.PLAN_REJECTED, plan.issueNumber, { skipped: true });
+        throw new WorkflowError('Plan skipped by user', { retryable: false });
+      }
+      this.recordEvent(EngineEventType.PLAN_APPROVED, plan.issueNumber, {});
+      this.logger.info('Plan approved via handler');
+      return;
+    }
+
+    // Fallback: CLI readline approval
     const planDisplay = [
       `\n${'='.repeat(60)}`,
       `Development Plan for Issue #${plan.issueNumber}`,

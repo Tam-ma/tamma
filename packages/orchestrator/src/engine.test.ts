@@ -470,6 +470,64 @@ describe('TammaEngine', () => {
       await expect(engine.awaitApproval(plan)).resolves.toBeUndefined();
     });
 
+    it('should use approvalHandler when provided', async () => {
+      const config = createMockConfig();
+      config.engine.approvalMode = 'cli';
+      const approvalHandler = vi.fn().mockResolvedValue('approve');
+      const { engine } = createEngine({ config, approvalHandler } as Partial<EngineContext>);
+
+      const plan: DevelopmentPlan = {
+        issueNumber: 42,
+        summary: 'Fix auth',
+        approach: 'Update handler',
+        fileChanges: [],
+        testingStrategy: 'Unit tests',
+        estimatedComplexity: 'low',
+        risks: [],
+      };
+
+      await expect(engine.awaitApproval(plan)).resolves.toBeUndefined();
+      expect(approvalHandler).toHaveBeenCalledWith(plan);
+    });
+
+    it('should reject when approvalHandler returns reject', async () => {
+      const config = createMockConfig();
+      config.engine.approvalMode = 'cli';
+      const approvalHandler = vi.fn().mockResolvedValue('reject');
+      const { engine } = createEngine({ config, approvalHandler } as Partial<EngineContext>);
+
+      const plan: DevelopmentPlan = {
+        issueNumber: 42,
+        summary: 'Fix auth',
+        approach: 'Update handler',
+        fileChanges: [],
+        testingStrategy: 'Unit tests',
+        estimatedComplexity: 'low',
+        risks: [],
+      };
+
+      await expect(engine.awaitApproval(plan)).rejects.toThrow('rejected');
+    });
+
+    it('should skip when approvalHandler returns skip', async () => {
+      const config = createMockConfig();
+      config.engine.approvalMode = 'cli';
+      const approvalHandler = vi.fn().mockResolvedValue('skip');
+      const { engine } = createEngine({ config, approvalHandler } as Partial<EngineContext>);
+
+      const plan: DevelopmentPlan = {
+        issueNumber: 42,
+        summary: 'Fix auth',
+        approach: 'Update handler',
+        fileChanges: [],
+        testingStrategy: 'Unit tests',
+        estimatedComplexity: 'low',
+        risks: [],
+      };
+
+      await expect(engine.awaitApproval(plan)).rejects.toThrow('skipped');
+    });
+
     it('should reject plan in cli approval mode', async () => {
       const config = createMockConfig();
       config.engine.approvalMode = 'cli';

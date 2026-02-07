@@ -15,6 +15,7 @@
     "test": "vitest",
     "test:unit": "vitest --run --testPathPattern=\\.unit\\.test\\.ts$",
     "test:integration": "vitest --run --testPathPattern=\\.integration\\.test\\.ts$",
+    "test:e2e": "vitest run --testPathPattern=\\.e2e\\.test\\.ts$ --testTimeout=300000",
     "test:coverage": "vitest --coverage",
     "lint": "eslint . --ext .ts,.tsx",
     "lint:fix": "eslint . --ext .ts,.tsx --fix",
