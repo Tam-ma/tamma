@@ -334,7 +334,7 @@ export class TammaEngine {
       if (commits.length > 0) {
         sections.push('### Recent Commits');
         for (const commit of commits) {
-          sections.push(`- \`${commit.sha.slice(0, 7)}\` ${commit.message.split('\n')[0]!} (${commit.author})`);
+          sections.push(`- \`${commit.sha.slice(0, 7)}\` ${(commit.message.split('\n')[0] ?? 'no message')} (${commit.author})`);
         }
         sections.push('');
       }
@@ -758,6 +758,7 @@ Follow existing project conventions and patterns.`;
     const pollInterval = this.config.engine.ciPollIntervalMs;
     const timeout = this.config.engine.ciMonitorTimeoutMs;
     const startTime = Date.now();
+    let ciPollCount = 0;
 
     // eslint-disable-next-line @typescript-eslint/no-unnecessary-condition
     while (true) {
@@ -766,6 +767,11 @@ Follow existing project conventions and patterns.`;
           `CI monitoring timed out after ${Math.round(timeout / 60000)} minutes`,
           { retryable: false, context: { prNumber: pr.number, timeoutMs: timeout } },
         );
+      }
+
+      ciPollCount++;
+      if (ciPollCount > 500) {
+        throw new WorkflowError('CI monitoring exceeded maximum poll attempts', { retryable: false, context: { prNumber: pr.number, pollCount: ciPollCount } });
       }
 
       const prData = await this.platform.getPR(owner, repo, pr.number);

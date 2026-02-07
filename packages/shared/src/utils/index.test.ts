@@ -40,11 +40,11 @@ describe('Utility Functions', () => {
     });
 
     it('should handle empty string', () => {
-      expect(slugify('')).toBe('');
+      expect(slugify('')).toBe('untitled');
     });
 
     it('should handle special characters only', () => {
-      expect(slugify('!!@@##')).toBe('');
+      expect(slugify('!!@@##')).toBe('untitled');
     });
   });
 

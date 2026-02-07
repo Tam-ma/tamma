@@ -31,6 +31,7 @@ export function slugify(text: string): string {
   let slug = hyphenated.slice(start, end).slice(0, 50);
   // Trim trailing hyphen after truncation
   while (slug.endsWith('-')) slug = slug.slice(0, -1);
+  if (slug === '') return 'untitled';
   return slug;
 }
 
