@@ -1,5 +1,6 @@
 import { randomUUID } from 'node:crypto';
 import type { EngineEvent, EngineEventType, IEventStore } from './types/index.js';
+import { monotonicNow } from './utils/index.js';
 
 export class InMemoryEventStore implements IEventStore {
   private events: EngineEvent[] = [];
@@ -8,7 +9,7 @@ export class InMemoryEventStore implements IEventStore {
     const full: EngineEvent = {
       ...event,
       id: randomUUID(),
-      timestamp: Date.now(),
+      timestamp: monotonicNow(),
     };
     this.events.push(full);
     return full;

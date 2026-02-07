@@ -2,6 +2,17 @@
  * Common utility functions shared across the Tamma platform
  */
 
+/**
+ * Returns a monotonically increasing timestamp (milliseconds).
+ * Guarantees unique values even when called multiple times in the same millisecond.
+ */
+let _lastMonotonicTs = 0;
+export function monotonicNow(): number {
+  const now = Date.now();
+  _lastMonotonicTs = now > _lastMonotonicTs ? now : _lastMonotonicTs + 1;
+  return _lastMonotonicTs;
+}
+
 export function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
