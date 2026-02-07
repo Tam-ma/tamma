@@ -12,19 +12,44 @@ export interface CommandMatchResult {
 /**
  * Check if a regex pattern is safe from ReDoS attacks.
  * Rejects patterns with nested quantifiers like (a+)+, (a*)*,  (a?)*.
+ * Uses string scanning instead of regex to avoid being vulnerable itself.
  */
 function isSafeRegex(pattern: string): boolean {
-  // Detect nested quantifiers: a group with a quantifier inside, followed by a quantifier outside
-  // e.g., (a+)+, (a*)+, (a+)*, (a{2,})+, etc.
-  const nestedQuantifier = /(\((?:[^()]*[+*?]|[^()]*\{[0-9,]+\})[^()]*\))[+*?]|\1\{[0-9,]+\}/;
-  if (nestedQuantifier.test(pattern)) {
-    return false;
+  // Reject excessively long patterns
+  if (pattern.length > 200) return false;
+
+  // Scan for nested quantifiers: a group ending with a quantifier,
+  // where the group itself is followed by a quantifier.
+  // Walk characters, track paren depth, detect quantifiers.
+  let depth = 0;
+  const quantifiers = new Set(['+', '*', '?']);
+
+  for (let i = 0; i < pattern.length; i++) {
+    const ch = pattern[i];
+    // Skip escaped characters
+    if (ch === '\\') { i++; continue; }
+    if (ch === '(') { depth++; continue; }
+    if (ch === ')') {
+      depth--;
+      // Check if the next char after ')' is a quantifier
+      const next = pattern[i + 1];
+      if (next && (quantifiers.has(next) || next === '{')) {
+        // Walk backwards inside the group to see if there's a quantifier before ')'
+        for (let j = i - 1; j >= 0; j--) {
+          const inner = pattern[j];
+          if (inner === '(') break; // reached group start
+          if (inner === '\\') continue; // skip escaped
+          if (quantifiers.has(inner) || inner === '}') {
+            return false; // nested quantifier detected
+          }
+          // Only look at the last meaningful char before ')'
+          break;
+        }
+      }
+      continue;
+    }
   }
-  // Also reject patterns that have repeated character classes with quantifiers
-  const repeatedCharClass = /(\[[^\]]+\][+*])\1/;
-  if (repeatedCharClass.test(pattern)) {
-    return false;
-  }
+
   return true;
 }
 

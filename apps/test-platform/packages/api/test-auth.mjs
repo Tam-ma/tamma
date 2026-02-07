@@ -187,7 +187,7 @@ async function testCreateAPIKey() {
   if (result.success) {
     log('✓ API key created successfully', colors.green)
     log(`  Key ID: ${result.data.key.id}`)
-    log(`  Key: ${result.data.apiKey.substring(0, 7)}...[REDACTED]`, colors.yellow)
+    log(`  Key: [REDACTED]`, colors.yellow)
     log(`  Warning: ${result.data.warning}`, colors.yellow)
 
     // Test using the API key
