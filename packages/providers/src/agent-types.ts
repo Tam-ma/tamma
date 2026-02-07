@@ -28,3 +28,13 @@ export interface IAgentProvider {
   isAvailable(): Promise<boolean>;
   dispose(): Promise<void>;
 }
+
+/**
+ * IAgentProvider is the backward-compatible alias for consumers.
+ * New code should prefer ICLIAgentProvider from './types.js'.
+ *
+ * The existing IAgentProvider maps to ICLIAgentProvider as follows:
+ * - executeTask() → execute()
+ * - isAvailable() → isAvailable() (inherited from IProvider)
+ * - dispose() → dispose() (inherited from IProvider)
+ */

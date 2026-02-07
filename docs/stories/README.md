@@ -11,6 +11,7 @@ Stories are organized into epic-specific subdirectories:
 - **`epic-3/`** - Quality Gates & Intelligence Layer (12 stories)
 - **`epic-4/`** - Event Sourcing & Intelligence (7 stories)
 - **`epic-5/`** - Observability Dashboard & Documentation (14 stories)
+- **`epic-6/`** - Context & Knowledge Management (10 stories)
 
 ## File Types
 
@@ -53,6 +54,10 @@ All stories across all epics are **ready for implementation** with:
 
 - **Epic 5**: Observability Dashboard & Documentation
 
+### Phase 4 (February 2026)
+
+- **Epic 6**: Context & Knowledge Management (Vector DB, RAG, MCP)
+
 ## Navigation
 
 - See individual epic README files for detailed story breakdowns
@@ -62,6 +67,6 @@ All stories across all epics are **ready for implementation** with:
 
 ---
 
-**Last Updated**: 2025-11-09  
-**Total Stories**: 64 stories across 5 epics  
+**Last Updated**: 2026-02-05
+**Total Stories**: 74 stories across 6 epics
 **Implementation Start**: November 2025

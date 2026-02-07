@@ -13,6 +13,20 @@ import { WorkflowError, EngineError } from '@tamma/shared';
 import type { IAgentProvider } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
 
+/** Statistics tracked by the engine across its lifetime. */
+export interface EngineStats {
+  issuesProcessed: number;
+  totalCostUsd: number;
+  startedAt: number;
+}
+
+/** Callback invoked on every state transition. */
+export type OnStateChangeCallback = (
+  newState: EngineState,
+  issue: IssueData | null,
+  stats: EngineStats,
+) => void;
+
 /** Dependencies injected into TammaEngine at construction time. */
 export interface EngineContext {
   config: TammaConfig;
@@ -20,6 +34,7 @@ export interface EngineContext {
   agent: IAgentProvider;
   logger: ILogger;
   eventStore?: IEventStore;
+  onStateChange?: OnStateChangeCallback;
 }
 
 /**
@@ -54,12 +69,16 @@ export class TammaEngine {
   private currentBranch: string | null = null;
   private currentPR: PullRequestInfo | null = null;
   private running = false;
+  private issuesProcessed = 0;
+  private totalCostUsd = 0;
+  private readonly startedAt: number;
 
   private readonly config: TammaConfig;
   private readonly platform: IGitPlatform;
   private readonly agent: IAgentProvider;
   private readonly logger: ILogger;
   private readonly eventStore: IEventStore | undefined;
+  private readonly onStateChange: OnStateChangeCallback | undefined;
 
   constructor(ctx: EngineContext) {
     this.config = ctx.config;
@@ -67,6 +86,8 @@ export class TammaEngine {
     this.agent = ctx.agent;
     this.logger = ctx.logger;
     this.eventStore = ctx.eventStore;
+    this.onStateChange = ctx.onStateChange;
+    this.startedAt = Date.now();
   }
 
   /** Verify the agent provider is reachable. Must be called before {@link run}. */
@@ -622,6 +643,7 @@ Follow existing project conventions and patterns.`;
     );
 
     if (result.success) {
+      this.totalCostUsd += result.costUsd;
       this.recordEvent(EngineEventType.IMPLEMENTATION_COMPLETED, issue.number, { costUsd: result.costUsd, durationMs: result.durationMs });
     }
 
@@ -838,6 +860,7 @@ Follow existing project conventions and patterns.`;
         this.recordEvent(EngineEventType.ISSUE_CLOSED, issue.number, { prNumber: pr.number });
 
         // Completion checkpoint
+        this.issuesProcessed++;
         this.logger.info('Issue completed', {
           issueNumber: issue.number,
           prNumber: pr.number,
@@ -876,6 +899,14 @@ Follow existing project conventions and patterns.`;
     return this.eventStore;
   }
 
+  getStats(): EngineStats {
+    return {
+      issuesProcessed: this.issuesProcessed,
+      totalCostUsd: this.totalCostUsd,
+      startedAt: this.startedAt,
+    };
+  }
+
   private recordEvent(type: EngineEventType, issueNumber?: number, data: Record<string, unknown> = {}): void {
     this.eventStore?.record({
       type,
@@ -889,6 +920,7 @@ Follow existing project conventions and patterns.`;
     this.state = state;
     this.recordEvent(EngineEventType.STATE_TRANSITION, this.currentIssue?.number, { from: prev, to: state });
     this.logger.debug('State transition', { from: prev, to: state });
+    this.onStateChange?.(state, this.currentIssue, this.getStats());
   }
 
   private resetCurrentWork(): void {

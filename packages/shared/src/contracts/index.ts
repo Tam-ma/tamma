@@ -9,3 +9,6 @@ export interface ILogger {
   warn(message: string, context?: Record<string, unknown>): void;
   error(message: string, context?: Record<string, unknown>): void;
 }
+
+// Knowledge Base service contracts
+export * from './knowledge-base/index.js';

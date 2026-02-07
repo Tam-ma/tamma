@@ -8,6 +8,7 @@ import type {
   AgentProgressCallback,
   AgentProgressEvent,
 } from './agent-types.js';
+import type { ICLIAgentProvider, CLIAgentCapabilities } from './types.js';
 
 const execFileAsync = promisify(execFile);
 
@@ -75,7 +76,20 @@ interface StreamAssistantMessage extends StreamMessage {
  *
  * Uses `--output-format stream-json` for real-time progress and cost tracking.
  */
-export class ClaudeAgentProvider implements IAgentProvider {
+export class ClaudeAgentProvider implements IAgentProvider, ICLIAgentProvider {
+  readonly name = 'claude-code';
+  readonly type = 'cli-agent' as const;
+  readonly capabilities: CLIAgentCapabilities = {
+    fileOperations: true,
+    commandExecution: true,
+    gitOperations: true,
+    browserAutomation: false,
+    mcpSupport: true,
+    sessionResume: true,
+    structuredOutput: true,
+    streaming: true,
+  };
+
   async executeTask(
     config: AgentTaskConfig,
     onProgress?: AgentProgressCallback,
@@ -219,6 +233,28 @@ export class ClaudeAgentProvider implements IAgentProvider {
         error: errorMessage,
       };
     }
+  }
+
+  /** ICLIAgentProvider.execute — delegates to executeTask */
+  async execute(
+    config: AgentTaskConfig,
+    onProgress?: AgentProgressCallback,
+  ): Promise<AgentTaskResult> {
+    return this.executeTask(config, onProgress);
+  }
+
+  /** ICLIAgentProvider.resumeSession — convenience for session resumption */
+  async resumeSession(
+    sessionId: string,
+    prompt: string,
+    onProgress?: AgentProgressCallback,
+  ): Promise<AgentTaskResult> {
+    return this.executeTask({ prompt, cwd: '.', sessionId }, onProgress);
+  }
+
+  /** IProvider.initialize — no-op for CLI agent (binary is external) */
+  async initialize(_config: import('./types.js').ProviderConfig): Promise<void> {
+    // Claude Code CLI requires no initialization — it reads config from its own store
   }
 
   /**

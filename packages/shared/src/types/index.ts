@@ -4,6 +4,47 @@
 
 import type { ILogger } from '../contracts/index.js';
 
+// Re-export knowledge types
+export * from './knowledge.js';
+
+// Re-export knowledge base UI types
+export * from './knowledge-base/index.js';
+
+// --- AI Provider Types ---
+
+/** Supported AI/LLM provider types */
+export type AIProviderType = 'anthropic' | 'openai' | 'local';
+
+/** Configuration for an AI provider */
+export interface AIProviderConfig {
+  type: AIProviderType;
+  /** Model identifier (e.g., 'claude-sonnet-4', 'gpt-4o', 'llama3.1:70b') */
+  model: string;
+  /** API base URL (required for local, optional for cloud providers) */
+  baseUrl?: string;
+  /** API key (not needed for local providers) */
+  apiKey?: string;
+  /** Max tokens for context window */
+  maxContextTokens?: number;
+  /** Max tokens for output */
+  maxOutputTokens?: number;
+  /** Temperature (0-1) */
+  temperature?: number;
+}
+
+/** Local AI provider configuration (Ollama, llama.cpp, vLLM, etc.) */
+export interface LocalAIProviderConfig extends AIProviderConfig {
+  type: 'local';
+  /** Base URL for the local API (default: http://localhost:11434 for Ollama) */
+  baseUrl: string;
+  /** Runtime type for local inference */
+  runtime: 'ollama' | 'llamacpp' | 'vllm' | 'lmstudio' | 'custom';
+  /** GPU layers to offload (-1 = all) */
+  gpuLayers?: number;
+  /** Number of parallel requests supported */
+  parallelRequests?: number;
+}
+
 // --- Configuration ---
 
 export interface TammaConfig {
@@ -12,6 +53,10 @@ export interface TammaConfig {
   github: GitHubConfig;
   agent: AgentConfig;
   engine: EngineConfig;
+  /** AI provider configurations (supports multiple) */
+  aiProviders?: AIProviderConfig[];
+  /** Default AI provider to use */
+  defaultProvider?: AIProviderType;
 }
 
 export interface GitHubConfig {
@@ -25,6 +70,10 @@ export interface GitHubConfig {
 
 export interface AgentConfig {
   model: string;
+  /** AI provider type (default: 'anthropic') */
+  provider?: AIProviderType;
+  /** Provider-specific config override */
+  providerConfig?: AIProviderConfig;
   maxBudgetUsd: number;
   allowedTools: string[];
   permissionMode: 'bypassPermissions' | 'default';

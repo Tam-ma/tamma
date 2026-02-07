@@ -1,0 +1,1364 @@
+{
+  "id": "tamma-autonomous-mentorship",
+  "definitionId": "tamma-autonomous-mentorship",
+  "name": "Tamma Autonomous Mentorship",
+  "description": "Complete autonomous mentorship workflow for junior developers implementing the 20+ state machine with AI-powered guidance",
+  "version": 3,
+  "isPublished": true,
+  "isLatest": true,
+  "variables": [
+    {
+      "name": "storyId",
+      "type": "String",
+      "value": ""
+    },
+    {
+      "name": "juniorId",
+      "type": "String",
+      "value": ""
+    },
+    {
+      "name": "sessionId",
+      "type": "Guid",
+      "value": null
+    },
+    {
+      "name": "currentState",
+      "type": "String",
+      "value": "INIT_STORY_PROCESSING"
+    },
+    {
+      "name": "assessmentResult",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "progressStatus",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "qualityResult",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "reviewStatus",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "blockerInfo",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "guidanceResult",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "codeContext",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "aiAnalysis",
+      "type": "Object",
+      "value": null
+    },
+    {
+      "name": "pullRequestNumber",
+      "type": "Int32",
+      "value": 0
+    },
+    {
+      "name": "retryCount",
+      "type": "Int32",
+      "value": 0
+    },
+    {
+      "name": "maxRetries",
+      "type": "Int32",
+      "value": 3
+    }
+  ],
+  "root": {
+    "type": "Elsa.Sequence",
+    "id": "root",
+    "activities": [
+      {
+        "type": "Elsa.WriteLine",
+        "id": "init-log",
+        "text": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "`Tamma: Starting autonomous mentorship for story ${getVariable('storyId')} with junior ${getVariable('juniorId')}`"
+          }
+        }
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "set-initial-state",
+        "variableName": "currentState",
+        "value": "INIT_STORY_PROCESSING"
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "reset-retry-count",
+        "variableName": "retryCount",
+        "value": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "0"
+          }
+        }
+      },
+      {
+        "type": "Tamma.AI.ContextGathering",
+        "id": "gather-initial-context",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "maxContextSize": 50000,
+        "includeSimilarPatterns": true,
+        "includeTests": true
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-context",
+        "variableName": "codeContext",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Tamma.Mentorship.AssessJuniorCapability",
+        "id": "assess-capability",
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "juniorId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('juniorId')"
+          }
+        },
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "timeoutMinutes": 5
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-assessment",
+        "variableName": "assessmentResult",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Elsa.Switch",
+        "id": "assessment-switch",
+        "cases": [
+          {
+            "name": "Correct",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('assessmentResult').Status === 'Correct'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "correct-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "correct-log",
+                  "text": "Junior demonstrates correct understanding, proceeding to planning"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-plan-state",
+                  "variableName": "currentState",
+                  "value": "PLAN_DECOMPOSITION"
+                }
+              ]
+            }
+          },
+          {
+            "name": "Partial",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('assessmentResult').Status === 'Partial'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "partial-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "partial-log",
+                  "text": "Junior has partial understanding, clarifying requirements"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-clarify-state",
+                  "variableName": "currentState",
+                  "value": "CLARIFY_REQUIREMENTS"
+                },
+                {
+                  "type": "Tamma.Mentorship.ProvideGuidance",
+                  "id": "clarify-guidance",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "blockerType": "REQUIREMENTS_UNCLEAR",
+                  "guidanceLevel": 2
+                }
+              ]
+            }
+          },
+          {
+            "name": "Incorrect",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('assessmentResult').Status === 'Incorrect'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "incorrect-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "incorrect-log",
+                  "text": "Junior misunderstood requirements, re-explaining story"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-reexplain-state",
+                  "variableName": "currentState",
+                  "value": "RE_EXPLAIN_STORY"
+                },
+                {
+                  "type": "Tamma.Mentorship.ProvideGuidance",
+                  "id": "reexplain-guidance",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "blockerType": "REQUIREMENTS_UNCLEAR",
+                  "guidanceLevel": 3
+                }
+              ]
+            }
+          },
+          {
+            "name": "Timeout",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('assessmentResult').Status === 'Timeout'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "timeout-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "timeout-log",
+                  "text": "Assessment timed out, checking retry count"
+                },
+                {
+                  "type": "Elsa.If",
+                  "id": "assessment-retry-check",
+                  "condition": {
+                    "typeName": "Boolean",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('retryCount') < getVariable('maxRetries')"
+                    }
+                  },
+                  "then": {
+                    "type": "Elsa.Sequence",
+                    "id": "assessment-retry-path",
+                    "activities": [
+                      {
+                        "type": "Elsa.SetVariable",
+                        "id": "increment-retry-assessment",
+                        "variableName": "retryCount",
+                        "value": {
+                          "typeName": "Int32",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "getVariable('retryCount') + 1"
+                          }
+                        }
+                      },
+                      {
+                        "type": "Elsa.WriteLine",
+                        "id": "assessment-retry-log",
+                        "text": {
+                          "typeName": "String",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "`Assessment retry ${getVariable('retryCount')} of ${getVariable('maxRetries')}`"
+                          }
+                        }
+                      },
+                      {
+                        "type": "Elsa.Delay",
+                        "id": "assessment-retry-delay",
+                        "timeSpan": "00:01:00"
+                      }
+                    ]
+                  },
+                  "else": {
+                    "type": "Elsa.Sequence",
+                    "id": "assessment-max-retries-path",
+                    "activities": [
+                      {
+                        "type": "Elsa.SetVariable",
+                        "id": "set-diagnose-state",
+                        "variableName": "currentState",
+                        "value": "DIAGNOSE_BLOCKER"
+                      },
+                      {
+                        "type": "Tamma.Mentorship.DiagnoseBlocker",
+                        "id": "diagnose-timeout-blocker",
+                        "sessionId": {
+                          "typeName": "Guid",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "getVariable('sessionId')"
+                          }
+                        },
+                        "storyId": {
+                          "typeName": "String",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "getVariable('storyId')"
+                          }
+                        },
+                        "juniorId": {
+                          "typeName": "String",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "getVariable('juniorId')"
+                          }
+                        },
+                        "blockerContext": "Assessment timeout - no response received after max retries"
+                      },
+                      {
+                        "type": "Elsa.SetVariable",
+                        "id": "store-blocker-info",
+                        "variableName": "blockerInfo",
+                        "value": {
+                          "typeName": "Object",
+                          "expression": {
+                            "type": "JavaScript",
+                            "expression": "getLastResult()"
+                          }
+                        }
+                      }
+                    ]
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "default": {
+          "type": "Elsa.Sequence",
+          "id": "default-path",
+          "activities": [
+            {
+              "type": "Elsa.WriteLine",
+              "id": "default-log",
+              "text": "Unknown assessment result, proceeding with caution"
+            }
+          ]
+        }
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "set-implement-state",
+        "variableName": "currentState",
+        "value": "START_IMPLEMENTATION"
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "reset-retry-for-impl",
+        "variableName": "retryCount",
+        "value": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "0"
+          }
+        }
+      },
+      {
+        "type": "Elsa.WriteLine",
+        "id": "implement-log",
+        "text": "Implementation phase started, monitoring progress"
+      },
+      {
+        "type": "Tamma.Mentorship.MonitorImplementation",
+        "id": "monitor-progress",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "juniorId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('juniorId')"
+          }
+        },
+        "monitoringDuration": 60,
+        "checkInterval": 5
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-progress",
+        "variableName": "progressStatus",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Elsa.Switch",
+        "id": "progress-switch",
+        "cases": [
+          {
+            "name": "Complete",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('progressStatus').Status === 'Complete'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "complete-impl-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "complete-impl-log",
+                  "text": "Implementation complete, running quality gates"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-quality-state",
+                  "variableName": "currentState",
+                  "value": "QUALITY_GATE_CHECK"
+                }
+              ]
+            }
+          },
+          {
+            "name": "Stalled",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('progressStatus').Status === 'Stalled'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "stalled-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "stalled-log",
+                  "text": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "`Progress stalled: ${getVariable('progressStatus').Reason}`"
+                    }
+                  }
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-diagnose-state-2",
+                  "variableName": "currentState",
+                  "value": "DIAGNOSE_BLOCKER"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "increment-retry-stalled",
+                  "variableName": "retryCount",
+                  "value": {
+                    "typeName": "Int32",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('retryCount') + 1"
+                    }
+                  }
+                },
+                {
+                  "type": "Tamma.Mentorship.DiagnoseBlocker",
+                  "id": "diagnose-stall-blocker",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "blockerContext": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('progressStatus').Reason"
+                    }
+                  }
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "store-stall-blocker",
+                  "variableName": "blockerInfo",
+                  "value": {
+                    "typeName": "Object",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getLastResult()"
+                    }
+                  }
+                },
+                {
+                  "type": "Tamma.Mentorship.ProvideGuidance",
+                  "id": "provide-stall-guidance",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "blockerType": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('blockerInfo').BlockerType"
+                    }
+                  },
+                  "issueContext": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('blockerInfo').Description"
+                    }
+                  },
+                  "guidanceLevel": 2
+                }
+              ]
+            }
+          },
+          {
+            "name": "Circular",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('progressStatus').Status === 'Circular'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "circular-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "circular-log",
+                  "text": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "`Circular behavior detected: ${getVariable('progressStatus').Pattern}`"
+                    }
+                  }
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-pattern-state",
+                  "variableName": "currentState",
+                  "value": "DETECT_PATTERN"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "increment-retry-circular",
+                  "variableName": "retryCount",
+                  "value": {
+                    "typeName": "Int32",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('retryCount') + 1"
+                    }
+                  }
+                },
+                {
+                  "type": "Tamma.AI.ClaudeAnalysis",
+                  "id": "analyze-pattern",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "analysisType": "BlockerDiagnosis",
+                  "content": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('progressStatus').Pattern"
+                    }
+                  },
+                  "context": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "`Circular behavior detected with ${getVariable('progressStatus').RepetitionCount} repetitions`"
+                    }
+                  }
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "store-pattern-analysis",
+                  "variableName": "aiAnalysis",
+                  "value": {
+                    "typeName": "Object",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getLastResult()"
+                    }
+                  }
+                },
+                {
+                  "type": "Tamma.Mentorship.ProvideGuidance",
+                  "id": "provide-pattern-guidance",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "blockerType": "TESTING_CHALLENGE",
+                  "issueContext": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('aiAnalysis').RootCause"
+                    }
+                  },
+                  "guidanceLevel": 3
+                }
+              ]
+            }
+          },
+          {
+            "name": "Slowing",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('progressStatus').Status === 'Slowing'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "slowing-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "slowing-log",
+                  "text": "Progress slowing, providing encouragement"
+                },
+                {
+                  "type": "Tamma.Mentorship.ProvideGuidance",
+                  "id": "provide-encouragement",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "blockerType": "MOTIVATION_ISSUE",
+                  "guidanceLevel": 1
+                }
+              ]
+            }
+          }
+        ],
+        "default": {
+          "type": "Elsa.Sequence",
+          "id": "continue-monitor",
+          "activities": [
+            {
+              "type": "Elsa.WriteLine",
+              "id": "continue-log",
+              "text": "Continuing to monitor progress"
+            }
+          ]
+        }
+      },
+      {
+        "type": "Tamma.Mentorship.QualityGateCheck",
+        "id": "quality-gate",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "minCoverage": 80,
+        "allowWarnings": true
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-quality",
+        "variableName": "qualityResult",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Elsa.If",
+        "id": "quality-check",
+        "condition": {
+          "typeName": "Boolean",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('qualityResult').Passed"
+          }
+        },
+        "then": {
+          "type": "Elsa.Sequence",
+          "id": "quality-passed",
+          "activities": [
+            {
+              "type": "Elsa.WriteLine",
+              "id": "quality-passed-log",
+              "text": "All quality gates passed, preparing code review"
+            },
+            {
+              "type": "Elsa.SetVariable",
+              "id": "set-review-state",
+              "variableName": "currentState",
+              "value": "PREPARE_CODE_REVIEW"
+            },
+            {
+              "type": "Tamma.AI.SuggestionGenerator",
+              "id": "generate-quality-suggestions",
+              "sessionId": {
+                "typeName": "Guid",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('sessionId')"
+                }
+              },
+              "juniorId": {
+                "typeName": "String",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('juniorId')"
+                }
+              },
+              "suggestionType": "CodeQuality",
+              "codeContext": {
+                "typeName": "Object",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('codeContext')"
+                }
+              },
+              "maxSuggestions": 3
+            }
+          ]
+        },
+        "else": {
+          "type": "Elsa.Sequence",
+          "id": "quality-failed",
+          "activities": [
+            {
+              "type": "Elsa.WriteLine",
+              "id": "quality-failed-log",
+              "text": {
+                "typeName": "String",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "`Quality issues found: ${getVariable('qualityResult').Issues.length} issues`"
+                }
+              }
+            },
+            {
+              "type": "Elsa.SetVariable",
+              "id": "set-fix-state",
+              "variableName": "currentState",
+              "value": "AUTO_FIX_ISSUES"
+            },
+            {
+              "type": "Tamma.Mentorship.ProvideGuidance",
+              "id": "quality-fix-guidance",
+              "sessionId": {
+                "typeName": "Guid",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('sessionId')"
+                }
+              },
+              "juniorId": {
+                "typeName": "String",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('juniorId')"
+                }
+              },
+              "storyId": {
+                "typeName": "String",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('storyId')"
+                }
+              },
+              "blockerType": "TESTING_CHALLENGE",
+              "issueContext": {
+                "typeName": "String",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "`Quality gate failures: ${getVariable('qualityResult').Suggestions}`"
+                }
+              },
+              "guidanceLevel": 2
+            }
+          ]
+        }
+      },
+      {
+        "type": "Tamma.Mentorship.CodeReview",
+        "id": "prepare-review",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "juniorId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('juniorId')"
+          }
+        },
+        "action": "Prepare"
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-review-result",
+        "variableName": "reviewStatus",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "store-pr-number",
+        "variableName": "pullRequestNumber",
+        "value": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('reviewStatus').PullRequestNumber"
+          }
+        }
+      },
+      {
+        "type": "Elsa.WriteLine",
+        "id": "review-prep-log",
+        "text": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "`Pull request #${getVariable('pullRequestNumber')} created, monitoring review`"
+          }
+        }
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "set-monitor-review",
+        "variableName": "currentState",
+        "value": "MONITOR_REVIEW"
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "reset-retry-for-review",
+        "variableName": "retryCount",
+        "value": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "0"
+          }
+        }
+      },
+      {
+        "type": "Elsa.Delay",
+        "id": "review-wait",
+        "timeSpan": "00:02:00"
+      },
+      {
+        "type": "Tamma.Mentorship.CodeReview",
+        "id": "monitor-review",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "juniorId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('juniorId')"
+          }
+        },
+        "action": "Monitor",
+        "pullRequestNumber": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('pullRequestNumber')"
+          }
+        }
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "update-review-status",
+        "variableName": "reviewStatus",
+        "value": {
+          "typeName": "Object",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getLastResult()"
+          }
+        }
+      },
+      {
+        "type": "Elsa.Switch",
+        "id": "review-status-switch",
+        "cases": [
+          {
+            "name": "Approved",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('reviewStatus').Status === 'Approved'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "approved-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "approved-log",
+                  "text": "Code review approved! Proceeding to merge"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-merge-state",
+                  "variableName": "currentState",
+                  "value": "MERGE_AND_COMPLETE"
+                }
+              ]
+            }
+          },
+          {
+            "name": "ChangesRequested",
+            "condition": {
+              "typeName": "Boolean",
+              "expression": {
+                "type": "JavaScript",
+                "expression": "getVariable('reviewStatus').Status === 'ChangesRequested'"
+              }
+            },
+            "activity": {
+              "type": "Elsa.Sequence",
+              "id": "changes-path",
+              "activities": [
+                {
+                  "type": "Elsa.WriteLine",
+                  "id": "changes-log",
+                  "text": "Review changes requested, guiding fixes"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "set-guide-fixes-state",
+                  "variableName": "currentState",
+                  "value": "GUIDE_FIXES"
+                },
+                {
+                  "type": "Elsa.SetVariable",
+                  "id": "increment-retry-review",
+                  "variableName": "retryCount",
+                  "value": {
+                    "typeName": "Int32",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('retryCount') + 1"
+                    }
+                  }
+                },
+                {
+                  "type": "Tamma.Mentorship.CodeReview",
+                  "id": "handle-changes",
+                  "sessionId": {
+                    "typeName": "Guid",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('sessionId')"
+                    }
+                  },
+                  "storyId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('storyId')"
+                    }
+                  },
+                  "juniorId": {
+                    "typeName": "String",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('juniorId')"
+                    }
+                  },
+                  "action": "RequestChanges",
+                  "pullRequestNumber": {
+                    "typeName": "Int32",
+                    "expression": {
+                      "type": "JavaScript",
+                      "expression": "getVariable('pullRequestNumber')"
+                    }
+                  }
+                }
+              ]
+            }
+          }
+        ],
+        "default": {
+          "type": "Elsa.Sequence",
+          "id": "review-pending",
+          "activities": [
+            {
+              "type": "Elsa.WriteLine",
+              "id": "pending-log",
+              "text": "Review still pending, continuing to monitor"
+            },
+            {
+              "type": "Elsa.If",
+              "id": "review-timeout-check",
+              "condition": {
+                "typeName": "Boolean",
+                "expression": {
+                  "type": "JavaScript",
+                  "expression": "getVariable('retryCount') >= getVariable('maxRetries')"
+                }
+              },
+              "then": {
+                "type": "Elsa.WriteLine",
+                "id": "review-timeout-log",
+                "text": "Review monitoring exceeded max retries, escalating"
+              },
+              "else": {
+                "type": "Elsa.Sequence",
+                "id": "review-retry-path",
+                "activities": [
+                  {
+                    "type": "Elsa.SetVariable",
+                    "id": "increment-retry-pending",
+                    "variableName": "retryCount",
+                    "value": {
+                      "typeName": "Int32",
+                      "expression": {
+                        "type": "JavaScript",
+                        "expression": "getVariable('retryCount') + 1"
+                      }
+                    }
+                  },
+                  {
+                    "type": "Elsa.Delay",
+                    "id": "review-retry-delay",
+                    "timeSpan": "00:02:00"
+                  }
+                ]
+              }
+            }
+          ]
+        }
+      },
+      {
+        "type": "Tamma.Mentorship.MergeComplete",
+        "id": "merge-and-complete",
+        "sessionId": {
+          "typeName": "Guid",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('sessionId')"
+          }
+        },
+        "storyId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('storyId')"
+          }
+        },
+        "juniorId": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('juniorId')"
+          }
+        },
+        "pullRequestNumber": {
+          "typeName": "Int32",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "getVariable('pullRequestNumber')"
+          }
+        },
+        "autoMerge": true
+      },
+      {
+        "type": "Elsa.SetVariable",
+        "id": "set-complete-state",
+        "variableName": "currentState",
+        "value": "COMPLETED"
+      },
+      {
+        "type": "Elsa.WriteLine",
+        "id": "complete-log",
+        "text": {
+          "typeName": "String",
+          "expression": {
+            "type": "JavaScript",
+            "expression": "`Tamma mentorship session ${getVariable('sessionId')} completed successfully!`"
+          }
+        }
+      }
+    ]
+  },
+  "metadata": {
+    "designer": {
+      "position": {
+        "x": 0,
+        "y": 0
+      }
+    },
+    "version": "3.0",
+    "phase": "Phase 2 - Core Mentorship Activities",
+    "activities": {
+      "mentorship": [
+        "AssessJuniorCapability",
+        "MonitorImplementation",
+        "QualityGateCheck",
+        "DiagnoseBlocker",
+        "ProvideGuidance",
+        "CodeReview",
+        "MergeComplete"
+      ],
+      "ai": [
+        "ClaudeAnalysis",
+        "ContextGathering",
+        "SuggestionGenerator"
+      ]
+    }
+  }
+}

@@ -1,10 +1,13 @@
 #!/usr/bin/env node
 /**
  * @tamma/cli
- * Ink-based CLI interface for the Tamma platform
+ * CLI interface for the Tamma autonomous development platform.
  */
 
 import { Command } from 'commander';
+import { startCommand } from './commands/start.js';
+import { statusCommand } from './commands/status.js';
+import { initCommand } from './commands/init.js';
 
 const program = new Command();
 
@@ -15,11 +18,34 @@ program
 
 program
   .command('start')
-  .description('Start Tamma in orchestrator or worker mode')
-  .option('-m, --mode <mode>', 'Mode: orchestrator, worker, or standalone', 'standalone')
-  .action((options) => {
-    console.log(`Starting Tamma in ${options.mode} mode...`);
-    console.log('CLI implementation coming soon (Epic 1, Story 1-9)');
+  .description('Start the Tamma engine')
+  .option('--config <path>', 'Path to tamma.config.json', './tamma.config.json')
+  .option('--dry-run', 'Select, analyze, plan, print plan, then exit')
+  .option('--approval <mode>', 'Approval mode: cli | auto', 'cli')
+  .option('--once', 'Process one issue then exit')
+  .option('--verbose', 'Enable debug logging')
+  .action(async (opts) => {
+    await startCommand({
+      config: opts.config as string | undefined,
+      dryRun: opts.dryRun === true,
+      approval: opts.approval as 'cli' | 'auto' | undefined,
+      once: opts.once === true,
+      verbose: opts.verbose === true,
+    });
+  });
+
+program
+  .command('status')
+  .description('Show current engine state')
+  .action(() => {
+    statusCommand();
+  });
+
+program
+  .command('init')
+  .description('Interactive configuration file generator')
+  .action(async () => {
+    await initCommand();
   });
 
 program.parse();

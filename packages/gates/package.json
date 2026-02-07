@@ -19,7 +19,9 @@
   "dependencies": {
     "@tamma/shared": "workspace:*",
     "@tamma/events": "workspace:*",
-    "@tamma/observability": "workspace:*"
+    "@tamma/observability": "workspace:*",
+    "minimatch": "^10.0.1",
+    "nanoid": "^5.0.9"
   },
   "devDependencies": {
     "typescript": "~5.7.2"

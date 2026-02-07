@@ -1,0 +1,36 @@
+{
+  "name": "@tamma/cost-monitor",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "LLM cost monitoring and reporting for the Tamma platform",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@tamma/shared": "workspace:*",
+    "nanoid": "^5.0.9"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vitest": "^3.0.6"
+  },
+  "keywords": [
+    "cost",
+    "monitoring",
+    "llm",
+    "tokens",
+    "usage"
+  ]
+}

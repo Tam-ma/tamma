@@ -5,14 +5,10 @@
 
 import React from 'react';
 import ReactDOM from 'react-dom/client';
+import { KnowledgeBaseDashboard } from './pages/knowledge-base/KnowledgeBaseDashboard.js';
 
 function App(): JSX.Element {
-  return (
-    <div>
-      <h1>Tamma Dashboard</h1>
-      <p>Dashboard implementation coming soon (Epic 4)</p>
-    </div>
-  );
+  return <KnowledgeBaseDashboard />;
 }
 
 const rootElement = document.getElementById('root');

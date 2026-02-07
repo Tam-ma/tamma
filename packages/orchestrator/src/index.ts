@@ -1,2 +1,2 @@
 export { TammaEngine } from './engine.js';
-export type { EngineContext } from './engine.js';
+export type { EngineContext, EngineStats, OnStateChangeCallback } from './engine.js';

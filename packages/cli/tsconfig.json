@@ -10,7 +10,9 @@
   "references": [
     { "path": "../shared" },
     { "path": "../observability" },
-    { "path": "../orchestrator" }
+    { "path": "../orchestrator" },
+    { "path": "../providers" },
+    { "path": "../platforms" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]

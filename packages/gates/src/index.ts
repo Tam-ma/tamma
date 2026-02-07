@@ -1,7 +1,10 @@
 /**
  * @tamma/gates
- * Quality gates (build, test, security) for the Tamma platform
+ * Quality gates (build, test, security) and permissions for the Tamma platform
  */
 
-// Placeholder - to be implemented in Epic 3
-export const placeholder = 'gates';
+// Permissions module
+export * from './permissions/index.js';
+
+// Violations module
+export * from './violations/index.js';

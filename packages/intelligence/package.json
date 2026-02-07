@@ -2,26 +2,79 @@
   "name": "@tamma/intelligence",
   "version": "0.1.0",
   "type": "module",
+  "description": "Context and knowledge management for the Tamma platform",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
       "import": "./dist/index.js"
+    },
+    "./vector-store": {
+      "types": "./dist/vector-store/index.d.ts",
+      "import": "./dist/vector-store/index.js"
+    },
+    "./indexer": {
+      "types": "./dist/indexer/index.d.ts",
+      "import": "./dist/indexer/index.js"
+    },
+    "./knowledge-base": {
+      "types": "./dist/knowledge-base/index.d.ts",
+      "import": "./dist/knowledge-base/index.js"
+    },
+    "./rag": {
+      "types": "./dist/rag/index.d.ts",
+      "import": "./dist/rag/index.js"
+    },
+    "./context": {
+      "types": "./dist/context/index.d.ts",
+      "import": "./dist/context/index.js"
     }
   },
   "scripts": {
     "build": "tsc --build",
     "dev": "tsc --build --watch",
     "clean": "rm -rf dist .tsbuildinfo",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:watch": "vitest"
   },
   "dependencies": {
     "@tamma/shared": "workspace:*",
     "@tamma/providers": "workspace:*",
-    "@tamma/observability": "workspace:*"
+    "@tamma/observability": "workspace:*",
+    "chromadb": "^1.8.1",
+    "pg": "^8.13.1"
   },
   "devDependencies": {
-    "typescript": "~5.7.2"
-  }
+    "@types/pg": "^8.11.10",
+    "typescript": "~5.7.2",
+    "vitest": "^3.0.6"
+  },
+  "peerDependencies": {
+    "@pinecone-database/pinecone": "^2.0.0",
+    "@qdrant/qdrant-js": "^1.0.0",
+    "weaviate-ts-client": "^2.0.0"
+  },
+  "peerDependenciesMeta": {
+    "@pinecone-database/pinecone": {
+      "optional": true
+    },
+    "@qdrant/qdrant-js": {
+      "optional": true
+    },
+    "weaviate-ts-client": {
+      "optional": true
+    }
+  },
+  "keywords": [
+    "vector-database",
+    "embeddings",
+    "chromadb",
+    "pgvector",
+    "rag",
+    "semantic-search",
+    "codebase-indexer",
+    "code-chunking"
+  ]
 }

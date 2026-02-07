@@ -875,6 +875,98 @@ describe('TammaEngine', () => {
     });
   });
 
+  describe('getStats', () => {
+    it('should return initial stats', () => {
+      const { engine } = createEngine();
+      const stats = engine.getStats();
+      expect(stats.issuesProcessed).toBe(0);
+      expect(stats.totalCostUsd).toBe(0);
+      expect(stats.startedAt).toBeGreaterThan(0);
+    });
+
+    it('should track issues processed after full pipeline', async () => {
+      const { engine } = createEngine();
+      await engine.processOneIssue();
+      const stats = engine.getStats();
+      expect(stats.issuesProcessed).toBe(1);
+    });
+
+    it('should accumulate cost from implementation', async () => {
+      const agent = createMockAgent();
+      // Plan call returns plan JSON, implementation call returns cost
+      vi.mocked(agent.executeTask)
+        .mockResolvedValueOnce({
+          success: true,
+          output: '{"issueNumber":42,"summary":"Fix auth","approach":"Update handler","fileChanges":[],"testingStrategy":"Unit tests","estimatedComplexity":"low","risks":[]}',
+          costUsd: 0.02,
+          durationMs: 500,
+        })
+        .mockResolvedValueOnce({
+          success: true,
+          output: 'done',
+          costUsd: 0.50,
+          durationMs: 5000,
+        });
+
+      const { engine } = createEngine({ agent });
+      await engine.processOneIssue();
+      const stats = engine.getStats();
+      expect(stats.totalCostUsd).toBeCloseTo(0.50);
+    });
+
+    it('should not increment issues processed on failure', async () => {
+      const agent = createMockAgent();
+      vi.mocked(agent.executeTask).mockResolvedValue({
+        success: false,
+        output: '',
+        costUsd: 0,
+        durationMs: 0,
+        error: 'Failed',
+      });
+      const { engine } = createEngine({ agent });
+
+      await expect(engine.processOneIssue()).rejects.toThrow();
+      expect(engine.getStats().issuesProcessed).toBe(0);
+    });
+  });
+
+  describe('onStateChange callback', () => {
+    it('should invoke onStateChange on state transitions', async () => {
+      const onStateChange = vi.fn();
+      const { engine } = createEngine({ onStateChange } as Partial<EngineContext>);
+
+      await engine.processOneIssue();
+
+      expect(onStateChange).toHaveBeenCalled();
+      // First call should be SELECTING_ISSUE
+      const [firstState] = onStateChange.mock.calls[0]!;
+      expect(firstState).toBe(EngineState.SELECTING_ISSUE);
+    });
+
+    it('should pass current issue and stats to callback', async () => {
+      const onStateChange = vi.fn();
+      const { engine } = createEngine({ onStateChange } as Partial<EngineContext>);
+
+      await engine.processOneIssue();
+
+      // Find IMPLEMENTING call — issue should be set
+      const implCall = onStateChange.mock.calls.find(
+        (args: unknown[]) => args[0] === EngineState.IMPLEMENTING,
+      );
+      expect(implCall).toBeDefined();
+      expect(implCall![1]).not.toBeNull();
+      expect(implCall![1].number).toBe(42);
+      expect(implCall![2]).toHaveProperty('issuesProcessed');
+      expect(implCall![2]).toHaveProperty('totalCostUsd');
+      expect(implCall![2]).toHaveProperty('startedAt');
+    });
+
+    it('should work without onStateChange callback', async () => {
+      const { engine } = createEngine(); // no callback
+      await expect(engine.processOneIssue()).resolves.toBeUndefined();
+    });
+  });
+
   describe('event store', () => {
     it('should record events during full pipeline', async () => {
       const eventStore = new InMemoryEventStore();

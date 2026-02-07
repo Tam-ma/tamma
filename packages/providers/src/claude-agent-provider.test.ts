@@ -474,4 +474,61 @@ describe('ClaudeAgentProvider', () => {
       await expect(provider.dispose()).resolves.toBeUndefined();
     });
   });
+
+  describe('ICLIAgentProvider compliance', () => {
+    it('should expose name and type', () => {
+      const provider = new ClaudeAgentProvider();
+      expect(provider.name).toBe('claude-code');
+      expect(provider.type).toBe('cli-agent');
+    });
+
+    it('should expose capabilities', () => {
+      const provider = new ClaudeAgentProvider();
+      expect(provider.capabilities).toEqual({
+        fileOperations: true,
+        commandExecution: true,
+        gitOperations: true,
+        browserAutomation: false,
+        mcpSupport: true,
+        sessionResume: true,
+        structuredOutput: true,
+        streaming: true,
+      });
+    });
+
+    it('should delegate execute to executeTask', async () => {
+      const provider = new ClaudeAgentProvider();
+      const spy = vi.spyOn(provider, 'executeTask').mockResolvedValue({
+        success: true,
+        output: 'test',
+        costUsd: 0,
+        durationMs: 100,
+      });
+
+      const config = { prompt: 'test', cwd: '/tmp' };
+      await provider.execute(config);
+      expect(spy).toHaveBeenCalledWith(config, undefined);
+    });
+
+    it('should support resumeSession', async () => {
+      const provider = new ClaudeAgentProvider();
+      const spy = vi.spyOn(provider, 'executeTask').mockResolvedValue({
+        success: true,
+        output: 'resumed',
+        costUsd: 0,
+        durationMs: 50,
+      });
+
+      await provider.resumeSession('session-123', 'continue please');
+      expect(spy).toHaveBeenCalledWith(
+        { prompt: 'continue please', cwd: '.', sessionId: 'session-123' },
+        undefined,
+      );
+    });
+
+    it('should have no-op initialize', async () => {
+      const provider = new ClaudeAgentProvider();
+      await expect(provider.initialize({ apiKey: '' })).resolves.toBeUndefined();
+    });
+  });
 });

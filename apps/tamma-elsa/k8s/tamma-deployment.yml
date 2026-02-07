@@ -1,0 +1,245 @@
+# Tamma Engine Kubernetes Deployment
+# Production deployment configuration
+
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: tamma-engine
+  labels:
+    app: tamma-engine
+    component: core
+spec:
+  replicas: 3
+  selector:
+    matchLabels:
+      app: tamma-engine
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 1
+      maxUnavailable: 0
+  template:
+    metadata:
+      labels:
+        app: tamma-engine
+    spec:
+      serviceAccountName: tamma-service-account
+      containers:
+        - name: elsa-server
+          image: ${DOCKER_REGISTRY}/tamma-elsa:${VERSION}
+          ports:
+            - containerPort: 5000
+              name: http
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ConnectionStrings__DefaultConnection
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: database-connection
+            - name: RabbitMq__HostName
+              value: rabbitmq-service
+            - name: RabbitMq__Username
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: rabbitmq-username
+            - name: RabbitMq__Password
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: rabbitmq-password
+            - name: Elsa__Server__BaseUrl
+              valueFrom:
+                configMapKeyRef:
+                  name: tamma-config
+                  key: elsa-base-url
+          resources:
+            requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
+              memory: "1Gi"
+              cpu: "500m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 30
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 5000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+            timeoutSeconds: 3
+          volumeMounts:
+            - name: workflows
+              mountPath: /app/workflows
+              readOnly: true
+            - name: storage
+              mountPath: /app/storage
+
+        - name: tamma-api
+          image: ${DOCKER_REGISTRY}/tamma-api:${VERSION}
+          ports:
+            - containerPort: 3000
+              name: http
+          env:
+            - name: ASPNETCORE_ENVIRONMENT
+              value: Production
+            - name: ELSA_SERVER_URL
+              value: http://localhost:5000
+            - name: DATABASE_URL
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: database-url
+            - name: SLACK_WEBHOOK
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: slack-webhook
+            - name: GITHUB_TOKEN
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: github-token
+            - name: JWT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: tamma-secrets
+                  key: jwt-secret
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "100m"
+            limits:
+              memory: "512Mi"
+              cpu: "250m"
+          livenessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 20
+            periodSeconds: 10
+          readinessProbe:
+            httpGet:
+              path: /health
+              port: 3000
+            initialDelaySeconds: 5
+            periodSeconds: 5
+
+      volumes:
+        - name: workflows
+          configMap:
+            name: tamma-workflows
+        - name: storage
+          persistentVolumeClaim:
+            claimName: tamma-storage-pvc
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: tamma-api-service
+  labels:
+    app: tamma-engine
+spec:
+  selector:
+    app: tamma-engine
+  ports:
+    - name: http
+      protocol: TCP
+      port: 80
+      targetPort: 3000
+  type: LoadBalancer
+
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: elsa-server-service
+  labels:
+    app: tamma-engine
+spec:
+  selector:
+    app: tamma-engine
+  ports:
+    - name: http
+      protocol: TCP
+      port: 5000
+      targetPort: 5000
+  type: ClusterIP
+
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: tamma-config
+data:
+  elsa-base-url: "https://tamma.yourcompany.com"
+
+---
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tamma-secrets
+type: Opaque
+stringData:
+  database-connection: "Server=postgres-service;Port=5432;Database=tamma;User Id=tamma;Password=CHANGE_ME;"
+  database-url: "postgresql://tamma:CHANGE_ME@postgres-service:5432/tamma"
+  rabbitmq-username: "tamma"
+  rabbitmq-password: "CHANGE_ME"
+  slack-webhook: ""
+  github-token: ""
+  jwt-secret: "CHANGE_ME_TO_A_LONG_RANDOM_STRING"
+
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: tamma-storage-pvc
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: standard
+
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: tamma-service-account
+
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: tamma-engine-hpa
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: tamma-engine
+  minReplicas: 2
+  maxReplicas: 10
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 70
+    - type: Resource
+      resource:
+        name: memory
+        target:
+          type: Utilization
+          averageUtilization: 80

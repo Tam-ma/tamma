@@ -1,0 +1,123 @@
+# Tamma ELSA Workflows - Development Docker Compose
+# For local development and testing
+
+version: '3.8'
+
+services:
+  elsa-server:
+    build:
+      context: ./src/Tamma.Activities
+      dockerfile: Dockerfile
+    ports:
+      - '5000:5000'
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=tamma;User Id=tamma;Password=${DB_PASSWORD:-tamma_dev_123};
+      - RabbitMq__HostName=rabbitmq
+      - RabbitMq__Username=${RABBITMQ_USER:-tamma}
+      - RabbitMq__Password=${RABBITMQ_PASSWORD:-tamma_dev_123}
+      - Logging__LogLevel__Default=Information
+      - Elsa__Server__BaseUrl=http://localhost:5000
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    volumes:
+      - ./workflows:/app/workflows
+      - ./activities:/app/activities
+      - ./data:/app/storage
+    networks:
+      - tamma-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  postgres:
+    image: postgres:15-alpine
+    environment:
+      POSTGRES_DB: ${DB_NAME:-tamma}
+      POSTGRES_USER: ${DB_USER:-tamma}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-tamma_dev_123}
+    ports:
+      - '5432:5432'
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./scripts/init-db.sql:/docker-entrypoint-initdb.d/init-db.sql:ro
+    networks:
+      - tamma-network
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U tamma -d tamma"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  rabbitmq:
+    image: rabbitmq:3-management-alpine
+    ports:
+      - '5672:5672'
+      - '15672:15672'
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-tamma}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-tamma_dev_123}
+    volumes:
+      - rabbitmq_data:/var/lib/rabbitmq
+    networks:
+      - tamma-network
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tamma-api:
+    build:
+      context: ./src/Tamma.Api
+      dockerfile: Dockerfile
+    ports:
+      - '3000:3000'
+    environment:
+      - ASPNETCORE_ENVIRONMENT=Development
+      - ELSA_SERVER_URL=http://elsa-server:5000
+      - DATABASE_URL=postgresql://${DB_USER:-tamma}:${DB_PASSWORD:-tamma_dev_123}@postgres:5432/${DB_NAME:-tamma}
+      - SLACK_WEBHOOK=${SLACK_WEBHOOK:-}
+      - GITHUB_TOKEN=${GITHUB_TOKEN:-}
+    depends_on:
+      elsa-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    networks:
+      - tamma-network
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+
+  tamma-dashboard:
+    build:
+      context: ./src/Tamma.Dashboard
+      dockerfile: Dockerfile
+    ports:
+      - '3001:3000'
+    environment:
+      - NODE_ENV=development
+      - API_URL=http://tamma-api:3000
+    depends_on:
+      - tamma-api
+    networks:
+      - tamma-network
+
+volumes:
+  postgres_data:
+    driver: local
+  rabbitmq_data:
+    driver: local
+
+networks:
+  tamma-network:
+    driver: bridge
