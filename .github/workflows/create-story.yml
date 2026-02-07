@@ -1,5 +1,9 @@
 name: Create Story
 
+permissions:
+  contents: write
+  pull-requests: write
+
 on:
   # Manual trigger via GitHub UI
   workflow_dispatch:

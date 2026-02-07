@@ -418,9 +418,12 @@ export const sanitization = {
 
   /**
    * Remove control characters except for tabs and newlines
+   * Covers both C0 control characters (U+0000-U+001F) and
+   * C1 control characters (U+0080-U+009F), excluding tab (0x09),
+   * newline (0x0A), and carriage return (0x0D).
    */
   removeControlCharacters(str: string): string {
-    return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F]/g, '');
+    return str.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/g, '');
   },
 };
 

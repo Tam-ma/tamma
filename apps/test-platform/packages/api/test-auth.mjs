@@ -84,7 +84,7 @@ async function testRegistration() {
 
     // In development, we get the verification token
     if (result.data.verificationToken) {
-      log(`  Verification token: ${result.data.verificationToken}`, colors.yellow)
+      log(`  Verification token: ${result.data.verificationToken.substring(0, 8)}...[REDACTED]`, colors.yellow)
 
       // Test email verification
       const verifyResult = await makeRequest('/auth/verify-email', {
@@ -121,7 +121,7 @@ async function testLogin() {
     log(`  User: ${result.data.user.email}`)
     accessToken = result.data.accessToken
     refreshToken = result.data.refreshToken
-    log(`  Access token: ${accessToken.substring(0, 20)}...`, colors.yellow)
+    log(`  Access token: [REDACTED]`, colors.yellow)
   } else {
     log(`✗ Login failed: ${result.error}`, colors.red)
   }
@@ -160,7 +160,7 @@ async function testRefreshToken() {
   if (result.success) {
     log('✓ Token refreshed successfully', colors.green)
     accessToken = result.data.accessToken
-    log(`  New access token: ${accessToken.substring(0, 20)}...`, colors.yellow)
+    log(`  New access token: [REDACTED]`, colors.yellow)
   } else {
     log(`✗ Token refresh failed: ${result.error}`, colors.red)
   }
@@ -187,7 +187,7 @@ async function testCreateAPIKey() {
   if (result.success) {
     log('✓ API key created successfully', colors.green)
     log(`  Key ID: ${result.data.key.id}`)
-    log(`  Key: ${result.data.apiKey}`, colors.yellow)
+    log(`  Key: ${result.data.apiKey.substring(0, 7)}...[REDACTED]`, colors.yellow)
     log(`  Warning: ${result.data.warning}`, colors.yellow)
 
     // Test using the API key
