@@ -138,18 +138,14 @@ describe('Retry Utilities', () => {
     });
 
     it('should throw after max attempts', async () => {
+      // Use real timers to avoid unhandled rejection gap from fake timer microtask ordering
+      vi.useRealTimers();
       const fn = vi.fn().mockRejectedValue(new Error('always fails'));
 
-      const promise = withRetry(fn, {
-        maxAttempts: 3,
-        initialDelayMs: 100,
-        useJitter: false,
-      });
+      await expect(
+        withRetry(fn, { maxAttempts: 3, initialDelayMs: 1, useJitter: false })
+      ).rejects.toThrow('always fails');
 
-      await vi.advanceTimersByTimeAsync(100);
-      await vi.advanceTimersByTimeAsync(200);
-
-      await expect(promise).rejects.toThrow('always fails');
       expect(fn).toHaveBeenCalledTimes(3);
     });
 
@@ -209,7 +205,8 @@ describe('Retry Utilities', () => {
 
     it('should abort on signal', async () => {
       const controller = new AbortController();
-      const fn = vi.fn().mockRejectedValue(new Error('fail'));
+      // Use synchronous throw to avoid brief unhandled rejection from pre-rejected promises
+      const fn = vi.fn().mockImplementation(() => { throw new Error('fail'); });
 
       const promise = withRetry(fn, {
         maxAttempts: 3,
@@ -220,10 +217,8 @@ describe('Retry Utilities', () => {
       // First attempt fails, start waiting for retry
       await vi.advanceTimersByTimeAsync(0);
 
-      // Abort during retry wait
+      // Abort during retry wait — assert immediately to avoid unhandled rejection gap
       controller.abort();
-      await vi.advanceTimersByTimeAsync(50);
-
       await expect(promise).rejects.toThrow('Operation aborted');
     });
   });

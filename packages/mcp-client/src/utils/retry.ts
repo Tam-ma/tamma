@@ -69,12 +69,17 @@ export function sleep(ms: number, signal?: AbortSignal): Promise<void> {
       return;
     }
 
-    const timeoutId = setTimeout(resolve, ms);
-
-    signal?.addEventListener('abort', () => {
+    const onAbort = () => {
       clearTimeout(timeoutId);
       reject(new Error('Operation aborted'));
-    });
+    };
+
+    const timeoutId = setTimeout(() => {
+      signal?.removeEventListener('abort', onAbort);
+      resolve();
+    }, ms);
+
+    signal?.addEventListener('abort', onAbort, { once: true });
   });
 }
 
