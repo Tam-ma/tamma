@@ -243,11 +243,11 @@ public class MergeCompleteActivity : CodeActivity<MergeCompleteOutput>
             StateTransitions = stateTransitions,
             BlockerCount = blockerCount,
             GuidanceProvided = guidanceCount,
-            EstimatedHours = story.EstimatedHours,
+            EstimatedHours = story.EstimatedHours ?? 0,
             ActualHours = sessionDuration.TotalHours,
             Strengths = strengths,
             AreasForImprovement = improvements,
-            OverallScore = CalculateOverallScore(sessionDuration, story.EstimatedHours, blockerCount, guidanceCount)
+            OverallScore = CalculateOverallScore(sessionDuration, story.EstimatedHours ?? 0, blockerCount, guidanceCount)
         };
     }
 

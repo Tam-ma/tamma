@@ -385,7 +385,7 @@ Implementation of story **{story.Id}**: {story.Title}
 - [ ] Manual testing completed
 
 ## Acceptance Criteria
-{FormatAcceptanceCriteria(story.AcceptanceCriteria)}
+{FormatAcceptanceCriteria(story.AcceptanceCriteria?.RootElement.GetRawText())}
 
 ## Mentorship Info
 - **Developer:** {junior.Name} (Skill Level: {junior.SkillLevel})

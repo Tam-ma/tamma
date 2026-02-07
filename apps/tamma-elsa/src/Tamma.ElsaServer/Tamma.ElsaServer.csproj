@@ -1,0 +1,42 @@
+<Project Sdk="Microsoft.NET.Sdk.Web">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tamma.ElsaServer</RootNamespace>
+    <AssemblyName>Tamma.ElsaServer</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>Tamma Team</Authors>
+    <Description>ELSA Workflow Server with Studio UI for Tamma Mentorship Engine</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <!-- ELSA Core -->
+    <PackageReference Include="Elsa" Version="3.0.0" />
+    <PackageReference Include="Elsa.Http" Version="3.0.0" />
+    <PackageReference Include="Elsa.Workflows.Api" Version="3.0.0" />
+    <PackageReference Include="Elsa.Identity" Version="3.0.0" />
+    <PackageReference Include="Elsa.Scheduling" Version="3.0.0" />
+
+    <!-- ELSA Persistence -->
+    <PackageReference Include="Elsa.EntityFrameworkCore" Version="3.0.0" />
+    <PackageReference Include="Elsa.EntityFrameworkCore.PostgreSql" Version="3.0.0" />
+
+    <!-- ELSA Studio (Blazor WASM) -->
+    <PackageReference Include="Elsa.Studio" Version="3.0.0" />
+    <PackageReference Include="Elsa.Studio.Core.BlazorWasm" Version="3.0.0" />
+    <PackageReference Include="Elsa.Studio.Login.BlazorWasm" Version="3.0.0" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.Server" Version="8.0.0" />
+
+    <!-- Logging -->
+    <PackageReference Include="Serilog.AspNetCore" Version="8.0.0" />
+    <PackageReference Include="Serilog.Sinks.Console" Version="5.0.1" />
+    <PackageReference Include="Serilog.Sinks.File" Version="5.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamma.Activities\Tamma.Activities.csproj" />
+  </ItemGroup>
+
+</Project>

@@ -141,10 +141,10 @@ public class ContextGatheringActivity : CodeActivity<CodeContextOutput>
             codeContext.SessionHistory = sessionHistory;
 
             // 7. Get acceptance criteria
-            codeContext.AcceptanceCriteria = ParseAcceptanceCriteria(story.AcceptanceCriteria);
+            codeContext.AcceptanceCriteria = ParseAcceptanceCriteria(story.AcceptanceCriteria?.RootElement.GetRawText());
 
             // 8. Get technical requirements
-            codeContext.TechnicalRequirements = ParseTechnicalRequirements(story.TechnicalRequirements);
+            codeContext.TechnicalRequirements = ParseTechnicalRequirements(story.TechnicalRequirements?.RootElement.GetRawText());
 
             // Trim context if too large
             TrimContextToSize(codeContext, maxContextSize);

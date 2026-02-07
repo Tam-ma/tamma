@@ -6,13 +6,14 @@ version: '3.8'
 services:
   elsa-server:
     build:
-      context: ./src/Tamma.Activities
-      dockerfile: Dockerfile
+      context: ./src
+      dockerfile: Tamma.ElsaServer/Dockerfile
     ports:
       - '5000:5000'
     environment:
       - ASPNETCORE_ENVIRONMENT=Development
       - ConnectionStrings__DefaultConnection=Server=postgres;Port=5432;Database=tamma;User Id=tamma;Password=${DB_PASSWORD:-tamma_dev_123};
+      - Elsa__Identity__SigningKey=${ELSA_SIGNING_KEY:-sufficiently-long-secret-signing-key-for-elsa-jwt-tokens}
       - RabbitMq__HostName=rabbitmq
       - RabbitMq__Username=${RABBITMQ_USER:-tamma}
       - RabbitMq__Password=${RABBITMQ_PASSWORD:-tamma_dev_123}
