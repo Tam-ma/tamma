@@ -35,14 +35,14 @@ function isSafeRegex(pattern: string): boolean {
 function safeCompileRegex(pattern: string, flags: string): RegExp {
   if (!isSafeRegex(pattern)) {
     // Treat as literal string match by escaping special regex characters
-    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = pattern.replace(/[.*+?^${}()|\\\[\]]/g, '\\$&');
     return new RegExp(escaped, flags);
   }
   try {
     return new RegExp(pattern, flags);
   } catch {
     // Invalid regex - treat as literal string match
-    const escaped = pattern.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const escaped = pattern.replace(/[.*+?^${}()|\\\[\]]/g, '\\$&');
     return new RegExp(escaped, flags);
   }
 }
@@ -94,9 +94,11 @@ export class CommandMatcher {
    */
   private wildcardToRegex(pattern: string): RegExp {
     // Escape special regex characters except *
-    const escaped = pattern.replace(/[.+?^${}()|[\]\\]/g, '\\$&');
-    // Replace * with .* (zero or more characters)
-    const regex = escaped.replace(/\*/g, '.*');
+    // Note: [ and ] must be escaped with backslash inside the character class
+    const escaped = pattern.replace(/[.+?^${}()|\\\[\]]/g, '\\$&');
+    // Replace consecutive * sequences with a single .* to avoid
+    // polynomial backtracking (e.g., ^.*.*.*$ is catastrophic)
+    const regex = escaped.replace(/\*+/g, '.*');
     return new RegExp(`^${regex}$`, 'i');
   }
 

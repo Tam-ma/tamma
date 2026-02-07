@@ -395,7 +395,7 @@ describe('TammaEngine', () => {
           },
           'context',
         ),
-      ).rejects.toThrow('Failed to parse plan output as JSON');
+      ).rejects.toThrow('Failed to parse plan:');
     });
 
     it('should throw on missing required plan fields', async () => {
@@ -422,7 +422,7 @@ describe('TammaEngine', () => {
           },
           'context',
         ),
-      ).rejects.toThrow('missing required fields');
+      ).rejects.toThrow('Invalid plan structure returned from agent');
     });
 
     it('should throw on agent failure', async () => {

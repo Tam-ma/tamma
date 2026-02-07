@@ -230,8 +230,14 @@ export class PathValidator {
   private normalizePath(p: string): string {
     // Use path.resolve to fully normalize the path, resolving .. sequences
     const resolved = path.resolve(p);
-    // Normalize separators and remove trailing slashes
-    return resolved.replace(/\\/g, '/').replace(/\/+$/, '');
+    // Normalize separators: replace backslashes with forward slashes
+    const normalized = resolved.replaceAll('\\', '/');
+    // Remove trailing slashes without regex to avoid ReDoS on repeated '/'
+    let end = normalized.length;
+    while (end > 1 && normalized.charCodeAt(end - 1) === 0x2f /* '/' */) {
+      end--;
+    }
+    return end === normalized.length ? normalized : normalized.slice(0, end);
   }
 }
 

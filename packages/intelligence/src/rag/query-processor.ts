@@ -208,16 +208,21 @@ export class QueryProcessor implements IQueryProcessor {
   decomposeQuery(text: string): string[] {
     const subQueries: string[] = [];
 
-    // Split on common conjunctions and question boundaries
+    // Normalize whitespace to single spaces to prevent ReDoS on
+    // patterns containing adjacent \s+ quantifiers (e.g. /\s+after that\s+/).
+    const normalized = text.replace(/\s+/g, ' ');
+
+    // Split on common conjunctions and question boundaries.
+    // Using word-boundary (\b) and single-space matches since input is normalized.
     const splitPatterns = [
-      /\s+and\s+/i,
-      /\s+also\s+/i,
-      /[?;]\s*/,
-      /\s+then\s+/i,
-      /\s+after that\s+/i,
+      / and /i,
+      / also /i,
+      /[?;] ?/,
+      / then /i,
+      / after that /i,
     ];
 
-    let parts = [text];
+    let parts = [normalized];
     for (const pattern of splitPatterns) {
       const newParts: string[] = [];
       for (const part of parts) {

@@ -125,13 +125,13 @@ export class TammaEngine {
     while (this.running) {
       try {
         await this.processOneIssue();
+        this.resetCurrentWork();
       } catch (err: unknown) {
         const message = err instanceof Error ? err.message : String(err);
         this.logger.error('Error processing issue', {
           error: message,
           state: this.state,
         });
-        this.resetCurrentWork();
       }
 
       if (this.running) {
@@ -453,18 +453,15 @@ Return ONLY valid JSON matching the schema.`;
 
     let plan: DevelopmentPlan;
     try {
-      plan = JSON.parse(result.output) as DevelopmentPlan;
-    } catch (parseErr: unknown) {
-      const msg = parseErr instanceof Error ? parseErr.message : String(parseErr);
+      const parsed = JSON.parse(result.output);
+      if (!parsed.issueNumber || !parsed.summary || !Array.isArray(parsed.fileChanges)) {
+        throw new WorkflowError('Invalid plan structure returned from agent', { retryable: true });
+      }
+      plan = parsed as DevelopmentPlan;
+    } catch (err) {
+      if (err instanceof WorkflowError) throw err;
       throw new WorkflowError(
-        `Failed to parse plan output as JSON: ${msg}`,
-        { retryable: true, context: { rawOutput: result.output.slice(0, 200) } },
-      );
-    }
-
-    if (!plan.issueNumber || !plan.summary || !Array.isArray(plan.fileChanges)) {
-      throw new WorkflowError(
-        'Plan output missing required fields (issueNumber, summary, fileChanges)',
+        `Failed to parse plan: ${err instanceof Error ? err.message : String(err)}`,
         { retryable: true },
       );
     }
@@ -529,14 +526,14 @@ Return ONLY valid JSON matching the schema.`;
 
   /**
    * Create a feature branch named `feature/{number}-{slug}`. If the branch
-   * already exists, appends a numeric suffix and retries up to 5 times.
+   * already exists, appends a numeric suffix and retries up to 10 times.
    * Uses an atomic try-create-catch-retry pattern to avoid TOCTOU races.
    */
   async createBranch(issue: IssueData): Promise<string> {
     const { owner, repo } = this.config.github;
     const slug = slugify(issue.title);
     const repository = await this.platform.getRepository(owner, repo);
-    const maxAttempts = 5;
+    const maxAttempts = 10;
 
     for (let attempt = 0; attempt < maxAttempts; attempt++) {
       const branchName =
@@ -937,19 +934,17 @@ Follow existing project conventions and patterns.`;
       output: process.stdout,
     });
 
-    return new Promise((resolve, reject) => {
-      rl.on('error', (err) => {
-        rl.close();
-        reject(err);
+    try {
+      return await new Promise<string>((resolve, reject) => {
+        rl.question(question, (answer) => {
+          resolve(answer);
+        });
+
+        rl.on('error', (err) => reject(err));
+        rl.on('close', () => reject(new Error('Input closed')));
       });
-      rl.on('close', () => {
-        // If closed without answer (e.g. stdin EOF), treat as rejection
-        resolve('n');
-      });
-      rl.question(question, (answer) => {
-        rl.close();
-        resolve(answer);
-      });
-    });
+    } finally {
+      rl.close();
+    }
   }
 }

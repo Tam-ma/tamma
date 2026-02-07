@@ -80,7 +80,7 @@ export class RedisCache implements IContextCache {
   async clear(pattern?: string): Promise<void> {
     try {
       const searchPattern = pattern
-        ? this.prefix + pattern.replace(/\*/g, '*')
+        ? this.prefix + pattern.replace(/([?[\]\\])/g, '\\$1')
         : this.prefix + '*';
       const keys = await this.client.keys(searchPattern);
       if (keys.length > 0) {
