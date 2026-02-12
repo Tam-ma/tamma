@@ -1,7 +1,7 @@
 # MVP Status & Gap Analysis
 
 > Canonical status document for the `feat/engine-mvp` PR.
-> Updated: 2026-02-06
+> Updated: 2026-02-12
 
 ## PR Scope: 10 MVP Stories — All Complete
 
@@ -22,12 +22,13 @@
 
 ```
 providers:    93/93 pass  (5 files)
+cli:          92/92 pass  (7 files)
+platforms:    58/58 pass  (4 files, including new error-mapper)
 orchestrator: 44/44 pass  (1 file)
 shared:       32/32 pass  (3 files)
-platforms:    58/58 pass  (4 files, including new error-mapper)
 observability: 6/6 pass  (1 file)
 ────────────────────────────────────
-TOTAL:       233/233 pass
+TOTAL:       325/325 pass
 ```
 
 Pre-existing failures in Epic 6 packages (15 tests across gates, intelligence,
@@ -58,16 +59,17 @@ behind `E2E_TEST_ENABLED=true`. Uses real GitHub + real Claude. Estimated effort
 
 ### CLI Mode (Story 1-9, 1.5-2)
 
-The engine runs but has **no interactive CLI**. Current entry point
-(`apps/tamma-engine/src/index.ts`) is a headless daemon.
+The `@tamma/cli` package provides an Ink-based interactive CLI.
 
 | Feature | Status | Story |
 |---------|--------|-------|
-| `tamma start` command | Not started | 1-9 |
-| `tamma status` command | Not started | 1-9 |
+| `tamma init` wizard | **Implemented** — preflight, config, .env, post-checks | 1.5-2 |
+| `tamma start` command | **Implemented** — config loading, engine boot, log streaming | 1-9 |
+| `tamma status` command | **Implemented** — basic engine state display | 1-9 |
 | `tamma stop` command | Not started | 1-9 |
-| Config file loading (tamma.config.ts) | Not started | 1.5-2 |
-| Interactive plan approval (readline) | **Implemented** in engine | 2.3 (done) |
+| Config file loading (`tamma.config.json`) | **Implemented** — layered merge (defaults → file → env → CLI flags) | 1.5-2 |
+| `.env` credential management | **Implemented** — init writes `.env` with `0o600`, dotenv loads at startup | 1.5-2 |
+| Interactive plan approval (Ink UI) | **Implemented** — approve/reject/edit in TUI | 2.3 (done) |
 | Plan rejection with feedback | Not started | 2.3 extension |
 
 ### Web/API Mode (Story 1.5-3, 1.5-4)
@@ -91,15 +93,16 @@ The engine runs but has **no interactive CLI**. Current entry point
 
 ### What a User Can Do Today
 
-1. Set env vars (`GITHUB_TOKEN`, `GITHUB_OWNER`, `GITHUB_REPO`, etc.)
-2. Run `pnpm --filter @tamma/engine start`
-3. Engine polls for labeled issues, generates plan, asks for CLI approval (y/n)
-4. On approval: implements code, creates PR, monitors CI, merges
-5. Loops to next issue
+1. Run `tamma init` — wizard collects GitHub token, Anthropic API key, repo, model, approval mode
+2. Wizard writes `tamma.config.json` (no secrets) and `.env` (credentials, mode 0600)
+3. `.gitignore` is updated automatically (`.tamma/`, `.env`)
+4. Run `tamma start` — config loaded from file + `.env` + env vars + CLI flags
+5. Engine polls for labeled issues, generates plan, Ink-based approval UI
+6. On approval: implements code, creates PR, monitors CI, merges
+7. Loops to next issue
 
 **What they can't do:**
-- No config file (env vars only)
-- No `--dry-run` mode
+- No `tamma stop` command (Ctrl-C only)
 - No way to skip/defer an issue
 - No dashboard or web UI
 - No cost reports or budget alerts
@@ -115,7 +118,6 @@ The engine runs but has **no interactive CLI**. Current entry point
 |---------|---------|-------|
 | `@tamma/events` | Event sourcing | Epic 4 |
 | `@tamma/workers` | Background job workers | 1-8 |
-| `@tamma/cli` | CLI commands | 1-9 |
 
 ### Provider Factory Stubs (throw "not yet implemented")
 
