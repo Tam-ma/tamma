@@ -9,6 +9,8 @@ export interface CLIOptions {
   approval?: 'cli' | 'auto' | undefined;
   once?: boolean | undefined;
   verbose?: boolean | undefined;
+  interactive?: boolean | undefined;
+  debug?: boolean | undefined;
 }
 
 const DEFAULT_CONFIG: TammaConfig = {
@@ -182,19 +184,22 @@ export function validateConfig(config: TammaConfig): string[] {
 
 /**
  * Generate a tamma.config.json content from answers.
+ * Token is NOT stored in the config file — it belongs in .env.
  */
 export function generateConfigFile(answers: {
-  token: string;
   owner: string;
   repo: string;
   labels: string;
   approvalMode: string;
+  model?: string;
+  maxBudgetUsd?: number;
+  workingDirectory?: string;
 }): string {
   const config: Partial<TammaConfig> = {
     mode: 'standalone',
     logLevel: 'info',
     github: {
-      token: answers.token,
+      token: '',
       owner: answers.owner,
       repo: answers.repo,
       issueLabels: answers.labels.split(',').map((s) => s.trim()),
@@ -202,14 +207,14 @@ export function generateConfigFile(answers: {
       botUsername: 'tamma-bot',
     },
     agent: {
-      model: 'claude-sonnet-4-5',
-      maxBudgetUsd: 1.0,
+      model: answers.model ?? 'claude-sonnet-4-5',
+      maxBudgetUsd: answers.maxBudgetUsd ?? 1.0,
       allowedTools: ['Read', 'Write', 'Edit', 'Bash', 'Glob', 'Grep'],
       permissionMode: 'default',
     },
     engine: {
       pollIntervalMs: 300_000,
-      workingDirectory: '.',
+      workingDirectory: answers.workingDirectory ?? '.',
       maxRetries: 3,
       approvalMode: answers.approvalMode === 'auto' ? 'auto' : 'cli',
       ciPollIntervalMs: 30_000,
@@ -218,4 +223,65 @@ export function generateConfigFile(answers: {
   };
 
   return JSON.stringify(config, null, 2);
+}
+
+/**
+ * Generate a .env file with credentials.
+ * Empty values are written as commented placeholders.
+ */
+export function generateEnvFile(credentials: {
+  token: string;
+  anthropicKey: string;
+}): string {
+  const lines: string[] = ['# Tamma credentials — DO NOT COMMIT'];
+
+  if (credentials.token) {
+    lines.push(`GITHUB_TOKEN=${credentials.token}`);
+  } else {
+    lines.push('# GITHUB_TOKEN=ghp_your_token_here');
+  }
+
+  if (credentials.anthropicKey) {
+    lines.push(`ANTHROPIC_API_KEY=${credentials.anthropicKey}`);
+  } else {
+    lines.push('# ANTHROPIC_API_KEY=sk-ant-your_key_here');
+  }
+
+  lines.push(''); // trailing newline
+  return lines.join('\n');
+}
+
+/**
+ * Generate a .env.example template with all TAMMA_ environment variables.
+ */
+export function generateEnvExample(): string {
+  return `# Tamma Environment Variables
+# Copy this file to .env and fill in the values.
+
+# GitHub — required
+GITHUB_TOKEN=
+TAMMA_GITHUB_OWNER=
+TAMMA_GITHUB_REPO=
+
+# GitHub — optional
+TAMMA_BOT_USERNAME=tamma-bot
+TAMMA_ISSUE_LABELS=tamma
+TAMMA_EXCLUDE_LABELS=wontfix
+
+# Agent
+TAMMA_MODEL=claude-sonnet-4-5
+TAMMA_MAX_BUDGET_USD=1.00
+TAMMA_PERMISSION_MODE=default
+
+# Engine
+TAMMA_POLL_INTERVAL_MS=300000
+TAMMA_WORKING_DIRECTORY=.
+TAMMA_APPROVAL_MODE=cli
+
+# Logging
+TAMMA_LOG_LEVEL=info
+
+# Claude CLI agent — required
+ANTHROPIC_API_KEY=
+`;
 }

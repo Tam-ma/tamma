@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
-import { loadConfig, validateConfig, generateConfigFile } from './config.js';
+import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile } from './config.js';
 import type { CLIOptions } from './config.js';
 
 vi.mock('node:fs');
@@ -152,9 +152,8 @@ describe('validateConfig', () => {
 });
 
 describe('generateConfigFile', () => {
-  it('should generate valid JSON config', () => {
+  it('should generate valid JSON config without token', () => {
     const content = generateConfigFile({
-      token: 'my-token',
       owner: 'my-org',
       repo: 'my-repo',
       labels: 'tamma, custom',
@@ -162,7 +161,7 @@ describe('generateConfigFile', () => {
     });
 
     const parsed = JSON.parse(content);
-    expect(parsed.github.token).toBe('my-token');
+    expect(parsed.github.token).toBe('');
     expect(parsed.github.owner).toBe('my-org');
     expect(parsed.github.repo).toBe('my-repo');
     expect(parsed.github.issueLabels).toEqual(['tamma', 'custom']);
@@ -171,7 +170,6 @@ describe('generateConfigFile', () => {
 
   it('should default to cli approval mode for unknown values', () => {
     const content = generateConfigFile({
-      token: 't',
       owner: 'o',
       repo: 'r',
       labels: 'tamma',
@@ -180,5 +178,79 @@ describe('generateConfigFile', () => {
 
     const parsed = JSON.parse(content);
     expect(parsed.engine.approvalMode).toBe('cli');
+  });
+
+  it('should accept model, maxBudgetUsd, and workingDirectory', () => {
+    const content = generateConfigFile({
+      owner: 'o',
+      repo: 'r',
+      labels: 'tamma',
+      approvalMode: 'cli',
+      model: 'claude-opus-4-6',
+      maxBudgetUsd: 5.0,
+      workingDirectory: '/custom/path',
+    });
+
+    const parsed = JSON.parse(content);
+    expect(parsed.agent.model).toBe('claude-opus-4-6');
+    expect(parsed.agent.maxBudgetUsd).toBe(5.0);
+    expect(parsed.engine.workingDirectory).toBe('/custom/path');
+  });
+
+  it('should use defaults when optional fields are omitted', () => {
+    const content = generateConfigFile({
+      owner: 'o',
+      repo: 'r',
+      labels: 'tamma',
+      approvalMode: 'cli',
+    });
+
+    const parsed = JSON.parse(content);
+    expect(parsed.agent.model).toBe('claude-sonnet-4-5');
+    expect(parsed.agent.maxBudgetUsd).toBe(1.0);
+    expect(parsed.engine.workingDirectory).toBe('.');
+  });
+});
+
+describe('generateEnvExample', () => {
+  it('should include all TAMMA_ environment variables', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('GITHUB_TOKEN=');
+    expect(output).toContain('TAMMA_GITHUB_OWNER=');
+    expect(output).toContain('TAMMA_GITHUB_REPO=');
+    expect(output).toContain('TAMMA_MODEL=');
+    expect(output).toContain('TAMMA_MAX_BUDGET_USD=');
+    expect(output).toContain('TAMMA_APPROVAL_MODE=');
+    expect(output).toContain('TAMMA_LOG_LEVEL=');
+    expect(output).toContain('ANTHROPIC_API_KEY=');
+  });
+});
+
+describe('generateEnvFile', () => {
+  it('should write both credentials when provided', () => {
+    const output = generateEnvFile({ token: 'ghp_abc123', anthropicKey: 'sk-ant-xyz' });
+    expect(output).toContain('GITHUB_TOKEN=ghp_abc123');
+    expect(output).toContain('ANTHROPIC_API_KEY=sk-ant-xyz');
+    expect(output).not.toContain('# GITHUB_TOKEN=');
+    expect(output).not.toContain('# ANTHROPIC_API_KEY=');
+  });
+
+  it('should write commented placeholders when both are empty', () => {
+    const output = generateEnvFile({ token: '', anthropicKey: '' });
+    expect(output).toContain('# GITHUB_TOKEN=ghp_your_token_here');
+    expect(output).toContain('# ANTHROPIC_API_KEY=sk-ant-your_key_here');
+    expect(output).not.toMatch(/^GITHUB_TOKEN=/m);
+    expect(output).not.toMatch(/^ANTHROPIC_API_KEY=/m);
+  });
+
+  it('should handle mixed: token provided, anthropicKey empty', () => {
+    const output = generateEnvFile({ token: 'ghp_real', anthropicKey: '' });
+    expect(output).toContain('GITHUB_TOKEN=ghp_real');
+    expect(output).toContain('# ANTHROPIC_API_KEY=sk-ant-your_key_here');
+  });
+
+  it('should contain the DO NOT COMMIT header', () => {
+    const output = generateEnvFile({ token: '', anthropicKey: '' });
+    expect(output).toContain('DO NOT COMMIT');
   });
 });
