@@ -7,7 +7,7 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import { execSync } from 'node:child_process';
 import dotenv from 'dotenv';
-import { generateConfigFile, generateEnvFile } from '../config.js';
+import { generateConfigFile, generateEnvFile, mergeIntoEnvFile } from '../config.js';
 import { runPreflight } from '../preflight.js';
 import type { PreflightResults } from '../preflight.js';
 import { colorProp } from '../colors.js';
@@ -329,8 +329,14 @@ function InitApp(): React.JSX.Element {
     setConfigPath(dest);
 
     // Write .env with credentials (restrictive permissions)
-    const envContent = generateEnvFile({ token: answers.token, anthropicKey: answers.anthropicKey });
     const envDest = path.resolve('.env');
+    let envContent: string;
+    if (fs.existsSync(envDest)) {
+      const existing = fs.readFileSync(envDest, 'utf-8');
+      envContent = mergeIntoEnvFile(existing, { token: answers.token, anthropicKey: answers.anthropicKey });
+    } else {
+      envContent = generateEnvFile({ token: answers.token, anthropicKey: answers.anthropicKey });
+    }
     fs.writeFileSync(envDest, envContent, { encoding: 'utf-8', mode: 0o600 });
     setEnvPath(envDest);
 
@@ -415,8 +421,8 @@ function InitApp(): React.JSX.Element {
         content = fs.readFileSync(gitignorePath, 'utf-8');
       }
       const additions: string[] = [];
-      if (!content.includes('.tamma/')) additions.push('.tamma/');
-      if (!content.includes('.env')) additions.push('.env');
+      if (!/^\.tamma\/\s*$/m.test(content)) additions.push('.tamma/');
+      if (!/^\.env\s*$/m.test(content)) additions.push('.env');
       if (additions.length > 0) {
         const newContent = content.trimEnd() + '\n\n# Tamma\n' + additions.join('\n') + '\n';
         fs.writeFileSync(gitignorePath, newContent, 'utf-8');

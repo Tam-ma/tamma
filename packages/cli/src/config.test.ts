@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
-import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile } from './config.js';
+import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile, mergeIntoEnvFile } from './config.js';
 import type { CLIOptions } from './config.js';
 
 vi.mock('node:fs');
@@ -252,5 +252,49 @@ describe('generateEnvFile', () => {
   it('should contain the DO NOT COMMIT header', () => {
     const output = generateEnvFile({ token: '', anthropicKey: '' });
     expect(output).toContain('DO NOT COMMIT');
+  });
+});
+
+describe('mergeIntoEnvFile', () => {
+  it('should update existing keys when user provides values', () => {
+    const existing = 'GITHUB_TOKEN=old_token\nANTHROPIC_API_KEY=old_key\n';
+    const result = mergeIntoEnvFile(existing, { token: 'new_token', anthropicKey: 'new_key' });
+    expect(result).toContain('GITHUB_TOKEN=new_token');
+    expect(result).toContain('ANTHROPIC_API_KEY=new_key');
+    expect(result).not.toContain('old_token');
+    expect(result).not.toContain('old_key');
+  });
+
+  it('should leave existing keys untouched when user skips (empty)', () => {
+    const existing = 'GITHUB_TOKEN=keep_this\nANTHROPIC_API_KEY=keep_that\n';
+    const result = mergeIntoEnvFile(existing, { token: '', anthropicKey: '' });
+    expect(result).toContain('GITHUB_TOKEN=keep_this');
+    expect(result).toContain('ANTHROPIC_API_KEY=keep_that');
+  });
+
+  it('should preserve unrelated env vars', () => {
+    const existing = 'DATABASE_URL=postgres://localhost\nGITHUB_TOKEN=old\nDEBUG=true\n';
+    const result = mergeIntoEnvFile(existing, { token: 'new', anthropicKey: 'sk-ant-new' });
+    expect(result).toContain('DATABASE_URL=postgres://localhost');
+    expect(result).toContain('DEBUG=true');
+    expect(result).toContain('GITHUB_TOKEN=new');
+    expect(result).toContain('ANTHROPIC_API_KEY=sk-ant-new');
+  });
+
+  it('should append keys that do not exist in the file', () => {
+    const existing = 'DATABASE_URL=postgres://localhost\n';
+    const result = mergeIntoEnvFile(existing, { token: 'ghp_abc', anthropicKey: 'sk-ant-xyz' });
+    expect(result).toContain('DATABASE_URL=postgres://localhost');
+    expect(result).toContain('GITHUB_TOKEN=ghp_abc');
+    expect(result).toContain('ANTHROPIC_API_KEY=sk-ant-xyz');
+  });
+
+  it('should uncomment and replace commented-out keys', () => {
+    const existing = '# GITHUB_TOKEN=placeholder\n# ANTHROPIC_API_KEY=placeholder\n';
+    const result = mergeIntoEnvFile(existing, { token: 'ghp_real', anthropicKey: 'sk-ant-real' });
+    expect(result).toContain('GITHUB_TOKEN=ghp_real');
+    expect(result).toContain('ANTHROPIC_API_KEY=sk-ant-real');
+    expect(result).not.toContain('# GITHUB_TOKEN');
+    expect(result).not.toContain('# ANTHROPIC_API_KEY');
   });
 });

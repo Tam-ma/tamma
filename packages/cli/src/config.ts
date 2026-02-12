@@ -252,6 +252,36 @@ export function generateEnvFile(credentials: {
 }
 
 /**
+ * Merge credentials into an existing .env file.
+ * Only updates keys the user actually provided (non-empty).
+ * Existing content is preserved for keys not being updated.
+ */
+export function mergeIntoEnvFile(existingContent: string, credentials: {
+  token: string;
+  anthropicKey: string;
+}): string {
+  let content = existingContent;
+
+  if (credentials.token) {
+    if (/^#?\s*GITHUB_TOKEN=/m.test(content)) {
+      content = content.replace(/^#?\s*GITHUB_TOKEN=.*/m, `GITHUB_TOKEN=${credentials.token}`);
+    } else {
+      content = content.trimEnd() + `\nGITHUB_TOKEN=${credentials.token}\n`;
+    }
+  }
+
+  if (credentials.anthropicKey) {
+    if (/^#?\s*ANTHROPIC_API_KEY=/m.test(content)) {
+      content = content.replace(/^#?\s*ANTHROPIC_API_KEY=.*/m, `ANTHROPIC_API_KEY=${credentials.anthropicKey}`);
+    } else {
+      content = content.trimEnd() + `\nANTHROPIC_API_KEY=${credentials.anthropicKey}\n`;
+    }
+  }
+
+  return content;
+}
+
+/**
  * Generate a .env.example template with all TAMMA_ environment variables.
  */
 export function generateEnvExample(): string {
