@@ -12,6 +12,8 @@ Stories are organized into epic-specific subdirectories:
 - **`epic-4/`** - Event Sourcing & Intelligence (7 stories)
 - **`epic-5/`** - Observability Dashboard & Documentation (14 stories)
 - **`epic-6/`** - Context & Knowledge Management (10 stories)
+- **`epic-7/`** - Autonomous Mentorship Workflow (10 stories)
+- **`epic-8/`** - Distribution & Installation (8 stories)
 
 ## File Types
 
@@ -58,6 +60,14 @@ All stories across all epics are **ready for implementation** with:
 
 - **Epic 6**: Context & Knowledge Management (Vector DB, RAG, MCP)
 
+### Phase 5 (March 2026)
+
+- **Epic 7**: Autonomous Mentorship Workflow
+
+### Phase 6 (April 2026)
+
+- **Epic 8**: Distribution & Installation (npm, binary, Docker)
+
 ## Navigation
 
 - See individual epic README files for detailed story breakdowns
@@ -68,5 +78,5 @@ All stories across all epics are **ready for implementation** with:
 ---
 
 **Last Updated**: 2026-02-05
-**Total Stories**: 74 stories across 6 epics
+**Total Stories**: 92 stories across 8 epics
 **Implementation Start**: November 2025
