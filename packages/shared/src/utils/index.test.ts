@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { sleep, slugify, extractIssueReferences } from './index.js';
+import { sleep, slugify, extractIssueReferences, monotonicNow } from './index.js';
 
 describe('Utility Functions', () => {
   describe('sleep', () => {
@@ -45,6 +45,29 @@ describe('Utility Functions', () => {
 
     it('should handle special characters only', () => {
       expect(slugify('!!@@##')).toBe('untitled');
+    });
+  });
+
+  describe('monotonicNow', () => {
+    it('should return a number', () => {
+      const result = monotonicNow();
+      expect(typeof result).toBe('number');
+    });
+
+    it('should produce strictly increasing values on successive calls', () => {
+      const a = monotonicNow();
+      const b = monotonicNow();
+      const c = monotonicNow();
+      expect(b).toBeGreaterThan(a);
+      expect(c).toBeGreaterThan(b);
+    });
+
+    it('should produce different values even when called rapidly', () => {
+      const values = new Set<number>();
+      for (let i = 0; i < 100; i++) {
+        values.add(monotonicNow());
+      }
+      expect(values.size).toBe(100);
     });
   });
 

@@ -45,6 +45,11 @@ export interface LocalAIProviderConfig extends AIProviderConfig {
   parallelRequests?: number;
 }
 
+// --- Merge Method ---
+
+/** Merge strategy used when merging pull requests. */
+export type MergeMethod = 'squash' | 'merge' | 'rebase';
+
 // --- Configuration ---
 
 export interface TammaConfig {
@@ -57,6 +62,10 @@ export interface TammaConfig {
   aiProviders?: AIProviderConfig[];
   /** Default AI provider to use */
   defaultProvider?: AIProviderType;
+  /** ELSA workflow engine configuration */
+  elsa?: ElsaConfig;
+  /** API server configuration */
+  server?: ServerConfig;
 }
 
 export interface GitHubConfig {
@@ -84,8 +93,6 @@ export interface EngineConfig {
   pollIntervalMs: number;
   /** Absolute path to the repo checkout the agent operates on. */
   workingDirectory: string;
-  /** Maximum retries for retryable workflow errors. */
-  maxRetries: number;
   /** 'cli' blocks for human confirmation; 'auto' skips the gate. */
   approvalMode: 'cli' | 'auto';
   /** Delay between CI status polls inside monitorAndMerge (default: 30 000 ms). */
@@ -97,9 +104,24 @@ export interface EngineConfig {
    */
   ciMonitorTimeoutMs: number;
   /** Merge method to use when merging PRs. Default: 'squash'. */
-  mergeStrategy?: 'squash' | 'merge' | 'rebase';
+  mergeStrategy?: MergeMethod;
   /** Whether to delete the feature branch after merge. Default: true. */
   deleteBranchOnMerge?: boolean;
+}
+
+export interface ElsaConfig {
+  enabled: boolean;
+  serverUrl: string;
+  apiKey: string;
+  callbackPort?: number;
+}
+
+export interface ServerConfig {
+  port: number;
+  host: string;
+  jwtSecret: string;
+  corsOrigins: string[];
+  enableAuth: boolean;
 }
 
 // --- Engine State Machine (Story 1.5-1) ---
