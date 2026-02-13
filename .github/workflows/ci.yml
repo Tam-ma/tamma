@@ -38,6 +38,12 @@ jobs:
       - name: Run tests
         run: pnpm vitest run
 
+      - name: Verify CLI bundle builds
+        run: pnpm --filter @tamma/cli run build:bundle
+
+      - name: Shellcheck install script
+        run: shellcheck install.sh
+
   dotnet-tests:
     name: .NET Tests
     runs-on: ubuntu-latest

@@ -1,4 +1,13 @@
 import { execSync } from 'node:child_process';
+import { readSecretOrEnv } from './config.js';
+
+export function isStandaloneBinary(): boolean {
+  try {
+    return typeof (globalThis as Record<string, unknown>).Bun !== 'undefined';
+  } catch {
+    return false;
+  }
+}
 
 export interface PreflightCheck {
   name: string;
@@ -15,6 +24,14 @@ export interface PreflightResults {
 }
 
 export function checkNodeVersion(): PreflightCheck {
+  if (isStandaloneBinary()) {
+    return {
+      name: 'Node.js >= 22',
+      passed: true,
+      required: true,
+      message: 'Standalone binary (Bun runtime) — Node.js check skipped',
+    };
+  }
   const version = process.version;
   const major = parseInt(version.slice(1).split('.')[0]!, 10);
   const passed = major >= 22;
@@ -71,7 +88,7 @@ export function checkIsGitRepo(): PreflightCheck {
 }
 
 export function checkAnthropicApiKey(): PreflightCheck {
-  const hasKey = Boolean(process.env['ANTHROPIC_API_KEY']);
+  const hasKey = Boolean(readSecretOrEnv('ANTHROPIC_API_KEY'));
   return {
     name: 'ANTHROPIC_API_KEY',
     passed: hasKey,

@@ -1,6 +1,7 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import * as fs from 'node:fs';
-import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile, mergeIntoEnvFile } from './config.js';
+import { readFileSync } from 'node:fs';
+import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile, mergeIntoEnvFile, readSecretOrEnv } from './config.js';
 import type { CLIOptions } from './config.js';
 
 vi.mock('node:fs');
@@ -296,5 +297,86 @@ describe('mergeIntoEnvFile', () => {
     expect(result).toContain('ANTHROPIC_API_KEY=sk-ant-real');
     expect(result).not.toContain('# GITHUB_TOKEN');
     expect(result).not.toContain('# ANTHROPIC_API_KEY');
+  });
+});
+
+describe('readSecretOrEnv', () => {
+  beforeEach(() => {
+    delete process.env['TEST_VAR'];
+    delete process.env['TEST_VAR_FILE'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env['TEST_VAR'];
+    delete process.env['TEST_VAR_FILE'];
+  });
+
+  it('should return env var value when no _FILE variant is set', () => {
+    process.env['TEST_VAR'] = 'plain-value';
+    expect(readSecretOrEnv('TEST_VAR')).toBe('plain-value');
+  });
+
+  it('should return undefined when neither env var nor _FILE is set', () => {
+    expect(readSecretOrEnv('TEST_VAR')).toBeUndefined();
+  });
+
+  it('should read from file when _FILE env var is set', () => {
+    process.env['TEST_VAR_FILE'] = '/run/secrets/test_var';
+    vi.mocked(fs.readFileSync).mockReturnValue('secret-from-file\n');
+
+    expect(readSecretOrEnv('TEST_VAR')).toBe('secret-from-file');
+  });
+
+  it('should trim whitespace from file contents', () => {
+    process.env['TEST_VAR_FILE'] = '/run/secrets/test_var';
+    vi.mocked(fs.readFileSync).mockReturnValue('  secret-with-spaces  \n');
+
+    expect(readSecretOrEnv('TEST_VAR')).toBe('secret-with-spaces');
+  });
+
+  it('should return undefined when _FILE points to non-existent file', () => {
+    process.env['TEST_VAR_FILE'] = '/run/secrets/missing';
+    vi.mocked(fs.readFileSync).mockImplementation(() => {
+      throw new Error('ENOENT');
+    });
+
+    expect(readSecretOrEnv('TEST_VAR')).toBeUndefined();
+  });
+
+  it('should prefer _FILE over plain env var', () => {
+    process.env['TEST_VAR'] = 'plain-value';
+    process.env['TEST_VAR_FILE'] = '/run/secrets/test_var';
+    vi.mocked(fs.readFileSync).mockReturnValue('file-value\n');
+
+    expect(readSecretOrEnv('TEST_VAR')).toBe('file-value');
+  });
+});
+
+describe('loadConfig with Docker secret files', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+    delete process.env['GITHUB_TOKEN_FILE'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    delete process.env['GITHUB_TOKEN_FILE'];
+  });
+
+  it('should load GITHUB_TOKEN from a Docker secret file', () => {
+    process.env['GITHUB_TOKEN_FILE'] = '/run/secrets/github_token';
+    vi.mocked(fs.readFileSync).mockReturnValue('ghp_from_docker_secret\n');
+    process.env['TAMMA_GITHUB_OWNER'] = 'org';
+    process.env['TAMMA_GITHUB_REPO'] = 'repo';
+
+    const config = loadConfig({});
+    expect(config.github.token).toBe('ghp_from_docker_secret');
   });
 });

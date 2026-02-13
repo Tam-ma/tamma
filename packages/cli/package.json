@@ -10,10 +10,14 @@
   },
   "scripts": {
     "build": "tsc --build && chmod +x dist/index.js",
+    "build:binary": "node scripts/build-binary.mjs",
+    "build:bundle": "node scripts/build.mjs",
+    "build:publish": "pnpm run typecheck && pnpm run build:bundle && node scripts/prepare-package.mjs",
     "dev": "tsx watch src/index.tsx",
-    "clean": "rm -rf dist .tsbuildinfo",
+    "clean": "rm -rf dist .tsbuildinfo package.json.publish",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
     "@tamma/api": "workspace:*",

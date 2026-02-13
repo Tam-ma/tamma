@@ -1,0 +1,120 @@
+name: Publish @tamma/cli
+
+on:
+  push:
+    tags: ['cli-v*']
+
+permissions:
+  contents: read
+  id-token: write # npm provenance
+
+concurrency:
+  group: publish-cli
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    name: Build & Publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/cli-v}"
+          echo "tag_version=$TAG" >> "$GITHUB_OUTPUT"
+          PKG_VERSION=$(node -p "require('./packages/cli/package.json').version")
+          echo "pkg_version=$PKG_VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version match
+        run: |
+          if [ "${{ steps.version.outputs.tag_version }}" != "${{ steps.version.outputs.pkg_version }}" ]; then
+            echo "::error::Tag version (${{ steps.version.outputs.tag_version }}) does not match package.json version (${{ steps.version.outputs.pkg_version }})"
+            exit 1
+          fi
+          echo "Version: ${{ steps.version.outputs.tag_version }}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r run build
+
+      - name: Typecheck CLI
+        run: pnpm --filter @tamma/cli run typecheck
+
+      - name: Run CLI tests
+        run: pnpm vitest run packages/cli/src
+
+      - name: Build publish bundle
+        run: pnpm --filter @tamma/cli run build:publish
+
+      - name: Run smoke tests
+        run: pnpm --filter @tamma/cli run test:smoke
+
+      - name: Verify bundle version
+        run: |
+          BUNDLE_VERSION=$(node packages/cli/dist/index.js --version 2>/dev/null || true)
+          echo "Bundle reports version: $BUNDLE_VERSION"
+          if [ "$BUNDLE_VERSION" != "${{ steps.version.outputs.tag_version }}" ]; then
+            echo "::warning::Bundle version ($BUNDLE_VERSION) may not match tag (${{ steps.version.outputs.tag_version }})"
+          fi
+
+      - name: Prepare publish directory
+        run: |
+          cp packages/cli/package.json.publish packages/cli/package.json
+          echo "Package contents:"
+          cd packages/cli && npm pack --dry-run 2>&1
+
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  verify:
+    name: Verify Published Package
+    needs: publish
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Wait for npm propagation
+        run: sleep 30
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          TAG="${GITHUB_REF#refs/tags/cli-v}"
+          echo "tag_version=$TAG" >> "$GITHUB_OUTPUT"
+
+      - name: Install and verify
+        run: |
+          npm install -g @tamma/cli@${{ steps.version.outputs.tag_version }}
+          INSTALLED_VERSION=$(tamma --version)
+          echo "Installed version: $INSTALLED_VERSION"
+          if [ "$INSTALLED_VERSION" != "${{ steps.version.outputs.tag_version }}" ]; then
+            echo "::error::Installed version ($INSTALLED_VERSION) does not match expected (${{ steps.version.outputs.tag_version }})"
+            exit 1
+          fi
+          echo "Verification successful!"

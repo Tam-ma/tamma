@@ -1,0 +1,40 @@
+# =============================================================================
+# Tamma Platform — Development Overrides
+#
+# Automatically loaded by `docker compose up` when present alongside
+# docker-compose.yml in the same directory.
+#
+# Exposes all service ports to the host and enables verbose logging.
+# =============================================================================
+
+services:
+  postgres:
+    ports:
+      - "5432:5432"
+
+  rabbitmq:
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+
+  elsa-server:
+    ports:
+      - "5000:5000"
+
+  tamma-api-dotnet:
+    ports:
+      - "3000:3000"
+
+  tamma-api:
+    ports:
+      - "3100:3100"
+    environment:
+      LOG_LEVEL: debug
+
+  tamma-engine:
+    environment:
+      LOG_LEVEL: debug
+
+  tamma-dashboard:
+    ports:
+      - "3001:3001"

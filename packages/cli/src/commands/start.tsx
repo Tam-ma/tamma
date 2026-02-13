@@ -1,5 +1,6 @@
 import React from 'react';
 import { render } from 'ink';
+import * as fs from 'node:fs';
 import { EngineState } from '@tamma/shared';
 import type { IssueData } from '@tamma/shared';
 import { TammaEngine } from '@tamma/orchestrator';
@@ -17,6 +18,8 @@ import { createFileLogSubscriber } from '../file-logger.js';
 import type { StateEmitter, PendingApproval, CommandContext } from '../types.js';
 import SessionLayout from '../components/SessionLayout.js';
 import IssueSelector from '../components/IssueSelector.js';
+
+const HEALTH_SENTINEL = '/tmp/tamma-engine-healthy';
 
 /**
  * A sleep that can be cancelled via AbortSignal.
@@ -88,6 +91,72 @@ export async function startCommand(options: CLIOptions): Promise<void> {
 
   // Set up agent provider
   const agent = new ClaudeAgentProvider();
+
+  // ---- Service mode: headless, no TUI, auto-approval, JSON logging ----
+  if (options.mode === 'service') {
+    config.engine.approvalMode = 'auto';
+
+    const logger = createLogger('tamma-engine', config.logLevel);
+
+    const engine = new TammaEngine({
+      config,
+      platform,
+      agent,
+      logger,
+      onStateChange: (state, issue, stats) => {
+        writeLockfile(state, issue, stats);
+        logger.info('State changed', { state, issue: issue?.title ?? null });
+      },
+    });
+
+    let running = true;
+
+    const removeHealthSentinel = (): void => {
+      try { fs.unlinkSync(HEALTH_SENTINEL); } catch { /* ignore */ }
+    };
+
+    const shutdown = async (): Promise<void> => {
+      running = false;
+      logger.info('Shutting down engine (service mode)...');
+      removeHealthSentinel();
+      await engine.dispose();
+      removeLockfile();
+      process.exit(0);
+    };
+
+    process.on('SIGINT', () => { void shutdown(); });
+    process.on('SIGTERM', () => { void shutdown(); });
+
+    try {
+      await engine.initialize();
+      // Write health sentinel so Docker HEALTHCHECK passes
+      fs.writeFileSync(HEALTH_SENTINEL, String(Date.now()), 'utf-8');
+      logger.info('Engine initialized (service mode). Health sentinel written.');
+
+      while (running) {
+        try {
+          await engine.processOneIssue();
+        } catch (err: unknown) {
+          const { message, suggestions } = formatErrorWithSuggestions(err);
+          logger.error(`Error processing issue: ${message}`, { suggestions });
+        }
+
+        if (running) {
+          logger.info('Polling for next issue...', { pollIntervalMs: config.engine.pollIntervalMs });
+          await cancellableSleep(config.engine.pollIntervalMs);
+        }
+      }
+    } catch (err: unknown) {
+      const { message, suggestions } = formatErrorWithSuggestions(err);
+      logger.error(`Fatal error in service mode: ${message}`, { suggestions });
+      removeHealthSentinel();
+      process.exit(1);
+    }
+
+    return;
+  }
+
+  // ---- Interactive / dry-run mode ----
 
   // State emitter bridges engine callbacks → React state
   const stateEmitter = createStateEmitter();

@@ -1,6 +1,27 @@
+import { readFileSync } from 'node:fs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { TammaConfig, GitHubConfig, AgentConfig, EngineConfig } from '@tamma/shared';
+
+/**
+ * Read a secret from a Docker secret file (via `<ENV_VAR>_FILE`) or fall back
+ * to the plain environment variable. This allows containers to consume secrets
+ * mounted at `/run/secrets/` without baking values into the environment.
+ *
+ * Example: if `GITHUB_TOKEN_FILE=/run/secrets/github_token` is set, the
+ * contents of that file are returned instead of `process.env.GITHUB_TOKEN`.
+ */
+export function readSecretOrEnv(envVar: string): string | undefined {
+  const filePath = process.env[`${envVar}_FILE`];
+  if (filePath) {
+    try {
+      return readFileSync(filePath, 'utf-8').trim();
+    } catch {
+      return undefined;
+    }
+  }
+  return process.env[envVar];
+}
 
 /** Options from CLI flags that override config file and env vars. */
 export interface CLIOptions {
@@ -11,6 +32,7 @@ export interface CLIOptions {
   verbose?: boolean | undefined;
   interactive?: boolean | undefined;
   debug?: boolean | undefined;
+  mode?: 'interactive' | 'service' | undefined;
 }
 
 const DEFAULT_CONFIG: TammaConfig = {
@@ -64,8 +86,8 @@ function loadEnvConfig(): Partial<TammaConfig> {
   const env = process.env;
   const config: Partial<TammaConfig> = {};
 
-  // GitHub config from env
-  const githubToken = env['GITHUB_TOKEN'] ?? env['TAMMA_GITHUB_TOKEN'];
+  // GitHub config from env — support Docker secret files
+  const githubToken = readSecretOrEnv('GITHUB_TOKEN') ?? readSecretOrEnv('TAMMA_GITHUB_TOKEN');
   const githubOwner = env['TAMMA_GITHUB_OWNER'];
   const githubRepo = env['TAMMA_GITHUB_REPO'];
   const botUsername = env['TAMMA_BOT_USERNAME'];
