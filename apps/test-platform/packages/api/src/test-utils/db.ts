@@ -6,7 +6,6 @@ import path from 'path'
 function parseEnvFile(filePath: string) {
   const data = fs.readFileSync(filePath, 'utf-8')
   const lines = data.split('\n')
-')
   const env: { [key: string]: string } = {}
   for (const line of lines) {
     if (line.startsWith('#') || !line.includes('=')) {
