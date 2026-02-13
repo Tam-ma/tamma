@@ -45,7 +45,6 @@ function createMockConfig(): TammaConfig {
     engine: {
       pollIntervalMs: 100,
       workingDirectory: '/tmp/test-workspace',
-      maxRetries: 3,
       approvalMode: 'auto',
       ciPollIntervalMs: 100,
       ciMonitorTimeoutMs: 60000,
@@ -949,9 +948,9 @@ describe('TammaEngine', () => {
       expect(stats.issuesProcessed).toBe(1);
     });
 
-    it('should accumulate cost from implementation', async () => {
+    it('should accumulate cost from plan generation and implementation', async () => {
       const agent = createMockAgent();
-      // Plan call returns plan JSON, implementation call returns cost
+      // Plan call returns plan JSON with cost, implementation call returns cost
       vi.mocked(agent.executeTask)
         .mockResolvedValueOnce({
           success: true,
@@ -969,7 +968,7 @@ describe('TammaEngine', () => {
       const { engine } = createEngine({ agent });
       await engine.processOneIssue();
       const stats = engine.getStats();
-      expect(stats.totalCostUsd).toBeCloseTo(0.50);
+      expect(stats.totalCostUsd).toBeCloseTo(0.52);
     });
 
     it('should not increment issues processed on failure', async () => {

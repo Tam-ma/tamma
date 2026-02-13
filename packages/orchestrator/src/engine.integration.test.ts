@@ -29,7 +29,6 @@ function createIntegrationConfig(): TammaConfig {
     engine: {
       pollIntervalMs: 100,
       workingDirectory: '/tmp/test',
-      maxRetries: 1,
       approvalMode: 'auto',
       ciPollIntervalMs: 100,
       ciMonitorTimeoutMs: 5000,

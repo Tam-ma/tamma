@@ -12,7 +12,6 @@ import { EngineState, EngineEventType, sleep, slugify, extractIssueReferences } 
 import { WorkflowError, EngineError } from '@tamma/shared';
 import type { IAgentProvider } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
-
 /** Statistics tracked by the engine across its lifetime. */
 export interface EngineStats {
   issuesProcessed: number;
@@ -73,6 +72,8 @@ export class TammaEngine {
   private currentBranch: string | null = null;
   private currentPR: PullRequestInfo | null = null;
   private running = false;
+  private processing = false;
+  private currentPipelinePromise: Promise<void> | null = null;
   private issuesProcessed = 0;
   private totalCostUsd = 0;
   private readonly startedAt: number;
@@ -109,9 +110,14 @@ export class TammaEngine {
     });
   }
 
-  /** Stop the run loop and release provider resources. */
+  /** Stop the run loop and release provider resources. Awaits any in-flight pipeline cycle. */
   async dispose(): Promise<void> {
     this.running = false;
+    if (this.currentPipelinePromise) {
+      await this.currentPipelinePromise.catch(() => {
+        // Swallow errors — dispose should not throw from an in-flight pipeline
+      });
+    }
     await this.agent.dispose();
     await this.platform.dispose();
     this.logger.info('TammaEngine disposed');
@@ -125,19 +131,29 @@ export class TammaEngine {
    * Call {@link dispose} or send SIGINT/SIGTERM to break out.
    */
   async run(): Promise<void> {
+    if (this.running) {
+      this.logger.warn('Engine run loop already active, skipping concurrent call');
+      return;
+    }
     this.running = true;
     this.logger.info('TammaEngine run loop started');
 
     while (this.running) {
       try {
         await this.processOneIssue();
+        // On success, reset to IDLE for next iteration
         this.resetCurrentWork();
       } catch (err: unknown) {
+        // processOneIssue already sets ERROR state and clears work references.
+        // Do not call resetCurrentWork() here — it would overwrite ERROR → IDLE
+        // before observers have a chance to see the error state.
         const message = err instanceof Error ? err.message : String(err);
         this.logger.error('Error processing issue', {
           error: message,
           state: this.state,
         });
+        // Reset to IDLE only after logging, so the error state was observable
+        this.setState(EngineState.IDLE);
       }
 
       if (this.running) {
@@ -158,6 +174,24 @@ export class TammaEngine {
    * are cleared in the finally block.
    */
   async processOneIssue(): Promise<void> {
+    if (this.processing) {
+      this.logger.warn('Pipeline already processing, skipping concurrent call');
+      return;
+    }
+    this.processing = true;
+
+    const pipeline = this.runPipeline();
+    this.currentPipelinePromise = pipeline;
+
+    try {
+      await pipeline;
+    } finally {
+      this.currentPipelinePromise = null;
+      this.processing = false;
+    }
+  }
+
+  private async runPipeline(): Promise<void> {
     // Step 1: Select issue
     const issue = await this.selectIssue();
     if (issue === null) {
@@ -456,6 +490,9 @@ Return ONLY valid JSON matching the schema.`;
         { retryable: true },
       );
     }
+
+    // Track plan generation cost
+    this.totalCostUsd += result.costUsd ?? 0;
 
     let plan: DevelopmentPlan;
     try {

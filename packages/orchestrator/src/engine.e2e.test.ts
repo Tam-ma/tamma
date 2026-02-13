@@ -47,7 +47,6 @@ function createE2EConfig(): TammaConfig {
     engine: {
       pollIntervalMs: 1000,
       workingDirectory: process.cwd(),
-      maxRetries: 1,
       approvalMode: 'auto',
       ciPollIntervalMs: 5000,
       ciMonitorTimeoutMs: 300_000,
