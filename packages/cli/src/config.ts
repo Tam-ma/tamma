@@ -33,7 +33,6 @@ const DEFAULT_CONFIG: TammaConfig = {
   engine: {
     pollIntervalMs: 300_000,
     workingDirectory: process.cwd(),
-    maxRetries: 3,
     approvalMode: 'cli',
     ciPollIntervalMs: 30_000,
     ciMonitorTimeoutMs: 3_600_000,
@@ -50,7 +49,11 @@ function loadConfigFile(configPath: string): Partial<TammaConfig> | undefined {
     return undefined;
   }
   const raw = fs.readFileSync(resolved, 'utf-8');
-  return JSON.parse(raw) as Partial<TammaConfig>;
+  try {
+    return JSON.parse(raw) as Partial<TammaConfig>;
+  } catch {
+    throw new Error(`Failed to parse config file at ${resolved}. Ensure it contains valid JSON.`);
+  }
 }
 
 /**
@@ -88,7 +91,12 @@ function loadEnvConfig(): Partial<TammaConfig> {
 
   const agentOverrides: Partial<AgentConfig> = {};
   if (model !== undefined) agentOverrides.model = model;
-  if (maxBudget !== undefined) agentOverrides.maxBudgetUsd = parseFloat(maxBudget);
+  if (maxBudget !== undefined) {
+    const parsed = parseFloat(maxBudget);
+    if (!Number.isNaN(parsed)) {
+      agentOverrides.maxBudgetUsd = parsed;
+    }
+  }
   if (permissionMode === 'bypassPermissions' || permissionMode === 'default') {
     agentOverrides.permissionMode = permissionMode;
   }
@@ -103,7 +111,12 @@ function loadEnvConfig(): Partial<TammaConfig> {
   const approvalMode = env['TAMMA_APPROVAL_MODE'];
 
   const engineOverrides: Partial<EngineConfig> = {};
-  if (pollInterval !== undefined) engineOverrides.pollIntervalMs = parseInt(pollInterval, 10);
+  if (pollInterval !== undefined) {
+    const parsed = parseInt(pollInterval, 10);
+    if (!Number.isNaN(parsed)) {
+      engineOverrides.pollIntervalMs = parsed;
+    }
+  }
   if (workDir !== undefined) engineOverrides.workingDirectory = workDir;
   if (approvalMode === 'cli' || approvalMode === 'auto') {
     engineOverrides.approvalMode = approvalMode;
@@ -215,7 +228,6 @@ export function generateConfigFile(answers: {
     engine: {
       pollIntervalMs: 300_000,
       workingDirectory: answers.workingDirectory ?? '.',
-      maxRetries: 3,
       approvalMode: answers.approvalMode === 'auto' ? 'auto' : 'cli',
       ciPollIntervalMs: 30_000,
       ciMonitorTimeoutMs: 3_600_000,

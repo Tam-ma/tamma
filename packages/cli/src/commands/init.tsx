@@ -5,7 +5,7 @@ import SelectInput from 'ink-select-input';
 import Spinner from 'ink-spinner';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import { execSync } from 'node:child_process';
+import { execSync, execFileSync } from 'node:child_process';
 import dotenv from 'dotenv';
 import { generateConfigFile, generateEnvFile, mergeIntoEnvFile } from '../config.js';
 import { runPreflight } from '../preflight.js';
@@ -364,7 +364,7 @@ function InitApp(): React.JSX.Element {
     setPostChecks([...checks]);
     try {
       const target = `${answers.owner}/${answers.repo}`;
-      execSync(`gh api repos/${target} --jq .full_name`, {
+      execFileSync('gh', ['api', `repos/${target}`, '--jq', '.full_name'], {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],
@@ -398,7 +398,13 @@ function InitApp(): React.JSX.Element {
     checks[2]!.status = 'running';
     setPostChecks([...checks]);
     try {
-      execSync(`gh label create tamma --description "Tamma autonomous agent" --color 7B61FF --repo ${answers.owner}/${answers.repo} --force`, {
+      execFileSync('gh', [
+        'label', 'create', 'tamma',
+        '--description', 'Tamma autonomous agent',
+        '--color', '7B61FF',
+        '--repo', `${answers.owner}/${answers.repo}`,
+        '--force',
+      ], {
         encoding: 'utf-8',
         timeout: 10000,
         stdio: ['pipe', 'pipe', 'pipe'],

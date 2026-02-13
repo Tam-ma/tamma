@@ -1,4 +1,5 @@
-import { readLockfile, isProcessRunning, getLockfilePath } from '../state.js';
+import { readLockfile, isProcessRunning, getLockfilePath, removeLockfile } from '../state.js';
+import { formatDuration } from '../utils.js';
 
 export function statusCommand(): void {
   const lockfile = readLockfile();
@@ -14,6 +15,8 @@ export function statusCommand(): void {
   if (!running) {
     console.log('Tamma Engine: NOT RUNNING (stale lockfile)');
     console.log(`  PID ${lockfile.pid} is no longer running`);
+    removeLockfile();
+    console.log(`  Stale lockfile removed.`);
     return;
   }
 
@@ -31,18 +34,4 @@ export function statusCommand(): void {
   console.log(`  Processed:  ${lockfile.stats.issuesProcessed} issues`);
   console.log(`  Total Cost: $${lockfile.stats.totalCostUsd.toFixed(2)}`);
   console.log(`  Last Update: ${lastUpdate} ago`);
-}
-
-function formatDuration(ms: number): string {
-  const seconds = Math.floor(ms / 1000) % 60;
-  const minutes = Math.floor(ms / 60_000) % 60;
-  const hours = Math.floor(ms / 3_600_000);
-
-  if (hours > 0) {
-    return `${hours}h ${minutes}m ${seconds}s`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
 }

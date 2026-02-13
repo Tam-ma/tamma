@@ -5,13 +5,18 @@
   "bin": {
     "tamma": "./dist/index.js"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc --build && chmod +x dist/index.js",
     "dev": "tsx watch src/index.tsx",
     "clean": "rm -rf dist .tsbuildinfo",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
   },
   "dependencies": {
+    "@tamma/api": "workspace:*",
     "@tamma/shared": "workspace:*",
     "@tamma/orchestrator": "workspace:*",
     "@tamma/observability": "workspace:*",

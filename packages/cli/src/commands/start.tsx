@@ -1,27 +1,36 @@
-import React, { useState, useCallback, useEffect } from 'react';
-import { render, Box, Text } from 'ink';
+import React from 'react';
+import { render } from 'ink';
 import { EngineState } from '@tamma/shared';
-import type { IssueData, DevelopmentPlan } from '@tamma/shared';
+import type { IssueData } from '@tamma/shared';
 import { TammaEngine } from '@tamma/orchestrator';
 import type { EngineStats, ApprovalHandler } from '@tamma/orchestrator';
 import { ClaudeAgentProvider } from '@tamma/providers';
 import { GitHubPlatform } from '@tamma/platforms';
+import type { Issue } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
 import { loadConfig, validateConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
 import { writeLockfile, removeLockfile } from '../state.js';
-import EngineStatus from '../components/EngineStatus.js';
-import PlanApproval from '../components/PlanApproval.js';
+import { createLogEmitter, createLoggerBridge } from '../log-emitter.js';
+import { formatErrorWithSuggestions } from '../error-handler.js';
+import { createFileLogSubscriber } from '../file-logger.js';
+import type { StateEmitter, PendingApproval, CommandContext } from '../types.js';
+import SessionLayout from '../components/SessionLayout.js';
+import IssueSelector from '../components/IssueSelector.js';
 
-/** Listener that receives engine state updates. */
-type StateListener = (state: EngineState, issue: IssueData | null, stats: EngineStats) => void;
-
-/** Simple pub/sub bridge between the engine callback (non-React) and the React component. */
-interface StateEmitter {
-  listener: StateListener | null;
-  emit: StateListener;
-  /** Re-emit the last known state. Used by approvalHandler to notify React after setting the ref. */
-  reEmit: () => void;
+/**
+ * A sleep that can be cancelled via AbortSignal.
+ * Resolves immediately if the signal is already aborted.
+ */
+function cancellableSleep(ms: number, signal?: AbortSignal): Promise<void> {
+  if (signal?.aborted) return Promise.resolve();
+  return new Promise<void>((resolve) => {
+    const timer = setTimeout(resolve, ms);
+    signal?.addEventListener('abort', () => {
+      clearTimeout(timer);
+      resolve();
+    }, { once: true });
+  });
 }
 
 function createStateEmitter(): StateEmitter {
@@ -41,100 +50,19 @@ function createStateEmitter(): StateEmitter {
   return emitter;
 }
 
-/** Pending approval that the React component can resolve. */
-interface PendingApproval {
-  plan: DevelopmentPlan;
-  resolve: (decision: 'approve' | 'reject' | 'skip') => void;
-}
-
-interface StartAppProps {
-  engine: TammaEngine;
-  once: boolean;
-  stateEmitter: StateEmitter;
-  approvalRef: React.MutableRefObject<PendingApproval | null>;
-}
-
-function StartApp({ engine, once, stateEmitter, approvalRef }: StartAppProps): React.JSX.Element {
-  const [state, setState] = useState<EngineState>(EngineState.IDLE);
-  const [issue, setIssue] = useState<{ number: number; title: string } | null>(null);
-  const [stats, setStats] = useState<EngineStats>({ issuesProcessed: 0, totalCostUsd: 0, startedAt: Date.now() });
-  const [error, setError] = useState<string | null>(null);
-  const [done, setDone] = useState(false);
-  const [pendingApproval, setPendingApproval] = useState<PendingApproval | null>(null);
-
-  // Subscribe to engine state changes
-  useEffect(() => {
-    stateEmitter.listener = (newState, newIssue, newStats) => {
-      setState(newState);
-      setIssue(newIssue !== null ? { number: newIssue.number, title: newIssue.title } : null);
-      setStats(newStats);
-
-      // Check if there's a pending approval to display
-      if (newState === EngineState.AWAITING_APPROVAL && approvalRef.current !== null) {
-        setPendingApproval(approvalRef.current);
-      } else {
-        setPendingApproval(null);
-      }
-    };
-
-    return () => {
-      stateEmitter.listener = null;
-    };
-  }, [stateEmitter, approvalRef]);
-
-  const handleApprovalDecision = useCallback((decision: 'approve' | 'reject' | 'skip') => {
-    if (pendingApproval !== null) {
-      pendingApproval.resolve(decision);
-      setPendingApproval(null);
-      approvalRef.current = null;
-    }
-  }, [pendingApproval, approvalRef]);
-
-  // Start the engine on first render
-  useEffect(() => {
-    void (async () => {
-      try {
-        await engine.initialize();
-
-        if (once) {
-          await engine.processOneIssue();
-          setDone(true);
-        } else {
-          await engine.run();
-        }
-      } catch (err: unknown) {
-        setError(err instanceof Error ? err.message : String(err));
-      }
-    })();
-
-    return () => {
-      void engine.dispose();
-      removeLockfile();
-    };
-  }, [engine, once]);
-
-  if (error !== null) {
-    return (
-      <Box flexDirection="column" paddingX={1}>
-        <Text color="red" bold>Error: {error}</Text>
-      </Box>
+/**
+ * Show IssueSelector in a temporary Ink render, resolve with the user's choice.
+ */
+function selectIssueInteractively(issues: Issue[]): Promise<Issue | null> {
+  return new Promise((resolve) => {
+    const { unmount } = render(
+      <IssueSelector
+        issues={issues}
+        onSelect={(issue) => { unmount(); resolve(issue); }}
+        onSkip={() => { unmount(); resolve(null); }}
+      />,
     );
-  }
-
-  if (done) {
-    return (
-      <Box flexDirection="column" paddingX={1}>
-        <Text color="green" bold>Processing complete.</Text>
-      </Box>
-    );
-  }
-
-  // Show PlanApproval when awaiting approval
-  if (pendingApproval !== null) {
-    return <PlanApproval plan={pendingApproval.plan} onDecision={handleApprovalDecision} />;
-  }
-
-  return <EngineStatus state={state} issue={issue} stats={stats} />;
+  });
 }
 
 export async function startCommand(options: CLIOptions): Promise<void> {
@@ -148,8 +76,6 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     }
     process.exit(1);
   }
-
-  const logger = createLogger('tamma', config.logLevel);
 
   // For dry-run mode, force auto-approval and stop after planning
   if (options.dryRun === true) {
@@ -169,9 +95,23 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   // Approval ref holds the pending promise for Ink-based approval
   const approvalRef: { current: PendingApproval | null } = { current: null };
 
-  // Ink-based approval handler: sets up a promise and waits for the React component to resolve it.
-  // Note: onStateChange fires BEFORE approvalHandler is called (setState → onStateChange → approvalHandler),
-  // so we must re-emit after setting the ref to notify the React component.
+  // Log emitter and logger bridge for interactive mode
+  const logEmitter = createLogEmitter();
+  const interactiveLogger = createLoggerBridge(logEmitter);
+
+  // Use pino for dry-run, bridge logger for interactive mode
+  const logger = options.dryRun === true
+    ? createLogger('tamma', config.logLevel)
+    : interactiveLogger;
+
+  // File logging when --debug is set
+  if (options.debug === true) {
+    const { listener, filePath } = createFileLogSubscriber();
+    logEmitter.subscribe(listener);
+    logEmitter.emit('info', `Debug logs: ${filePath}`);
+  }
+
+  // Ink-based approval handler
   const approvalHandler: ApprovalHandler = (plan) => {
     return new Promise<'approve' | 'reject' | 'skip'>((resolve) => {
       approvalRef.current = { plan, resolve };
@@ -179,7 +119,7 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     });
   };
 
-  // Create engine with combined state change handler
+  // Create engine
   const engine = new TammaEngine({
     config,
     platform,
@@ -193,7 +133,9 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   });
 
   // Handle graceful shutdown
+  let running = true;
   const shutdown = async (): Promise<void> => {
+    running = false;
     logger.info('Shutting down...');
     await engine.dispose();
     removeLockfile();
@@ -203,8 +145,44 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   process.on('SIGINT', () => { void shutdown(); });
   process.on('SIGTERM', () => { void shutdown(); });
 
+  // Interactive issue selection — let user pick before engine starts
+  let selectedIssueNumber: number | null = null;
+  if (options.interactive === true && options.dryRun !== true) {
+    const { owner, repo } = config.github;
+    const issueResponse = await platform.listIssues(owner, repo, {
+      state: 'open',
+      labels: config.github.issueLabels,
+    });
+
+    // Filter out excludeLabels (same logic engine uses)
+    const excludeLabels = config.github.excludeLabels;
+    const candidates = issueResponse.data.filter((issue) =>
+      !issue.labels.some((label) => excludeLabels.includes(label)),
+    );
+
+    if (candidates.length === 0) {
+      console.log('No issues found matching configured labels.');
+      await platform.dispose();
+      return;
+    }
+
+    if (candidates.length === 1) {
+      console.log(`Only one candidate: #${candidates[0]!.number} ${candidates[0]!.title}`);
+      selectedIssueNumber = candidates[0]!.number;
+    } else {
+      const selected = await selectIssueInteractively(candidates);
+      if (selected === null) {
+        console.log('Skipped issue selection.');
+        await platform.dispose();
+        return;
+      }
+      selectedIssueNumber = selected.number;
+      console.log(`Selected: #${selected.number} ${selected.title}`);
+    }
+  }
+
+  // Dry-run mode: select → analyze → plan → print → exit
   if (options.dryRun === true) {
-    // Dry run: select → analyze → plan → print → exit
     try {
       await engine.initialize();
       const issue = await engine.selectIssue();
@@ -234,7 +212,11 @@ export async function startCommand(options: CLIOptions): Promise<void> {
       await engine.dispose();
       removeLockfile();
     } catch (err: unknown) {
-      console.error('Dry run failed:', err instanceof Error ? err.message : String(err));
+      const { message, suggestions } = formatErrorWithSuggestions(err);
+      console.error(`Dry run failed: ${message}`);
+      for (const s of suggestions) {
+        console.error(`  → ${s}`);
+      }
       await engine.dispose();
       removeLockfile();
       process.exit(1);
@@ -242,15 +224,120 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     return;
   }
 
-  // Interactive mode with Ink rendering
+  // Interactive mode with SessionLayout
+  let paused = false;
+  const sleepController = { current: new AbortController() };
+
+  const commandContext: CommandContext = {
+    config,
+    stats: { issuesProcessed: 0, totalCostUsd: 0, startedAt: Date.now() },
+    state: EngineState.IDLE,
+    issue: null,
+    logEmitter,
+    platform,
+    showDebug: options.verbose === true,
+    paused: false,
+    setShowDebug(_show: boolean) { /* overridden by SessionLayout */ },
+    setPaused(p: boolean) {
+      paused = p;
+      commandContext.paused = p;
+    },
+    shutdown() {
+      sleepController.current.abort();
+      void shutdown();
+    },
+    skipIssue() {
+      if (approvalRef.current !== null) {
+        approvalRef.current.resolve('skip');
+        approvalRef.current = null;
+        logEmitter.emit('info', 'Skipping current issue.');
+      } else {
+        logEmitter.emit('warn', 'No pending approval to skip. /skip is only available during plan approval.');
+      }
+    },
+    approveCurrentPlan() {
+      if (approvalRef.current !== null) {
+        approvalRef.current.resolve('approve');
+        approvalRef.current = null;
+      } else {
+        logEmitter.emit('warn', 'No pending approval.');
+      }
+    },
+    rejectCurrentPlan(feedback?: string) {
+      if (approvalRef.current !== null) {
+        approvalRef.current.resolve('reject');
+        approvalRef.current = null;
+        if (feedback !== undefined) {
+          logEmitter.emit('info', `Rejection feedback: ${feedback}`);
+        }
+      } else {
+        logEmitter.emit('warn', 'No pending approval.');
+      }
+    },
+  };
+
   const { waitUntilExit } = render(
-    <StartApp
-      engine={engine}
-      once={options.once === true}
+    <SessionLayout
       stateEmitter={stateEmitter}
+      logEmitter={logEmitter}
       approvalRef={approvalRef}
+      commandContext={commandContext}
     />,
   );
+
+  // Custom run loop for pause/resume support
+  void (async () => {
+    try {
+      await engine.initialize();
+      logEmitter.emit('info', 'Engine initialized.');
+
+      // If interactive mode selected a specific issue, temporarily override listIssues
+      // and restore the original immediately after the first call.
+      if (selectedIssueNumber !== null) {
+        const originalListIssues = platform.listIssues.bind(platform);
+        platform.listIssues = async (...args: Parameters<typeof platform.listIssues>) => {
+          platform.listIssues = originalListIssues;
+          const result = await originalListIssues(...args);
+          const filtered = result.data.filter((i) => i.number === selectedIssueNumber);
+          return { ...result, data: filtered, totalCount: filtered.length };
+        };
+      }
+
+      if (options.once === true) {
+        await engine.processOneIssue();
+        logEmitter.emit('info', 'Processing complete.');
+      } else {
+        while (running) {
+          if (!paused) {
+            try {
+              await engine.processOneIssue();
+            } catch (err: unknown) {
+              const { message, suggestions } = formatErrorWithSuggestions(err);
+              logEmitter.emit('error', `Error processing issue: ${message}`);
+              for (const s of suggestions) {
+                logEmitter.emit('error', `  → ${s}`);
+              }
+            }
+
+            if (running && !paused) {
+              logEmitter.emit('info', `Polling for next issue in ${config.engine.pollIntervalMs / 1000}s...`);
+              sleepController.current = new AbortController();
+              await cancellableSleep(config.engine.pollIntervalMs, sleepController.current.signal);
+            }
+          } else {
+            sleepController.current = new AbortController();
+            await cancellableSleep(500, sleepController.current.signal);
+          }
+        }
+      }
+    } catch (err: unknown) {
+      const { message, suggestions } = formatErrorWithSuggestions(err);
+      logEmitter.emit('error', `Fatal: ${message}`);
+      for (const s of suggestions) {
+        logEmitter.emit('error', `  → ${s}`);
+      }
+    }
+  })();
 
   await waitUntilExit();
 }

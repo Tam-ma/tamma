@@ -3,11 +3,14 @@ import { Box, Text } from 'ink';
 import Spinner from 'ink-spinner';
 import { EngineState } from '@tamma/shared';
 import type { EngineStats } from '@tamma/orchestrator';
+import { colorProp } from '../colors.js';
+import { formatDuration } from '../utils.js';
 
 interface EngineStatusProps {
   state: EngineState;
   issue: { number: number; title: string } | null;
   stats: EngineStats;
+  compact?: boolean;
 }
 
 const STATE_LABELS: Record<EngineState, string> = {
@@ -37,23 +40,13 @@ const STATE_COLORS: Record<EngineState, string> = {
 };
 
 function formatUptime(startedAt: number): string {
-  const ms = Date.now() - startedAt;
-  const seconds = Math.floor(ms / 1000) % 60;
-  const minutes = Math.floor(ms / 60_000) % 60;
-  const hours = Math.floor(ms / 3_600_000);
-  if (hours > 0) {
-    return `${hours}h ${minutes}m`;
-  }
-  if (minutes > 0) {
-    return `${minutes}m ${seconds}s`;
-  }
-  return `${seconds}s`;
+  return formatDuration(Date.now() - startedAt);
 }
 
 const isActive = (state: EngineState): boolean =>
   state !== EngineState.IDLE && state !== EngineState.ERROR;
 
-export default function EngineStatus({ state, issue, stats }: EngineStatusProps): React.JSX.Element {
+export default function EngineStatus({ state, issue, stats, compact = false }: EngineStatusProps): React.JSX.Element {
   const [uptime, setUptime] = useState(formatUptime(stats.startedAt));
 
   useEffect(() => {
@@ -63,7 +56,35 @@ export default function EngineStatus({ state, issue, stats }: EngineStatusProps)
     return () => { clearInterval(timer); };
   }, [stats.startedAt]);
 
-  const color = STATE_COLORS[state];
+  const c = STATE_COLORS[state];
+
+  if (compact) {
+    return (
+      <Box paddingX={1}>
+        <Text bold>Tamma Engine</Text>
+        <Text> — </Text>
+        {isActive(state) ? (
+          <Text {...colorProp(c)}>
+            <Spinner type="dots" /> {STATE_LABELS[state]}
+          </Text>
+        ) : (
+          <Text {...colorProp(c)}>{STATE_LABELS[state]}</Text>
+        )}
+        {issue !== null && (
+          <>
+            <Text dimColor> | Issue: </Text>
+            <Text>#{issue.number} {issue.title}</Text>
+          </>
+        )}
+        <Text dimColor> | </Text>
+        <Text>{uptime}</Text>
+        <Text dimColor> | </Text>
+        <Text>{stats.issuesProcessed} done</Text>
+        <Text dimColor> | </Text>
+        <Text>${stats.totalCostUsd.toFixed(2)}</Text>
+      </Box>
+    );
+  }
 
   return (
     <Box flexDirection="column" paddingX={1}>
@@ -71,11 +92,11 @@ export default function EngineStatus({ state, issue, stats }: EngineStatusProps)
         <Text bold>Tamma Engine</Text>
         <Text> — </Text>
         {isActive(state) ? (
-          <Text color={color}>
+          <Text {...colorProp(c)}>
             <Spinner type="dots" /> {STATE_LABELS[state]}
           </Text>
         ) : (
-          <Text color={color}>{STATE_LABELS[state]}</Text>
+          <Text {...colorProp(c)}>{STATE_LABELS[state]}</Text>
         )}
       </Box>
 
