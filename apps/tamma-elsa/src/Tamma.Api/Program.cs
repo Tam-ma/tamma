@@ -30,8 +30,43 @@ builder.Services.AddSwaggerGen(c =>
     });
 });
 
-// Configure HTTP client factory
+// Configure HTTP client factory with named clients
 builder.Services.AddHttpClient();
+builder.Services.AddHttpClient("elsa", client =>
+{
+    var elsaUrl = builder.Configuration["Elsa:ServerUrl"] ?? "http://localhost:5000";
+    client.BaseAddress = new Uri(elsaUrl);
+
+    var elsaApiKey = builder.Configuration["Elsa:ApiKey"];
+    if (!string.IsNullOrEmpty(elsaApiKey))
+    {
+        client.DefaultRequestHeaders.Add("Authorization", $"ApiKey {elsaApiKey}");
+    }
+});
+builder.Services.AddHttpClient("anthropic", client =>
+{
+    client.BaseAddress = new Uri("https://api.anthropic.com");
+    client.DefaultRequestHeaders.Add("anthropic-version", "2024-01-01");
+
+    var apiKey = builder.Configuration["Anthropic:ApiKey"];
+    if (!string.IsNullOrEmpty(apiKey))
+    {
+        client.DefaultRequestHeaders.Add("x-api-key", apiKey);
+    }
+});
+builder.Services.AddHttpClient("github", client =>
+{
+    var baseUrl = builder.Configuration["GitHub:ApiBaseUrl"] ?? "https://api.github.com";
+    client.BaseAddress = new Uri(baseUrl);
+    client.DefaultRequestHeaders.Add("User-Agent", "Tamma-ELSA");
+    client.DefaultRequestHeaders.Add("Accept", "application/vnd.github+json");
+
+    var token = builder.Configuration["GitHub:Token"];
+    if (!string.IsNullOrEmpty(token))
+    {
+        client.DefaultRequestHeaders.Add("Authorization", $"Bearer {token}");
+    }
+});
 
 // Configure database
 var connectionString = builder.Configuration.GetConnectionString("DefaultConnection")
@@ -45,9 +80,19 @@ builder.Services.AddScoped<IMentorshipSessionRepository, MentorshipSessionReposi
 
 // Register services
 builder.Services.AddScoped<IMentorshipService, MentorshipService>();
+
+// Register focused integration services
+builder.Services.AddScoped<ISlackIntegrationService, SlackIntegrationService>();
+builder.Services.AddScoped<IGitHubIntegrationService, GitHubIntegrationService>();
+builder.Services.AddScoped<IJiraIntegrationService, JiraIntegrationService>();
+builder.Services.AddScoped<ICIIntegrationService, CIIntegrationService>();
+builder.Services.AddScoped<IEmailIntegrationService, EmailIntegrationService>();
+// Composite facade for backward compatibility
 builder.Services.AddScoped<IIntegrationService, IntegrationService>();
+
 builder.Services.AddScoped<IAnalyticsService, AnalyticsService>();
 builder.Services.AddScoped<IElsaWorkflowService, ElsaWorkflowService>();
+builder.Services.AddHostedService<WorkflowSyncService>();
 
 // Configure CORS
 builder.Services.AddCors(options =>
@@ -56,8 +101,8 @@ builder.Services.AddCors(options =>
     {
         policy.WithOrigins(
                 builder.Configuration["Dashboard:Url"] ?? "http://localhost:3001")
-            .AllowAnyHeader()
-            .AllowAnyMethod();
+            .WithHeaders("Content-Type", "Authorization")
+            .WithMethods("GET", "POST", "PUT", "DELETE");
     });
 });
 

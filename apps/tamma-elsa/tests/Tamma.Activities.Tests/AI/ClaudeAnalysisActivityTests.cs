@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Moq;
 using NUnit.Framework;
@@ -13,6 +14,7 @@ public class ClaudeAnalysisActivityTests
     private Mock<ILogger<ClaudeAnalysisActivity>> _mockLogger = null!;
     private Mock<IMentorshipSessionRepository> _mockRepository = null!;
     private Mock<IHttpClientFactory> _mockHttpClientFactory = null!;
+    private Mock<IConfiguration> _mockConfiguration = null!;
 
     [SetUp]
     public void SetUp()
@@ -20,6 +22,7 @@ public class ClaudeAnalysisActivityTests
         _mockLogger = new Mock<ILogger<ClaudeAnalysisActivity>>();
         _mockRepository = new Mock<IMentorshipSessionRepository>();
         _mockHttpClientFactory = new Mock<IHttpClientFactory>();
+        _mockConfiguration = new Mock<IConfiguration>();
     }
 
     [Test]
@@ -29,7 +32,8 @@ public class ClaudeAnalysisActivityTests
         Action act = () => new ClaudeAnalysisActivity(
             _mockLogger.Object,
             _mockRepository.Object,
-            _mockHttpClientFactory.Object);
+            _mockHttpClientFactory.Object,
+            _mockConfiguration.Object);
 
         // Assert
         act.Should().NotThrow();

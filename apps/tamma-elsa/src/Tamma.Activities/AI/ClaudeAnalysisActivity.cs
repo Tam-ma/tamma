@@ -2,7 +2,10 @@ using Elsa.Extensions;
 using Elsa.Workflows;
 using Elsa.Workflows.Attributes;
 using Elsa.Workflows.Models;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
+using System.Net;
+using System.Net.Http.Json;
 using System.Text;
 using System.Text.Json;
 using Tamma.Core.Enums;
@@ -13,7 +16,10 @@ namespace Tamma.Activities.AI;
 
 /// <summary>
 /// ELSA activity to call Claude API for intelligent analysis of code, responses, and situations.
-/// Provides AI-powered insights for mentorship decisions.
+/// Supports three modes:
+///   1. Real Claude API (default when Anthropic:ApiKey is set)
+///   2. Engine callback (when Engine:CallbackUrl is set — uses the TS engine's full agent toolchain)
+///   3. Mock mode (when Anthropic:UseMock=true — for testing)
 /// </summary>
 [Activity(
     "Tamma.AI",
@@ -26,10 +32,7 @@ public class ClaudeAnalysisActivity : CodeActivity<ClaudeAnalysisOutput>
     private readonly ILogger<ClaudeAnalysisActivity> _logger;
     private readonly IMentorshipSessionRepository _repository;
     private readonly IHttpClientFactory _httpClientFactory;
-
-    // Configuration - in production, these would come from IConfiguration
-    private const string ClaudeApiEndpoint = "https://api.anthropic.com/v1/messages";
-    private const string ClaudeModel = "claude-sonnet-4-20250514";
+    private readonly IConfiguration _configuration;
 
     /// <summary>Mentorship session ID</summary>
     [Input(Description = "Mentorship session ID")]
@@ -54,23 +57,22 @@ public class ClaudeAnalysisActivity : CodeActivity<ClaudeAnalysisOutput>
     public ClaudeAnalysisActivity(
         ILogger<ClaudeAnalysisActivity> logger,
         IMentorshipSessionRepository repository,
-        IHttpClientFactory httpClientFactory)
+        IHttpClientFactory httpClientFactory,
+        IConfiguration configuration)
     {
         _logger = logger;
         _repository = repository;
         _httpClientFactory = httpClientFactory;
+        _configuration = configuration;
     }
 
-    /// <summary>
-    /// Execute the Claude analysis activity
-    /// </summary>
     protected override async ValueTask ExecuteAsync(ActivityExecutionContext context)
     {
         var sessionId = SessionId.Get(context);
         var analysisType = AnalysisType.Get(context);
         var content = Content.Get(context);
         var additionalContext = Context.Get(context);
-        var skillLevel = SkillLevel.Get(context);
+        var skillLevel = Math.Clamp(SkillLevel.Get(context), 1, 5);
 
         _logger.LogInformation(
             "Starting Claude analysis of type {AnalysisType} for session {SessionId}",
@@ -78,16 +80,31 @@ public class ClaudeAnalysisActivity : CodeActivity<ClaudeAnalysisOutput>
 
         try
         {
-            // Build the appropriate prompt based on analysis type
-            var prompt = BuildPrompt(analysisType, content, additionalContext, skillLevel);
+            var systemPrompt = GetSystemPrompt(analysisType, skillLevel);
+            var userPrompt = GetUserPrompt(analysisType, content, additionalContext);
 
-            // Call Claude API
-            var response = await CallClaudeApi(prompt, analysisType);
+            string response;
+            var callbackUrl = _configuration["Engine:CallbackUrl"];
+            var useMock = _configuration.GetValue<bool>("Anthropic:UseMock");
 
-            // Parse the response based on analysis type
+            if (useMock)
+            {
+                // Mock mode for testing
+                response = SimulateClaudeResponse(analysisType);
+            }
+            else if (!string.IsNullOrEmpty(callbackUrl))
+            {
+                // Callback mode — delegate to TS engine
+                response = await CallEngineCallback(callbackUrl, systemPrompt, userPrompt, analysisType);
+            }
+            else
+            {
+                // Direct Claude API call
+                response = await CallClaudeApi(systemPrompt, userPrompt);
+            }
+
             var result = ParseResponse(response, analysisType);
 
-            // Log the analysis event
             await _repository.LogEventAsync(new Core.Entities.MentorshipEvent
             {
                 SessionId = sessionId,
@@ -104,7 +121,6 @@ public class ClaudeAnalysisActivity : CodeActivity<ClaudeAnalysisOutput>
         {
             _logger.LogError(ex, "Error during Claude analysis for session {SessionId}", sessionId);
 
-            // Return a fallback result instead of failing
             context.SetResult(new ClaudeAnalysisOutput
             {
                 Success = false,
@@ -116,16 +132,93 @@ public class ClaudeAnalysisActivity : CodeActivity<ClaudeAnalysisOutput>
         }
     }
 
-    private string BuildPrompt(AnalysisType type, string content, string? additionalContext, int skillLevel)
+    /// <summary>
+    /// Call the Claude Messages API directly.
+    /// </summary>
+    private async Task<string> CallClaudeApi(string systemPrompt, string userPrompt)
     {
-        var systemPrompt = GetSystemPrompt(type, skillLevel);
-        var userPrompt = GetUserPrompt(type, content, additionalContext);
+        var httpClient = _httpClientFactory.CreateClient("anthropic");
+        var model = _configuration["Anthropic:Model"] ?? "claude-sonnet-4-20250514";
 
-        return JsonSerializer.Serialize(new
+        var requestBody = new
         {
+            model,
+            max_tokens = 4096,
             system = systemPrompt,
-            user = userPrompt
-        });
+            messages = new[]
+            {
+                new { role = "user", content = userPrompt }
+            }
+        };
+
+        const int maxRetries = 3;
+        for (var attempt = 0; attempt < maxRetries; attempt++)
+        {
+            var response = await httpClient.PostAsJsonAsync("/v1/messages", requestBody);
+
+            var statusCode = (int)response.StatusCode;
+            if (response.StatusCode == HttpStatusCode.TooManyRequests
+                || statusCode == 502 || statusCode == 503 || statusCode == 504)
+            {
+                TimeSpan retryAfter;
+                if (response.Headers.TryGetValues("Retry-After", out var retryValues)
+                    && int.TryParse(retryValues.FirstOrDefault(), out var retrySeconds)
+                    && retrySeconds > 0)
+                {
+                    retryAfter = TimeSpan.FromSeconds(retrySeconds);
+                }
+                else
+                {
+                    retryAfter = TimeSpan.FromSeconds(5 * (attempt + 1));
+                }
+
+                _logger.LogWarning(
+                    "Claude API returned {StatusCode}, retrying after {RetryAfter}s (attempt {Attempt}/{Max})",
+                    statusCode, retryAfter.TotalSeconds, attempt + 1, maxRetries);
+                await Task.Delay(retryAfter);
+                continue;
+            }
+
+            response.EnsureSuccessStatusCode();
+
+            var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+            var contentArray = result.GetProperty("content");
+
+            // Extract text from the first content block
+            foreach (var block in contentArray.EnumerateArray())
+            {
+                if (block.GetProperty("type").GetString() == "text")
+                {
+                    return block.GetProperty("text").GetString() ?? "{}";
+                }
+            }
+
+            return "{}";
+        }
+
+        throw new InvalidOperationException("Claude API request failed after max retries");
+    }
+
+    /// <summary>
+    /// Call the TS engine callback to use the full agent toolchain.
+    /// </summary>
+    private async Task<string> CallEngineCallback(
+        string callbackUrl, string systemPrompt, string userPrompt, AnalysisType type)
+    {
+        var httpClient = _httpClientFactory.CreateClient();
+
+        var requestBody = new
+        {
+            prompt = $"{systemPrompt}\n\n{userPrompt}",
+            analysisType = type.ToString()
+        };
+
+        var response = await httpClient.PostAsJsonAsync(
+            $"{callbackUrl.TrimEnd('/')}/api/engine/execute-task", requestBody);
+        response.EnsureSuccessStatusCode();
+
+        var result = await response.Content.ReadFromJsonAsync<JsonElement>();
+        return result.GetProperty("output").GetString() ?? "{}";
     }
 
     private string GetSystemPrompt(AnalysisType type, int skillLevel)
@@ -278,27 +371,19 @@ Provide guidance in the following JSON format:
         };
     }
 
-    private async Task<string> CallClaudeApi(string prompt, AnalysisType type)
+    private static string SimulateAssessmentStatus()
     {
-        // In production, this would make an actual API call to Claude
-        // For now, we simulate the response based on analysis type
-        _logger.LogDebug("Would call Claude API with prompt length: {Length}", prompt.Length);
-
-        // Simulate API latency
-        await Task.Delay(100);
-
-        // Return simulated response based on type
-        return SimulateClaudeResponse(type);
+        var r = Random.Shared.Next(100);
+        return r < 60 ? "Correct" : r < 88 ? "Partial" : "Incorrect";
     }
 
     private string SimulateClaudeResponse(AnalysisType type)
     {
-        // Simulate Claude responses for demonstration
         return type switch
         {
             AI.AnalysisType.Assessment => JsonSerializer.Serialize(new
             {
-                status = Random.Shared.Next(100) < 60 ? "Correct" : (Random.Shared.Next(100) < 70 ? "Partial" : "Incorrect"),
+                status = SimulateAssessmentStatus(),
                 confidence = 0.7 + (Random.Shared.NextDouble() * 0.25),
                 understanding_summary = "The developer shows a good grasp of the core requirements",
                 gaps = new[] { "Edge case handling not mentioned", "Testing approach unclear" },
@@ -417,7 +502,7 @@ Provide guidance in the following JSON format:
                     output.Resources = JsonSerializer.Deserialize<List<string>>(
                         json.GetProperty("resources").GetRawText()) ?? new();
                     output.Encouragement = json.GetProperty("encouragement").GetString();
-                    output.Confidence = 0.9; // High confidence for generated content
+                    output.Confidence = 0.9;
                     break;
             }
 

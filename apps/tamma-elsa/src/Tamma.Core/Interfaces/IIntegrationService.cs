@@ -1,7 +1,99 @@
 namespace Tamma.Core.Interfaces;
 
+// ============================================
+// Standardized result type for integration operations
+// ============================================
+
 /// <summary>
-/// Service for external integrations (GitHub, Slack, etc.)
+/// Standardized result for integration operations.
+/// Success/Data for expected outcomes; throw only for unexpected errors.
+/// </summary>
+public record IntegrationResult<T>(bool Success, T? Data, string? Error = null)
+{
+    public static IntegrationResult<T> Ok(T data) => new(true, data);
+    public static IntegrationResult<T> Fail(string error) => new(false, default, error);
+}
+
+// ============================================
+// Focused integration interfaces (new, use IntegrationResult<T>)
+// ============================================
+
+/// <summary>
+/// Slack messaging operations.
+/// </summary>
+public interface ISlackIntegrationService
+{
+    /// <summary>Send a message via Slack</summary>
+    Task<IntegrationResult<bool>> SendSlackMessageAsync(string channel, string message);
+
+    /// <summary>Send a direct message to a user via Slack</summary>
+    Task<IntegrationResult<bool>> SendSlackDirectMessageAsync(string userId, string message);
+}
+
+/// <summary>
+/// GitHub source-control operations.
+/// </summary>
+public interface IGitHubIntegrationService
+{
+    /// <summary>Create a GitHub branch</summary>
+    Task<IntegrationResult<GitHubBranchResult>> CreateGitHubBranchAsync(string repository, string branchName);
+
+    /// <summary>Get recent commits from a branch</summary>
+    Task<IntegrationResult<List<GitHubCommit>>> GetGitHubCommitsAsync(string repository, string branch, DateTime? since = null);
+
+    /// <summary>Create a pull request</summary>
+    Task<IntegrationResult<GitHubPullRequestResult>> CreateGitHubPullRequestAsync(string repository, CreatePullRequestRequest request);
+
+    /// <summary>Merge a pull request</summary>
+    Task<IntegrationResult<GitHubMergeResult>> MergeGitHubPullRequestAsync(string repository, int pullRequestNumber);
+
+    /// <summary>Get file changes from a branch</summary>
+    Task<IntegrationResult<List<GitHubFileChange>>> GetGitHubFileChangesAsync(string repository, string branch);
+}
+
+/// <summary>
+/// JIRA ticket management operations.
+/// </summary>
+public interface IJiraIntegrationService
+{
+    /// <summary>Create or update a JIRA ticket</summary>
+    Task<IntegrationResult<JiraTicketResult>> UpdateJiraTicketAsync(string ticketId, JiraTicketUpdate update);
+
+    /// <summary>Get JIRA ticket details</summary>
+    Task<IntegrationResult<JiraTicket?>> GetJiraTicketAsync(string ticketId);
+}
+
+/// <summary>
+/// CI/CD pipeline operations.
+/// </summary>
+public interface ICIIntegrationService
+{
+    /// <summary>Trigger CI/CD tests</summary>
+    Task<IntegrationResult<TestRunResult>> TriggerTestsAsync(string repository, string branch);
+
+    /// <summary>Get build status</summary>
+    Task<IntegrationResult<BuildStatus>> GetBuildStatusAsync(string repository, string branch);
+}
+
+/// <summary>
+/// Email notification operations.
+/// </summary>
+public interface IEmailIntegrationService
+{
+    /// <summary>Send an email notification</summary>
+    Task<IntegrationResult<bool>> SendEmailAsync(string to, string subject, string body);
+}
+
+// ============================================
+// Composite interface (backward compatibility)
+// Retains original method signatures so existing consumers compile unchanged.
+// ============================================
+
+/// <summary>
+/// Composite service for external integrations (GitHub, Slack, etc.)
+/// Kept for backward compatibility — existing consumers continue to depend
+/// on this interface with the original return types.
+/// New code should prefer the focused interfaces above.
 /// </summary>
 public interface IIntegrationService
 {
