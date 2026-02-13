@@ -51,7 +51,7 @@ export class IndexManagementService {
     return { ...this.status };
   }
 
-  async triggerIndex(request?: TriggerIndexRequest): Promise<void> {
+  async triggerIndex(_request?: TriggerIndexRequest): Promise<void> {
     if (this.status.status === 'indexing') {
       throw new Error('Indexing is already in progress');
     }
@@ -93,6 +93,11 @@ export class IndexManagementService {
         status: 'success',
         errors: [],
       });
+
+      // Cap history to 100 entries max
+      if (this.history.length > 100) {
+        this.history.length = 100;
+      }
     }, 3000);
   }
 
@@ -107,10 +112,10 @@ export class IndexManagementService {
     }
 
     this.status = {
-      ...this.status,
       status: 'idle',
-      progress: undefined,
-      currentFile: undefined,
+      lastRun: this.status.lastRun,
+      filesIndexed: this.status.filesIndexed,
+      chunksCreated: this.status.chunksCreated,
     };
   }
 

@@ -62,7 +62,7 @@ export function registerMCPRoutes(
       return reply.status(202).send({ message: `Server ${params.name} restarting` });
     } catch (error) {
       const message = error instanceof Error ? error.message : 'Unknown error';
-      return reply.status(500).send({ error: message instanceof Error ? message : 'Unknown error' });
+      return reply.status(500).send({ error: message });
     }
   });
 

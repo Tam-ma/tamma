@@ -5,7 +5,6 @@
  * tool discovery, invocation, and log viewing.
  */
 
-import { randomUUID } from 'node:crypto';
 import type {
   MCPServerInfo,
   MCPTool,
@@ -13,6 +12,8 @@ import type {
   MCPToolInvokeResult,
   MCPServerLog,
 } from '@tamma/shared';
+
+const MAX_LOGS_PER_SERVER = 1000;
 
 export class MCPManagementService {
   private servers: Map<string, MCPServerInfo> = new Map();
@@ -79,6 +80,16 @@ export class MCPManagementService {
     ]);
   }
 
+  /** Append a log entry, trimming oldest entries when the cap is exceeded. */
+  private appendLog(name: string, entry: MCPServerLog): void {
+    const logList = this.logs.get(name) ?? [];
+    logList.push(entry);
+    if (logList.length > MAX_LOGS_PER_SERVER) {
+      logList.splice(0, logList.length - MAX_LOGS_PER_SERVER);
+    }
+    this.logs.set(name, logList);
+  }
+
   async listServers(): Promise<MCPServerInfo[]> {
     return Array.from(this.servers.values());
   }
@@ -112,13 +123,11 @@ export class MCPManagementService {
         s.toolCount = name === 'memory' ? 3 : s.toolCount;
         this.servers.set(name, { ...s });
 
-        const logList = this.logs.get(name) ?? [];
-        logList.push({
+        this.appendLog(name, {
           timestamp: new Date().toISOString(),
           level: 'info',
           message: 'Server started successfully',
         });
-        this.logs.set(name, logList);
       }
     }, 1000);
   }
@@ -135,13 +144,11 @@ export class MCPManagementService {
     server.status = 'disconnected';
     this.servers.set(name, { ...server });
 
-    const logList = this.logs.get(name) ?? [];
-    logList.push({
+    this.appendLog(name, {
       timestamp: new Date().toISOString(),
       level: 'info',
       message: 'Server stopped',
     });
-    this.logs.set(name, logList);
   }
 
   async restartServer(name: string): Promise<void> {
