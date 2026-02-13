@@ -1,8 +1,88 @@
 import type { Repository, Branch, Issue, PullRequest, Comment, CIStatus, CommitInfo } from '../types/models.js';
 
-/* eslint-disable @typescript-eslint/no-explicit-any */
+// ---------------------------------------------------------------------------
+// Lightweight interfaces for GitHub API response shapes.
+// Only the fields actually accessed by the mapper functions are declared.
+// ---------------------------------------------------------------------------
 
-export function mapRepository(data: any): Repository {
+export interface GitHubRepoResponse {
+  owner: { login: string };
+  name: string;
+  full_name: string;
+  default_branch: string;
+  html_url: string;
+  private: boolean;
+}
+
+export interface GitHubBranchResponse {
+  object?: { sha: string };
+  commit?: { sha: string };
+  protected?: boolean;
+}
+
+export interface GitHubLabelResponse {
+  name?: string;
+}
+
+export interface GitHubUserResponse {
+  login: string;
+}
+
+export interface GitHubIssueResponse {
+  number: number;
+  title: string;
+  body?: string | null;
+  state: string;
+  labels: Array<string | GitHubLabelResponse>;
+  assignees?: GitHubUserResponse[] | null;
+  html_url: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitHubCommentResponse {
+  id: number;
+  user: { login: string } | null;
+  body?: string | null;
+  created_at: string;
+}
+
+export interface GitHubPRResponse {
+  number: number;
+  title: string;
+  body: string | null;
+  state: string;
+  merged: boolean;
+  head: { ref: string };
+  base: { ref: string };
+  html_url: string;
+  mergeable: boolean | null;
+  labels: Array<string | GitHubLabelResponse>;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface GitHubCommitResponse {
+  sha: string;
+  commit: {
+    message: string;
+    author: { name?: string; date?: string } | null;
+  };
+}
+
+export interface GitHubCombinedStatusResponse {
+  statuses?: Array<{ state: string }>;
+}
+
+export interface GitHubCheckRunsResponse {
+  check_runs?: Array<{ conclusion: string | null; status: string }>;
+}
+
+// ---------------------------------------------------------------------------
+// Mappers
+// ---------------------------------------------------------------------------
+
+export function mapRepository(data: GitHubRepoResponse): Repository {
   return {
     owner: data.owner.login,
     name: data.name,
@@ -13,24 +93,30 @@ export function mapRepository(data: any): Repository {
   };
 }
 
-export function mapBranch(data: any, branchName: string): Branch {
+export function mapBranch(data: GitHubBranchResponse, branchName: string): Branch {
+  const sha = data.object?.sha ?? data.commit?.sha;
+  if (sha === undefined) {
+    throw new Error(
+      `Malformed branch response for '${branchName}': missing both object.sha and commit.sha`,
+    );
+  }
   return {
     name: branchName,
-    sha: data.object?.sha ?? data.commit?.sha ?? '',
+    sha,
     isProtected: data.protected ?? false,
   };
 }
 
-export function mapIssue(data: any, comments: Comment[] = []): Issue {
+export function mapIssue(data: GitHubIssueResponse, comments: Comment[] = []): Issue {
   return {
     number: data.number,
     title: data.title,
     body: data.body ?? '',
     state: data.state as 'open' | 'closed',
-    labels: (data.labels ?? []).map((l: any) =>
-      typeof l === 'string' ? l : l.name,
+    labels: (data.labels ?? []).map((l: string | GitHubLabelResponse) =>
+      typeof l === 'string' ? l : (l.name ?? ''),
     ),
-    assignees: (data.assignees ?? []).map((a: any) => a.login),
+    assignees: (data.assignees ?? []).map((a: GitHubUserResponse) => a.login),
     url: data.html_url,
     createdAt: data.created_at,
     updatedAt: data.updated_at,
@@ -38,7 +124,7 @@ export function mapIssue(data: any, comments: Comment[] = []): Issue {
   };
 }
 
-export function mapComment(data: any): Comment {
+export function mapComment(data: GitHubCommentResponse): Comment {
   return {
     id: data.id,
     author: data.user?.login ?? 'unknown',
@@ -47,7 +133,7 @@ export function mapComment(data: any): Comment {
   };
 }
 
-export function mapPullRequest(data: any): PullRequest {
+export function mapPullRequest(data: GitHubPRResponse): PullRequest {
   return {
     number: data.number,
     title: data.title,
@@ -57,15 +143,15 @@ export function mapPullRequest(data: any): PullRequest {
     base: data.base.ref,
     url: data.html_url,
     mergeable: data.mergeable ?? null,
-    labels: (data.labels ?? []).map((l: any) =>
-      typeof l === 'string' ? l : l.name,
+    labels: (data.labels ?? []).map((l: string | GitHubLabelResponse) =>
+      typeof l === 'string' ? l : (l.name ?? ''),
     ),
     createdAt: data.created_at,
     updatedAt: data.updated_at,
   };
 }
 
-export function mapCommit(data: any): CommitInfo {
+export function mapCommit(data: GitHubCommitResponse): CommitInfo {
   return {
     sha: data.sha,
     message: data.commit.message,
@@ -75,8 +161,8 @@ export function mapCommit(data: any): CommitInfo {
 }
 
 export function mapCIStatus(
-  combinedStatus: any,
-  checkRuns: any,
+  combinedStatus: GitHubCombinedStatusResponse,
+  checkRuns: GitHubCheckRunsResponse,
 ): CIStatus {
   const statuses: Array<{ state: string }> = combinedStatus.statuses ?? [];
   const checks: Array<{ conclusion: string | null; status: string }> =

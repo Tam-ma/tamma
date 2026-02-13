@@ -1,7 +1,7 @@
 import { describe, it, expect } from 'vitest';
 import { mapGitHubError } from '../github/github-error-mapper.js';
 import {
-  PlatformError,
+  GitPlatformError,
   RateLimitError,
   NotFoundError,
   AuthenticationError,
@@ -10,8 +10,8 @@ import {
 
 describe('mapGitHubError', () => {
   describe('pass-through of existing platform errors', () => {
-    it('should return PlatformError as-is', () => {
-      const err = new PlatformError('platform fail', 500);
+    it('should return GitPlatformError as-is', () => {
+      const err = new GitPlatformError('platform fail', 500);
       const result = mapGitHubError(err);
       expect(result).toBe(err);
     });
@@ -42,32 +42,32 @@ describe('mapGitHubError', () => {
   });
 
   describe('non-object errors', () => {
-    it('should wrap a string in PlatformError with status 0', () => {
+    it('should wrap a string in GitPlatformError with status 0', () => {
       const result = mapGitHubError('something broke');
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.message).toBe('something broke');
-      expect((result as PlatformError).statusCode).toBe(0);
+      expect((result as GitPlatformError).statusCode).toBe(0);
     });
 
-    it('should wrap a number in PlatformError with status 0', () => {
+    it('should wrap a number in GitPlatformError with status 0', () => {
       const result = mapGitHubError(42);
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.message).toBe('42');
-      expect((result as PlatformError).statusCode).toBe(0);
+      expect((result as GitPlatformError).statusCode).toBe(0);
     });
 
-    it('should wrap null in PlatformError with status 0', () => {
+    it('should wrap null in GitPlatformError with status 0', () => {
       const result = mapGitHubError(null);
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.message).toBe('null');
-      expect((result as PlatformError).statusCode).toBe(0);
+      expect((result as GitPlatformError).statusCode).toBe(0);
     });
 
-    it('should wrap undefined in PlatformError with status 0', () => {
+    it('should wrap undefined in GitPlatformError with status 0', () => {
       const result = mapGitHubError(undefined);
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.message).toBe('undefined');
-      expect((result as PlatformError).statusCode).toBe(0);
+      expect((result as GitPlatformError).statusCode).toBe(0);
     });
   });
 
@@ -79,12 +79,12 @@ describe('mapGitHubError', () => {
       expect((result as AuthenticationError).statusCode).toBe(401);
     });
 
-    it('should map 403 to PlatformError when not rate-limited', () => {
+    it('should map 403 to GitPlatformError when not rate-limited', () => {
       const result = mapGitHubError({ status: 403, message: 'Forbidden' });
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result).not.toBeInstanceOf(RateLimitError);
       expect(result.message).toBe('Forbidden');
-      expect((result as PlatformError).statusCode).toBe(403);
+      expect((result as GitPlatformError).statusCode).toBe(403);
     });
 
     it('should map 403 with "rate limit" message to RateLimitError', () => {
@@ -134,55 +134,55 @@ describe('mapGitHubError', () => {
   });
 
   describe('5xx errors', () => {
-    it('should map 500 to PlatformError with retryable=true', () => {
+    it('should map 500 to GitPlatformError with retryable=true', () => {
       const result = mapGitHubError({
         status: 500,
         message: 'Internal Server Error',
       });
-      expect(result).toBeInstanceOf(PlatformError);
-      expect((result as PlatformError).statusCode).toBe(500);
-      expect((result as PlatformError).retryable).toBe(true);
+      expect(result).toBeInstanceOf(GitPlatformError);
+      expect((result as GitPlatformError).statusCode).toBe(500);
+      expect((result as GitPlatformError).retryable).toBe(true);
     });
 
-    it('should map 502 to PlatformError with retryable=true', () => {
+    it('should map 502 to GitPlatformError with retryable=true', () => {
       const result = mapGitHubError({
         status: 502,
         message: 'Bad Gateway',
       });
-      expect(result).toBeInstanceOf(PlatformError);
-      expect((result as PlatformError).statusCode).toBe(502);
-      expect((result as PlatformError).retryable).toBe(true);
+      expect(result).toBeInstanceOf(GitPlatformError);
+      expect((result as GitPlatformError).statusCode).toBe(502);
+      expect((result as GitPlatformError).retryable).toBe(true);
     });
 
-    it('should map 503 to PlatformError with retryable=true', () => {
+    it('should map 503 to GitPlatformError with retryable=true', () => {
       const result = mapGitHubError({
         status: 503,
         message: 'Service Unavailable',
       });
-      expect(result).toBeInstanceOf(PlatformError);
-      expect((result as PlatformError).statusCode).toBe(503);
-      expect((result as PlatformError).retryable).toBe(true);
+      expect(result).toBeInstanceOf(GitPlatformError);
+      expect((result as GitPlatformError).statusCode).toBe(503);
+      expect((result as GitPlatformError).retryable).toBe(true);
     });
   });
 
   describe('unknown status codes', () => {
-    it('should map unknown status to PlatformError with retryable=false', () => {
+    it('should map unknown status to GitPlatformError with retryable=false', () => {
       const result = mapGitHubError({ status: 418, message: "I'm a teapot" });
-      expect(result).toBeInstanceOf(PlatformError);
-      expect((result as PlatformError).statusCode).toBe(418);
-      expect((result as PlatformError).retryable).toBe(false);
+      expect(result).toBeInstanceOf(GitPlatformError);
+      expect((result as GitPlatformError).statusCode).toBe(418);
+      expect((result as GitPlatformError).retryable).toBe(false);
     });
 
     it('should map status 0 for objects without status', () => {
       const result = mapGitHubError({ message: 'no status' });
-      expect(result).toBeInstanceOf(PlatformError);
-      expect((result as PlatformError).statusCode).toBe(0);
-      expect((result as PlatformError).retryable).toBe(false);
+      expect(result).toBeInstanceOf(GitPlatformError);
+      expect((result as GitPlatformError).statusCode).toBe(0);
+      expect((result as GitPlatformError).retryable).toBe(false);
     });
 
     it('should use "Unknown error" when message is missing', () => {
       const result = mapGitHubError({ status: 400 });
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.message).toBe('Unknown error');
     });
   });
@@ -249,7 +249,7 @@ describe('mapGitHubError', () => {
       const original = new Error('original failure');
       (original as unknown as { status: number }).status = 500;
       const result = mapGitHubError(original);
-      expect(result).toBeInstanceOf(PlatformError);
+      expect(result).toBeInstanceOf(GitPlatformError);
       expect(result.cause).toBe(original);
     });
 

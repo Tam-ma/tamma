@@ -1,4 +1,4 @@
-export class PlatformError extends Error {
+export class GitPlatformError extends Error {
   public readonly statusCode: number;
   public readonly retryable: boolean;
 
@@ -8,13 +8,13 @@ export class PlatformError extends Error {
     options?: { retryable?: boolean; cause?: Error },
   ) {
     super(message, { cause: options?.cause });
-    this.name = 'PlatformError';
+    this.name = 'GitPlatformError';
     this.statusCode = statusCode;
     this.retryable = options?.retryable ?? false;
   }
 }
 
-export class RateLimitError extends PlatformError {
+export class RateLimitError extends GitPlatformError {
   public readonly retryAfterMs: number;
 
   constructor(message: string, retryAfterMs: number, options?: { cause?: Error }) {
@@ -24,21 +24,21 @@ export class RateLimitError extends PlatformError {
   }
 }
 
-export class NotFoundError extends PlatformError {
+export class NotFoundError extends GitPlatformError {
   constructor(message: string, options?: { cause?: Error }) {
     super(message, 404, { retryable: false, ...options });
     this.name = 'NotFoundError';
   }
 }
 
-export class AuthenticationError extends PlatformError {
+export class AuthenticationError extends GitPlatformError {
   constructor(message: string, options?: { cause?: Error }) {
     super(message, 401, { retryable: false, ...options });
     this.name = 'AuthenticationError';
   }
 }
 
-export class ValidationError extends PlatformError {
+export class ValidationError extends GitPlatformError {
   constructor(message: string, options?: { cause?: Error }) {
     super(message, 422, { retryable: false, ...options });
     this.name = 'ValidationError';

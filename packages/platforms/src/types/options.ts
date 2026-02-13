@@ -4,6 +4,8 @@ export interface CreatePROptions {
   head: string;
   base: string;
   labels?: string[];
+  reviewers?: string[];
+  draft?: boolean;
 }
 
 export interface UpdatePROptions {
@@ -20,6 +22,7 @@ export interface MergePROptions {
 export interface ListIssuesOptions {
   state?: 'open' | 'closed' | 'all';
   labels?: string[];
+  assignee?: string;
   sort?: 'created' | 'updated' | 'comments';
   direction?: 'asc' | 'desc';
   perPage?: number;
@@ -36,4 +39,11 @@ export interface UpdateIssueOptions {
 export interface ListCommitsOptions {
   perPage?: number;
   sha?: string;
+}
+
+export interface CreateIssueOptions {
+  title: string;
+  body: string;
+  labels?: string[];
+  assignees?: string[];
 }

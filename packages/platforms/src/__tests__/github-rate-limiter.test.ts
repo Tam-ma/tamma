@@ -34,6 +34,39 @@ describe('withRateLimit', () => {
     expect(fn).toHaveBeenCalledTimes(2);
   });
 
+  it('should retry on 502 errors', async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 502, message: 'Bad Gateway' })
+      .mockResolvedValue('ok');
+
+    const result = await withRateLimit(fn);
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('should retry on 503 errors', async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 503, message: 'Service Unavailable' })
+      .mockResolvedValue('ok');
+
+    const result = await withRateLimit(fn);
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
+  it('should retry on 504 errors', async () => {
+    const fn = vi
+      .fn()
+      .mockRejectedValueOnce({ status: 504, message: 'Gateway Timeout' })
+      .mockResolvedValue('ok');
+
+    const result = await withRateLimit(fn);
+    expect(result).toBe('ok');
+    expect(fn).toHaveBeenCalledTimes(2);
+  });
+
   it('should not retry non-retryable errors', async () => {
     const fn = vi
       .fn()

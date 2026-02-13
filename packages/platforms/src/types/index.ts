@@ -18,10 +18,11 @@ export type {
   ListIssuesOptions,
   UpdateIssueOptions,
   ListCommitsOptions,
+  CreateIssueOptions,
 } from './options.js';
 export type { PaginatedResponse } from './pagination.js';
 export {
-  PlatformError,
+  GitPlatformError,
   RateLimitError,
   NotFoundError,
   AuthenticationError,

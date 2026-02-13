@@ -43,15 +43,9 @@ describeE2E('GitHubPlatform E2E', () => {
     const timestamp = Date.now();
     const title = `E2E test issue ${timestamp}`;
 
-    // Create
-    // Use addIssueComment on a newly created issue to verify creation
-    // First, we need to create an issue via the Octokit wrapper
-    // GitHubPlatform doesn't have createIssue, but we can use updateIssue after listing
-    // Actually, let's use the listIssues and getIssue as read tests
-
-    // Create issue via updateIssue? No — we need a different approach.
-    // The platform interface doesn't expose createIssue directly.
-    // For E2E, we'll verify listIssues and getIssue on pre-existing issues.
+    // Verify listIssues and getIssue on pre-existing issues.
+    // Note: GitHubPlatform now has createIssue, but for this E2E test we only
+    // exercise the read path to avoid creating test data.
     const issues = await platform.listIssues(OWNER, REPO, {
       state: 'open',
       labels: ['tamma'],

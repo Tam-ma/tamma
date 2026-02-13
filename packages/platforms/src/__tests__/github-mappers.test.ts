@@ -35,6 +35,12 @@ describe('GitHub Mappers', () => {
       expect(result.name).toBe('main');
       expect(result.sha).toBe('abc123');
     });
+
+    it('should throw on malformed response missing both sha fields', () => {
+      expect(() => mapBranch({}, 'main')).toThrow(
+        /Malformed branch response for 'main'/,
+      );
+    });
   });
 
   describe('mapIssue', () => {

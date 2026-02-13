@@ -38,6 +38,7 @@ const mockOctokit = {
       get: vi.fn(),
       update: vi.fn(),
       merge: vi.fn(),
+      requestReviewers: vi.fn(),
     },
     checks: {
       listForRef: vi.fn(),

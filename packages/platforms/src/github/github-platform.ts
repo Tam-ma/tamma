@@ -18,6 +18,7 @@ import type {
   ListIssuesOptions,
   UpdateIssueOptions,
   ListCommitsOptions,
+  CreateIssueOptions,
 } from '../types/options.js';
 import type { PaginatedResponse } from '../types/pagination.js';
 import {
@@ -119,7 +120,10 @@ export class GitHubPlatform implements IGitPlatform {
         body: options.body,
         head: options.head,
         base: options.base,
+        ...(options.draft !== undefined ? { draft: options.draft } : {}),
       });
+
+      const pr = mapPullRequest(data);
 
       if (
         options.labels !== undefined &&
@@ -131,9 +135,22 @@ export class GitHubPlatform implements IGitPlatform {
           issue_number: data.number,
           labels: options.labels,
         });
+        pr.labels = options.labels;
       }
 
-      return mapPullRequest(data);
+      if (
+        options.reviewers !== undefined &&
+        options.reviewers.length > 0
+      ) {
+        await this.getClient().rest.pulls.requestReviewers({
+          owner,
+          repo,
+          pull_number: data.number,
+          reviewers: options.reviewers,
+        });
+      }
+
+      return pr;
     });
   }
 
@@ -208,6 +225,28 @@ export class GitHubPlatform implements IGitPlatform {
     });
   }
 
+  async createIssue(
+    owner: string,
+    repo: string,
+    options: CreateIssueOptions,
+  ): Promise<Issue> {
+    return this.wrap(async () => {
+      const { data } = await this.getClient().rest.issues.create({
+        owner,
+        repo,
+        title: options.title,
+        body: options.body,
+        ...(options.labels !== undefined && options.labels.length > 0
+          ? { labels: options.labels }
+          : {}),
+        ...(options.assignees !== undefined && options.assignees.length > 0
+          ? { assignees: options.assignees }
+          : {}),
+      });
+      return mapIssue(data);
+    });
+  }
+
   async getIssue(owner: string, repo: string, issueNumber: number): Promise<Issue> {
     return this.wrap(async () => {
       const { data } = await this.getClient().rest.issues.get({
@@ -216,6 +255,8 @@ export class GitHubPlatform implements IGitPlatform {
         issue_number: issueNumber,
       });
 
+      // NOTE: Fetches at most 100 comments. Issues with more comments will be
+      // truncated. TODO: implement pagination to retrieve all comments.
       const { data: commentsData } =
         await this.getClient().rest.issues.listComments({
           owner,
@@ -240,6 +281,7 @@ export class GitHubPlatform implements IGitPlatform {
         repo,
         state: options?.state ?? 'open',
         labels: options?.labels?.join(','),
+        ...(options?.assignee !== undefined ? { assignee: options.assignee } : {}),
         sort: options?.sort ?? 'created',
         direction: options?.direction ?? 'asc',
         per_page: options?.perPage ?? 30,
@@ -256,6 +298,8 @@ export class GitHubPlatform implements IGitPlatform {
 
       return {
         data: issues,
+        // Note: This is the count after filtering out PRs from the response,
+        // not the total number of issues in the repository.
         totalCount: issues.length,
         hasNextPage,
         page: options?.page ?? 1,

@@ -16,6 +16,7 @@ import type {
   ListIssuesOptions,
   UpdateIssueOptions,
   ListCommitsOptions,
+  CreateIssueOptions,
 } from './options.js';
 import type { PaginatedResponse } from './pagination.js';
 
@@ -83,6 +84,11 @@ export interface IGitPlatform {
     issueNumber: number,
     body: string,
   ): Promise<Comment>;
+  createIssue(
+    owner: string,
+    repo: string,
+    options: CreateIssueOptions,
+  ): Promise<Issue>;
   assignIssue(
     owner: string,
     repo: string,

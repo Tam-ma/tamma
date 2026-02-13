@@ -1,5 +1,5 @@
 import {
-  PlatformError,
+  GitPlatformError,
   RateLimitError,
   NotFoundError,
   AuthenticationError,
@@ -8,7 +8,7 @@ import {
 
 export function mapGitHubError(err: unknown): Error {
   if (
-    err instanceof PlatformError ||
+    err instanceof GitPlatformError ||
     err instanceof RateLimitError ||
     err instanceof NotFoundError ||
     err instanceof AuthenticationError ||
@@ -18,7 +18,7 @@ export function mapGitHubError(err: unknown): Error {
   }
 
   if (typeof err !== 'object' || err === null) {
-    return new PlatformError(String(err), 0);
+    return new GitPlatformError(String(err), 0);
   }
 
   const status = 'status' in err ? (err as { status: number }).status : 0;
@@ -34,7 +34,7 @@ export function mapGitHubError(err: unknown): Error {
       if (isRateLimit) {
         return new RateLimitError(message, 60000, causeOpts);
       }
-      return new PlatformError(message, 403, causeOpts);
+      return new GitPlatformError(message, 403, causeOpts);
     }
     case 404:
       return new NotFoundError(message, causeOpts);
@@ -45,7 +45,7 @@ export function mapGitHubError(err: unknown): Error {
       return new RateLimitError(message, retryAfterMs, causeOpts);
     }
     default:
-      return new PlatformError(message, status, {
+      return new GitPlatformError(message, status, {
         retryable: status >= 500,
         ...causeOpts,
       });

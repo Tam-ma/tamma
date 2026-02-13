@@ -41,6 +41,11 @@ function isRetryableError(err: unknown): boolean {
     return message.toLowerCase().includes('rate limit');
   }
 
+  // Retry on transient server errors (common for GitHub API)
+  if (status === 502 || status === 503 || status === 504) {
+    return true;
+  }
+
   return false;
 }
 
