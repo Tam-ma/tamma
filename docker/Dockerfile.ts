@@ -33,7 +33,7 @@ RUN pnpm install --frozen-lockfile
 # ---- Stage 2: Build ----
 FROM deps AS build
 COPY . .
-RUN pnpm --filter './packages/**' run build
+RUN pnpm --filter @tamma/cli... run build
 RUN pnpm prune --prod
 
 # ---- Stage 3a: API Server ----
