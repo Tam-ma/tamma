@@ -1,5 +1,5 @@
 import { describe, it, expect, afterEach } from 'vitest';
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
 import * as os from 'node:os';
@@ -10,7 +10,7 @@ const CLI_PATH = path.resolve(__dirname, 'index.tsx');
 
 function runCli(args: string, options?: { cwd?: string; env?: Record<string, string> }): string {
   try {
-    return execSync(`npx tsx ${CLI_PATH} ${args}`, {
+    return execFileSync('npx', ['tsx', CLI_PATH, ...args.split(/\s+/).filter(Boolean)], {
       encoding: 'utf-8',
       timeout: 30_000,
       cwd: options?.cwd,
@@ -54,7 +54,7 @@ describe.skipIf(!hasIntegration)('CLI Integration', () => {
   it('should reject start without config', () => {
     tempDir = fs.mkdtempSync(path.join(os.tmpdir(), 'tamma-cli-test-'));
     // Create a git repo in temp dir so preflight doesn't fail on that
-    execSync('git init', { cwd: tempDir, stdio: 'pipe' });
+    execFileSync('git', ['init'], { cwd: tempDir, stdio: 'pipe' });
 
     const output = runCli('start', {
       cwd: tempDir,

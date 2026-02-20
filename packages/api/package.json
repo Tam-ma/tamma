@@ -15,7 +15,8 @@
     "dev": "tsx watch src/index.ts",
     "start": "node dist/index.js",
     "clean": "rm -rf dist .tsbuildinfo",
-    "typecheck": "tsc --noEmit"
+    "typecheck": "tsc --noEmit",
+    "test": "vitest --run"
   },
   "dependencies": {
     "@fastify/cors": "^10.0.1",

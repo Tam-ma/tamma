@@ -8,7 +8,7 @@
  *   node packages/cli/scripts/smoke-test.mjs
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync } from 'node:child_process';
 import { existsSync, mkdtempSync, rmSync, statSync, symlinkSync, unlinkSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { tmpdir } from 'node:os';
@@ -63,8 +63,8 @@ function test(name, fn) {
   }
 }
 
-function run(cmd, opts = {}) {
-  return execSync(cmd, {
+function run(file, args = [], opts = {}) {
+  return execFileSync(file, args, {
     encoding: 'utf-8',
     timeout: 15000,
     stdio: ['pipe', 'pipe', 'pipe'],
@@ -76,7 +76,7 @@ console.log('\nSmoke tests for bundled CLI\n');
 
 // Test 1: --version flag
 test('--version outputs a semver string', () => {
-  const version = run(`node ${dist} --version`);
+  const version = run('node', [dist, '--version']);
   if (!/^\d+\.\d+\.\d+/.test(version)) {
     throw new Error(`Expected semver, got: "${version}"`);
   }
@@ -84,7 +84,7 @@ test('--version outputs a semver string', () => {
 
 // Test 2: --help lists all commands
 test('--help lists all commands', () => {
-  const help = run(`node ${dist} --help`);
+  const help = run('node', [dist, '--help']);
   for (const cmd of ['init', 'start', 'server', 'status']) {
     if (!help.includes(cmd)) {
       throw new Error(`--help missing command: ${cmd}`);
@@ -94,7 +94,7 @@ test('--help lists all commands', () => {
 
 // Test 3: start --help shows flags
 test('start --help shows expected flags', () => {
-  const help = run(`node ${dist} start --help`);
+  const help = run('node', [dist, 'start', '--help']);
   for (const flag of ['--dry-run', '--once', '--approval', '--interactive']) {
     if (!help.includes(flag)) {
       throw new Error(`start --help missing flag: ${flag}`);
@@ -107,7 +107,7 @@ test('init exits with error outside git repo', () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'tamma-smoke-'));
   try {
     try {
-      execSync(`node ${dist} init`, {
+      execFileSync('node', [dist, 'init'], {
         cwd: tempDir,
         encoding: 'utf-8',
         timeout: 10000,
@@ -128,7 +128,7 @@ test('init exits with error outside git repo', () => {
 test('start exits with config error when unconfigured', () => {
   const tempDir = mkdtempSync(join(tmpdir(), 'tamma-smoke-'));
   try {
-    execSync(`node ${dist} start --once`, {
+    execFileSync('node', [dist, 'start', '--once'], {
       cwd: tempDir,
       encoding: 'utf-8',
       timeout: 10000,

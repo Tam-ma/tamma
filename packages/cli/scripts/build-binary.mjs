@@ -10,7 +10,7 @@
  *   node packages/cli/scripts/build-binary.mjs --output-dir ./my-binaries
  */
 
-import { execSync } from 'node:child_process';
+import { execFileSync, execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
@@ -75,16 +75,16 @@ for (const target of selectedTargets) {
 
   console.log(`\nBuilding ${binaryName}...`);
 
-  const cmd = [
-    'bun', 'build', '--compile', '--minify',
+  const cmdArgs = [
+    'build', '--compile', '--minify',
     entryPoint,
     `--target=${target.bunTarget}`,
     `--outfile`, outfile,
     `--define`, `TAMMA_VERSION="'${version}'"`,
-  ].join(' ');
+  ];
 
   try {
-    execSync(cmd, { encoding: 'utf-8', stdio: 'inherit', cwd: cliDir });
+    execFileSync('bun', cmdArgs, { encoding: 'utf-8', stdio: 'inherit', cwd: cliDir });
   } catch (err) {
     console.error(`Failed to build ${target.platform}: ${err.message}`);
     process.exit(1);

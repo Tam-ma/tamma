@@ -47,7 +47,13 @@ export class RemoteTransport implements IEngineTransport {
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
 
   constructor(config: RemoteTransportConfig) {
-    this.serverUrl = config.serverUrl.replace(/\/+$/, '');
+    // Strip trailing slashes for consistent URL construction.
+    // Avoid regex /\/+$/ which is O(n^2) on strings with many '/' characters.
+    let url = config.serverUrl;
+    while (url.length > 0 && url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    this.serverUrl = url;
     this.authToken = config.authToken;
   }
 

@@ -85,6 +85,51 @@ function escapeRegExp(s: string): string {
 }
 
 /**
+ * Collapse all runs of whitespace into a single space and trim.
+ * Avoids regex \s+ which some engines handle poorly on large inputs.
+ */
+function collapseWhitespace(text: string): string {
+  const result: string[] = [];
+  let inWhitespace = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    // Space, tab, newline, carriage return, form feed, vertical tab
+    if (ch === 0x20 || ch === 0x09 || ch === 0x0a || ch === 0x0d || ch === 0x0c || ch === 0x0b) {
+      if (!inWhitespace && result.length > 0) {
+        result.push(' ');
+      }
+      inWhitespace = true;
+    } else {
+      inWhitespace = false;
+      result.push(text[i]);
+    }
+  }
+  // Trim trailing space
+  if (result.length > 0 && result[result.length - 1] === ' ') {
+    result.pop();
+  }
+  return result.join('');
+}
+
+/**
+ * Count whitespace-separated words without regex.
+ */
+function countWords(text: string): number {
+  let count = 0;
+  let inWord = false;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text.charCodeAt(i);
+    if (ch === 0x20 || ch === 0x09 || ch === 0x0a || ch === 0x0d) {
+      inWord = false;
+    } else if (!inWord) {
+      inWord = true;
+      count++;
+    }
+  }
+  return count;
+}
+
+/**
  * Query processor implementation
  */
 export class QueryProcessor implements IQueryProcessor {
@@ -208,32 +253,55 @@ export class QueryProcessor implements IQueryProcessor {
   decomposeQuery(text: string): string[] {
     const subQueries: string[] = [];
 
-    // Normalize whitespace to single spaces to prevent ReDoS on
-    // patterns containing adjacent \s+ quantifiers (e.g. /\s+after that\s+/).
-    const normalized = text.replace(/\s+/g, ' ');
+    // Normalize whitespace to single spaces.
+    // Use a character class with explicit whitespace chars and a single quantifier
+    // to avoid ReDoS on strings with many repeated whitespace characters.
+    const normalized = collapseWhitespace(text);
 
     // Split on common conjunctions and question boundaries.
-    // Using word-boundary (\b) and single-space matches since input is normalized.
+    // Using literal space matches since input is already normalized to single spaces.
     const splitPatterns = [
-      / and /i,
-      / also /i,
-      /[?;] ?/,
-      / then /i,
-      / after that /i,
+      ' and ',
+      ' also ',
+      '? ',
+      '; ',
+      '?',
+      ';',
+      ' then ',
+      ' after that ',
     ];
 
     let parts = [normalized];
-    for (const pattern of splitPatterns) {
+    for (const sep of splitPatterns) {
       const newParts: string[] = [];
       for (const part of parts) {
-        newParts.push(...part.split(pattern).map((p) => p.trim()).filter(Boolean));
+        const lowerPart = part.toLowerCase();
+        const lowerSep = sep.toLowerCase();
+        // Split using indexOf to avoid regex entirely
+        let startIdx = 0;
+        let idx = lowerPart.indexOf(lowerSep, startIdx);
+        if (idx === -1) {
+          // No match, keep the part as-is
+          const trimmed = part.trim();
+          if (trimmed.length > 0) newParts.push(trimmed);
+        } else {
+          while (idx !== -1) {
+            const segment = part.slice(startIdx, idx).trim();
+            if (segment.length > 0) newParts.push(segment);
+            startIdx = idx + sep.length;
+            idx = lowerPart.indexOf(lowerSep, startIdx);
+          }
+          // Push the remainder
+          const remainder = part.slice(startIdx).trim();
+          if (remainder.length > 0) newParts.push(remainder);
+        }
       }
       parts = newParts;
     }
 
-    // Only keep substantial sub-queries
+    // Only keep substantial sub-queries (at least 2 words and > 10 chars)
     for (const part of parts) {
-      if (part.length > 10 && part.split(/\s+/).length >= 2) {
+      if (part.length > 10 && countWords(part) >= 2) {
         subQueries.push(part);
       }
     }

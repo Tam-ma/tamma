@@ -20,10 +20,29 @@ export function sleep(ms: number): Promise<void> {
 /**
  * Convert text to a URL/branch-safe slug.
  * Lowercase, replace non-alphanumeric with hyphens, collapse multiple hyphens, trim, limit to 50 chars.
+ * Implemented without regex to avoid CodeQL ReDoS flags on uncontrolled input.
  */
 export function slugify(text: string): string {
-  const hyphenated = text.toLowerCase().replace(/[^a-z0-9]+/g, '-');
-  // Trim leading/trailing hyphens without regex to satisfy CodeQL
+  const lower = text.toLowerCase();
+
+  // Build hyphenated string: replace runs of non-alphanumeric chars with single '-'
+  let hyphenated = '';
+  let prevWasHyphen = false;
+  for (let i = 0; i < lower.length; i++) {
+    const code = lower.charCodeAt(i);
+    // a-z: 97-122, 0-9: 48-57
+    const isAlphaNum =
+      (code >= 97 && code <= 122) || (code >= 48 && code <= 57);
+    if (isAlphaNum) {
+      hyphenated += lower[i];
+      prevWasHyphen = false;
+    } else if (!prevWasHyphen) {
+      hyphenated += '-';
+      prevWasHyphen = true;
+    }
+  }
+
+  // Trim leading/trailing hyphens
   let start = 0;
   while (start < hyphenated.length && hyphenated[start] === '-') start++;
   let end = hyphenated.length;

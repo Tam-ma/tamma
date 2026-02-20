@@ -17,6 +17,13 @@ import type { FastifyInstance, FastifyRequest, FastifyReply } from 'fastify';
 // Types
 // ---------------------------------------------------------------------------
 
+export interface RateLimitConfig {
+  /** Max requests per window. Default: 10 */
+  max?: number;
+  /** Window size in milliseconds. Default: 60000 (1 minute) */
+  windowMs?: number;
+}
+
 export interface AuthConfig {
   jwtSecret: string;
   enableAuth: boolean;
@@ -26,6 +33,8 @@ export interface AuthConfig {
   tokenExpiresIn?: number;
   /** Refresh token expiry in seconds. Default: 604800 (7 days). */
   refreshExpiresIn?: number;
+  /** Rate limit configuration for auth routes. */
+  rateLimit?: RateLimitConfig;
 }
 
 export interface AuthUser {
@@ -45,6 +54,74 @@ interface RefreshBody {
 
 interface ApiKeyBody {
   apiKey: string;
+}
+
+// ---------------------------------------------------------------------------
+// In-memory rate limiter (no external dependency required)
+// ---------------------------------------------------------------------------
+
+interface RateLimitEntry {
+  count: number;
+  resetAt: number;
+}
+
+export class InMemoryRateLimiter {
+  private readonly max: number;
+  private readonly windowMs: number;
+  private readonly store = new Map<string, RateLimitEntry>();
+  private cleanupTimer: ReturnType<typeof setInterval> | null = null;
+
+  constructor(config: RateLimitConfig = {}) {
+    this.max = config.max ?? 10;
+    this.windowMs = config.windowMs ?? 60_000;
+    // Periodically clean up expired entries to prevent unbounded memory growth
+    this.cleanupTimer = setInterval(() => this.cleanup(), this.windowMs * 2);
+    // Allow the process to exit even if the timer is still running
+    if (this.cleanupTimer.unref) {
+      this.cleanupTimer.unref();
+    }
+  }
+
+  /**
+   * Check whether the given key is allowed to make a request.
+   * Returns { allowed, remaining, resetAt } so callers can set headers.
+   */
+  check(key: string): { allowed: boolean; remaining: number; resetAt: number } {
+    const now = Date.now();
+    const entry = this.store.get(key);
+
+    if (!entry || now >= entry.resetAt) {
+      // First request in a new window
+      this.store.set(key, { count: 1, resetAt: now + this.windowMs });
+      return { allowed: true, remaining: this.max - 1, resetAt: now + this.windowMs };
+    }
+
+    if (entry.count < this.max) {
+      entry.count++;
+      return { allowed: true, remaining: this.max - entry.count, resetAt: entry.resetAt };
+    }
+
+    // Rate limit exceeded
+    return { allowed: false, remaining: 0, resetAt: entry.resetAt };
+  }
+
+  /** Remove expired entries. */
+  private cleanup(): void {
+    const now = Date.now();
+    for (const [key, entry] of this.store) {
+      if (now >= entry.resetAt) {
+        this.store.delete(key);
+      }
+    }
+  }
+
+  /** Stop the cleanup timer (useful for tests / graceful shutdown). */
+  destroy(): void {
+    if (this.cleanupTimer) {
+      clearInterval(this.cleanupTimer);
+      this.cleanupTimer = null;
+    }
+  }
 }
 
 // ---------------------------------------------------------------------------
@@ -71,6 +148,7 @@ async function authPlugin(
     apiKeys = [],
     tokenExpiresIn = 3600,
     refreshExpiresIn = 604800,
+    rateLimit: rateLimitConfig,
   } = opts;
 
   // Require a real secret when auth is enabled
@@ -78,6 +156,33 @@ async function authPlugin(
     throw new Error('TAMMA_JWT_SECRET must be set when authentication is enabled');
   }
   const secret = jwtSecret || 'dev-secret-do-not-use-in-production';
+
+  // Create rate limiter for auth routes
+  const rateLimiter = new InMemoryRateLimiter(rateLimitConfig);
+
+  // Clean up rate limiter when server closes
+  fastify.addHook('onClose', () => {
+    rateLimiter.destroy();
+  });
+
+  /**
+   * Rate-limit preHandler for auth routes.
+   * Uses the client IP as the rate-limit key.
+   */
+  const rateLimitPreHandler = async (request: FastifyRequest, reply: FastifyReply) => {
+    const key = request.ip;
+    const { allowed, remaining, resetAt } = rateLimiter.check(key);
+
+    reply.header('X-RateLimit-Limit', rateLimitConfig?.max ?? 10);
+    reply.header('X-RateLimit-Remaining', remaining);
+    reply.header('X-RateLimit-Reset', Math.ceil(resetAt / 1000));
+
+    if (!allowed) {
+      const retryAfter = Math.ceil((resetAt - Date.now()) / 1000);
+      reply.header('Retry-After', retryAfter);
+      return reply.status(429).send({ error: 'Too many requests, please try again later' });
+    }
+  };
 
   // Register @fastify/jwt
   await fastify.register(await import('@fastify/jwt').then((m) => m.default ?? m), {
@@ -135,6 +240,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post(
     '/api/auth/login',
+    { preHandler: rateLimitPreHandler },
     async (request: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) => {
       const { username, password } = request.body ?? {};
 
@@ -166,6 +272,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post(
     '/api/auth/refresh',
+    { preHandler: rateLimitPreHandler },
     async (request: FastifyRequest<{ Body: RefreshBody }>, reply: FastifyReply) => {
       const { refreshToken } = request.body ?? {};
 
@@ -203,6 +310,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post(
     '/api/auth/api-key',
+    { preHandler: rateLimitPreHandler },
     async (request: FastifyRequest<{ Body: ApiKeyBody }>, reply: FastifyReply) => {
       const { apiKey } = request.body ?? {};
 

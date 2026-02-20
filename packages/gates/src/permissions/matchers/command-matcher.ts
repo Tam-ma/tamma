@@ -10,43 +10,44 @@ export interface CommandMatchResult {
 }
 
 /**
- * Check if a regex pattern is safe from ReDoS attacks.
- * Rejects patterns with nested quantifiers like (a+)+, (a*)*,  (a?)*.
- * Uses string scanning instead of regex to avoid being vulnerable itself.
+ * Match a string against a wildcard pattern without using regex.
+ * Supports '*' as a glob that matches any sequence of characters.
+ * Uses a greedy algorithm with backtracking bounded by segment count.
  */
-function isSafeRegex(pattern: string): boolean {
-  // Reject excessively long patterns
-  if (pattern.length > 200) return false;
+function wildcardMatch(pattern: string, text: string): boolean {
+  // Split pattern by '*' to get literal segments that must appear in order
+  const segments = pattern.split('*');
 
-  // Scan for nested quantifiers: a group ending with a quantifier,
-  // where the group itself is followed by a quantifier.
-  // Walk characters, track paren depth, detect quantifiers.
-  let depth = 0;
-  const quantifiers = new Set(['+', '*', '?']);
+  // No wildcards at all: must be exact match
+  if (segments.length === 1) {
+    return pattern.toLowerCase() === text.toLowerCase();
+  }
 
-  for (let i = 0; i < pattern.length; i++) {
-    const ch = pattern[i];
-    // Skip escaped characters
-    if (ch === '\\') { i++; continue; }
-    if (ch === '(') { depth++; continue; }
-    if (ch === ')') {
-      depth--;
-      // Check if the next char after ')' is a quantifier
-      const next = pattern[i + 1];
-      if (next && (quantifiers.has(next) || next === '{')) {
-        // Walk backwards inside the group to see if there's a quantifier before ')'
-        for (let j = i - 1; j >= 0; j--) {
-          const inner = pattern[j];
-          if (inner === '(') break; // reached group start
-          if (inner === '\\') continue; // skip escaped
-          if (quantifiers.has(inner) || inner === '}') {
-            return false; // nested quantifier detected
-          }
-          // Only look at the last meaningful char before ')'
-          break;
-        }
-      }
+  let pos = 0;
+  const lowerText = text.toLowerCase();
+
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i]!.toLowerCase();
+
+    if (segment.length === 0) {
+      // Empty segment from leading/trailing/consecutive '*' - skip
       continue;
+    }
+
+    if (i === 0) {
+      // First segment must be a prefix (pattern doesn't start with *)
+      if (!lowerText.startsWith(segment)) return false;
+      pos = segment.length;
+    } else if (i === segments.length - 1) {
+      // Last segment must be a suffix (pattern doesn't end with *)
+      if (!lowerText.endsWith(segment)) return false;
+      // Make sure suffix doesn't overlap with already-matched prefix
+      if (lowerText.length - segment.length < pos) return false;
+    } else {
+      // Middle segment: find next occurrence after current pos
+      const idx = lowerText.indexOf(segment, pos);
+      if (idx === -1) return false;
+      pos = idx + segment.length;
     }
   }
 
@@ -54,22 +55,212 @@ function isSafeRegex(pattern: string): boolean {
 }
 
 /**
- * Safely compile a regex pattern. Returns a RegExp if the pattern is valid and safe,
- * or falls back to a literal string match RegExp if the pattern is unsafe or invalid.
+ * Test a user-provided regex-like pattern against text without using RegExp.
+ * Supports a safe subset of regex syntax commonly used for command matching:
+ * - ^ (start anchor)
+ * - $ (end anchor)
+ * - \s, \s+ (whitespace matching)
+ * - \b (word boundary)
+ * - (a|b) alternation groups
+ * - Literal characters (case-insensitive)
+ *
+ * Falls back to literal case-insensitive substring matching for patterns
+ * that use unsupported features.
  */
-function safeCompileRegex(pattern: string, flags: string): RegExp {
-  if (!isSafeRegex(pattern)) {
-    // Treat as literal string match by escaping special regex characters
-    const escaped = pattern.replace(/[.*+?^${}()|\\\[\]]/g, '\\$&');
-    return new RegExp(escaped, flags);
+function safeRegexTest(pattern: string, text: string): boolean {
+  // Reject excessively long patterns
+  if (pattern.length > 200) return false;
+
+  // Try to match using our safe subset interpreter
+  const result = safePatternMatch(pattern, text.toLowerCase());
+  if (result !== null) return result;
+
+  // Fallback: literal case-insensitive substring match
+  return text.toLowerCase().includes(pattern.toLowerCase());
+}
+
+/**
+ * Attempt to match a pattern using a safe interpreter.
+ * Returns true/false if the pattern is supported, or null if it uses
+ * unsupported features (caller should fall back to literal match).
+ */
+function safePatternMatch(pattern: string, text: string): boolean | null {
+  let mustAnchorStart = false;
+  let mustAnchorEnd = false;
+  let pos = 0;
+
+  // Check for start anchor
+  if (pattern.startsWith('^')) {
+    mustAnchorStart = true;
+    pos = 1;
   }
-  try {
-    return new RegExp(pattern, flags);
-  } catch {
-    // Invalid regex - treat as literal string match
-    const escaped = pattern.replace(/[.*+?^${}()|\\\[\]]/g, '\\$&');
-    return new RegExp(escaped, flags);
+
+  // Check for end anchor
+  if (pattern.endsWith('$') && !pattern.endsWith('\\$')) {
+    mustAnchorEnd = true;
   }
+
+  const endPos = mustAnchorEnd ? pattern.length - 1 : pattern.length;
+
+  // Parse the pattern into tokens
+  const tokens = parsePatternTokens(pattern, pos, endPos);
+  if (tokens === null) return null; // Unsupported pattern
+
+  if (mustAnchorStart) {
+    // Must match from the beginning
+    const matchLen = matchTokens(tokens, text, 0);
+    if (matchLen === -1) return false;
+    if (mustAnchorEnd && matchLen !== text.length) return false;
+    return true;
+  }
+
+  // Try matching at every position
+  for (let i = 0; i <= text.length; i++) {
+    const matchLen = matchTokens(tokens, text, i);
+    if (matchLen !== -1) {
+      if (mustAnchorEnd && i + matchLen !== text.length) continue;
+      return true;
+    }
+  }
+  return false;
+}
+
+/** Token types for our safe pattern interpreter */
+type PatternToken =
+  | { type: 'literal'; char: string }
+  | { type: 'whitespace_one' }     // \s (single whitespace)
+  | { type: 'whitespace_plus' }    // \s+ (one or more whitespace)
+  | { type: 'word_boundary' }      // \b
+  | { type: 'alternation'; options: string[] }; // (a|b|c)
+
+/**
+ * Parse a pattern substring into tokens.
+ * Returns null if the pattern uses unsupported regex features.
+ */
+function parsePatternTokens(pattern: string, start: number, end: number): PatternToken[] | null {
+  const tokens: PatternToken[] = [];
+  let i = start;
+
+  while (i < end) {
+    const ch = pattern[i]!;
+
+    if (ch === '\\') {
+      // Escape sequence
+      const next = pattern[i + 1];
+      if (next === 's') {
+        // Check for \s+
+        if (pattern[i + 2] === '+') {
+          tokens.push({ type: 'whitespace_plus' });
+          i += 3;
+        } else {
+          tokens.push({ type: 'whitespace_one' });
+          i += 2;
+        }
+      } else if (next === 'b') {
+        tokens.push({ type: 'word_boundary' });
+        i += 2;
+      } else if (next !== undefined) {
+        // Escaped literal character (e.g., \., \-, \/)
+        tokens.push({ type: 'literal', char: next.toLowerCase() });
+        i += 2;
+      } else {
+        return null; // Trailing backslash
+      }
+    } else if (ch === '(') {
+      // Parse alternation group (a|b|c)
+      const closeIdx = pattern.indexOf(')', i + 1);
+      if (closeIdx === -1 || closeIdx > end) return null;
+      const groupContent = pattern.slice(i + 1, closeIdx);
+      // Only support simple alternation (no nested groups or quantifiers)
+      if (groupContent.includes('(') || groupContent.includes(')')) return null;
+      const options = groupContent.split('|').map((o) => o.toLowerCase());
+      tokens.push({ type: 'alternation', options });
+      // Check for quantifier after group - not supported
+      if (closeIdx + 1 < end && '+*?{'.includes(pattern[closeIdx + 1]!)) return null;
+      i = closeIdx + 1;
+    } else if ('+*?{[.'.includes(ch)) {
+      // Unsupported regex metacharacter
+      return null;
+    } else {
+      tokens.push({ type: 'literal', char: ch.toLowerCase() });
+      i++;
+    }
+  }
+
+  return tokens;
+}
+
+/**
+ * Try to match tokens against text starting at position.
+ * Returns the number of characters consumed, or -1 if no match.
+ */
+function matchTokens(tokens: PatternToken[], text: string, startPos: number): number {
+  let pos = startPos;
+
+  for (const token of tokens) {
+    switch (token.type) {
+      case 'literal':
+        if (pos >= text.length || text[pos] !== token.char) return -1;
+        pos++;
+        break;
+
+      case 'whitespace_one':
+        if (pos >= text.length || !' \t\n\r\f\v'.includes(text[pos]!)) return -1;
+        pos++;
+        break;
+
+      case 'whitespace_plus': {
+        if (pos >= text.length || !' \t\n\r\f\v'.includes(text[pos]!)) return -1;
+        pos++;
+        // Consume additional whitespace greedily
+        while (pos < text.length && ' \t\n\r\f\v'.includes(text[pos]!)) pos++;
+        break;
+      }
+
+      case 'word_boundary': {
+        const prevIsWord = pos > 0 && isWordChar(text[pos - 1]!);
+        const nextIsWord = pos < text.length && isWordChar(text[pos]!);
+        if (prevIsWord === nextIsWord) return -1; // Not a boundary
+        break;
+      }
+
+      case 'alternation': {
+        let matched = false;
+        for (const option of token.options) {
+          if (text.startsWith(option, pos)) {
+            pos += option.length;
+            matched = true;
+            break;
+          }
+        }
+        if (!matched) return -1;
+        break;
+      }
+    }
+  }
+
+  return pos - startPos;
+}
+
+/** Check if a character is a "word" character (alphanumeric or underscore) */
+function isWordChar(ch: string): boolean {
+  const code = ch.charCodeAt(0);
+  return (
+    (code >= 48 && code <= 57) ||   // 0-9
+    (code >= 65 && code <= 90) ||   // A-Z
+    (code >= 97 && code <= 122) ||  // a-z
+    code === 95                      // _
+  );
+}
+
+/**
+ * Wrapper around a user-provided regex pattern for matching.
+ * Stores the original pattern string for display purposes.
+ */
+interface PatternMatcher {
+  test: (text: string) => boolean;
+  source: string;
+  type: 'wildcard' | 'regex';
 }
 
 /**
@@ -82,8 +273,8 @@ function safeCompileRegex(pattern: string, flags: string): RegExp {
 export class CommandMatcher {
   private readonly allowedExact: string[];
   private readonly deniedExact: string[];
-  private readonly allowedPatterns: RegExp[];
-  private readonly deniedPatterns: RegExp[];
+  private readonly allowedPatterns: PatternMatcher[];
+  private readonly deniedPatterns: PatternMatcher[];
 
   constructor(
     allowedCommands: string[] = [],
@@ -94,37 +285,39 @@ export class CommandMatcher {
     this.allowedExact = allowedCommands.filter((c) => !c.includes('*'));
     this.deniedExact = deniedCommands.filter((c) => !c.includes('*'));
 
-    // Convert wildcard commands to patterns
-    const allowedWildcards = allowedCommands
+    // Convert wildcard commands to pattern matchers (no regex involved)
+    const allowedWildcards: PatternMatcher[] = allowedCommands
       .filter((c) => c.includes('*'))
-      .map((c) => this.wildcardToRegex(c));
-    const deniedWildcards = deniedCommands
+      .map((c) => ({
+        test: (text: string) => wildcardMatch(c, text),
+        source: c,
+        type: 'wildcard' as const,
+      }));
+    const deniedWildcards: PatternMatcher[] = deniedCommands
       .filter((c) => c.includes('*'))
-      .map((c) => this.wildcardToRegex(c));
+      .map((c) => ({
+        test: (text: string) => wildcardMatch(c, text),
+        source: c,
+        type: 'wildcard' as const,
+      }));
 
-    // Compile regex patterns with safety checks
+    // Wrap user-provided regex patterns with safe execution
     this.allowedPatterns = [
       ...allowedWildcards,
-      ...allowedPatterns.map((p) => safeCompileRegex(p, 'i')),
+      ...allowedPatterns.map((p) => ({
+        test: (text: string) => safeRegexTest(p, text),
+        source: p,
+        type: 'regex' as const,
+      })),
     ];
     this.deniedPatterns = [
       ...deniedWildcards,
-      ...deniedPatterns.map((p) => safeCompileRegex(p, 'i')),
+      ...deniedPatterns.map((p) => ({
+        test: (text: string) => safeRegexTest(p, text),
+        source: p,
+        type: 'regex' as const,
+      })),
     ];
-  }
-
-  /**
-   * Convert a wildcard pattern to a regex
-   * 'npm run *' -> /^npm run .+$/i
-   */
-  private wildcardToRegex(pattern: string): RegExp {
-    // Escape special regex characters except *
-    // Note: [ and ] must be escaped with backslash inside the character class
-    const escaped = pattern.replace(/[.+?^${}()|\\\[\]]/g, '\\$&');
-    // Replace consecutive * sequences with a single .* to avoid
-    // polynomial backtracking (e.g., ^.*.*.*$ is catastrophic)
-    const regex = escaped.replace(/\*+/g, '.*');
-    return new RegExp(`^${regex}$`, 'i');
   }
 
   /**
@@ -150,14 +343,14 @@ export class CommandMatcher {
   }
 
   /**
-   * Check if a command matches any regex pattern
+   * Check if a command matches any pattern matcher
    */
-  matchPatterns(command: string, patterns: RegExp[]): CommandMatchResult {
+  matchPatterns(command: string, patterns: PatternMatcher[]): CommandMatchResult {
     const normalized = this.normalizeCommand(command);
 
     for (const pattern of patterns) {
       if (pattern.test(normalized)) {
-        return { matches: true, matchedPattern: pattern.source, matchedBy: 'regex' };
+        return { matches: true, matchedPattern: pattern.source, matchedBy: pattern.type === 'wildcard' ? 'wildcard' : 'regex' };
       }
     }
 

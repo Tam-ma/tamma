@@ -30,8 +30,13 @@ export class ElsaClient implements IWorkflowEngine {
   private readonly initialBackoffMs: number;
 
   constructor(config: ElsaClientConfig) {
-    // Strip trailing slash for consistent URL construction
-    this.baseUrl = config.baseUrl.replace(/\/+$/, '');
+    // Strip trailing slashes for consistent URL construction.
+    // Avoid regex /\/+$/ which is O(n^2) on strings with many '/' characters.
+    let url = config.baseUrl;
+    while (url.length > 0 && url.endsWith('/')) {
+      url = url.slice(0, -1);
+    }
+    this.baseUrl = url;
     this.apiKey = config.apiKey;
     this.requestTimeoutMs = config.requestTimeoutMs ?? 30_000;
     this.maxRetries = config.maxRetries ?? DEFAULT_MAX_RETRIES;
