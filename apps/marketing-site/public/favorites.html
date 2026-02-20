@@ -308,6 +308,13 @@
             clearBtn.style.display = 'block';
             exportBtn.style.display = 'block';
 
+            // Sanitize numeric values from localStorage with strict validation and clamping
+            function safeNum(val, defaultVal, min, max) {
+                const n = Number(val);
+                if (!Number.isFinite(n)) return defaultVal;
+                return Math.max(min, Math.min(max, n));
+            }
+
             const grid = document.createElement('div');
             grid.className = 'favorites-grid';
 
@@ -324,30 +331,30 @@
                 const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(fav.color) ? fav.color : '#000000';
 
                 // Calculate text shadow
-                const shadowOpacity = Number(fav.shadowOpacity) / 100 || 0;
-                const shadowBlur = Number(fav.shadowBlur) || 0;
-                const glowSize = Number(fav.colorGlow) || 0;
+                const shadowOpacity = safeNum(fav.shadowOpacity, 0, 0, 100) / 100;
+                const shadowBlur = safeNum(fav.shadowBlur, 0, 0, 50);
+                const glowSize = safeNum(fav.colorGlow, 0, 0, 50);
 
                 let shadows = [];
                 if (shadowBlur > 0) {
-                    shadows.push(`0 2px ${shadowBlur}px rgba(0,0,0,${shadowOpacity})`);
+                    shadows.push('0 2px ' + shadowBlur + 'px rgba(0,0,0,' + shadowOpacity + ')');
                 }
                 if (glowSize > 0) {
                     const rgb = hexToRgb(safeColor);
                     if (rgb) {
-                        shadows.push(`0 0 ${glowSize}px rgba(${rgb.r},${rgb.g},${rgb.b},0.6)`);
+                        shadows.push('0 0 ' + glowSize + 'px rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.6)');
                     }
                 }
                 const textShadow = shadows.join(', ');
 
                 // Calculate text size - scale down for smaller preview (0.65 factor for grid display)
-                const textSize = Number(fav.textSize) || 3.5;
+                const textSize = safeNum(fav.textSize, 3.5, 0.5, 10);
                 const scaledSize = textSize * 0.65; // Scale down for grid preview
                 const fontSize = safeLang === 'english' ? (scaledSize * 0.7) : scaledSize;
 
                 // Calculate text position
-                const verticalAlign = Number(fav.verticalAlign) || 50;
-                const horizontalAlign = Number(fav.horizontalAlign) || 50;
+                const verticalAlign = safeNum(fav.verticalAlign, 50, 0, 100);
+                const horizontalAlign = safeNum(fav.horizontalAlign, 50, 0, 100);
 
                 // Build DOM elements safely instead of using innerHTML
                 const badgeWrapper = document.createElement('div');

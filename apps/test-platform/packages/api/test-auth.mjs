@@ -187,14 +187,13 @@ async function testCreateAPIKey() {
   if (result.success) {
     log('✓ API key created successfully', colors.green)
     log(`  Key ID: ${result.data.key.id}`)
-    log(`  Key: [REDACTED]`, colors.yellow)
+    log('  Key: [REDACTED]', colors.yellow)
     log(`  Warning: ${result.data.warning}`, colors.yellow)
 
-    // Test using the API key
-    const apiKey = result.data.apiKey
+    // Test using the API key - access apiKey directly to avoid storing in variable
     const apiResult = await makeRequest('/api-keys', {
       headers: {
-        'X-API-Key': apiKey
+        'X-API-Key': result.data.apiKey
       }
     })
 
