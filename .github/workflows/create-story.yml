@@ -55,6 +55,9 @@ jobs:
     name: Create Story
     runs-on: ubuntu-latest
     timeout-minutes: 15
+    permissions:
+      contents: write
+      pull-requests: write
 
     steps:
       - name: Checkout code

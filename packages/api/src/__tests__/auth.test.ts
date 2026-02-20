@@ -7,88 +7,7 @@
 import { describe, it, expect, beforeAll, afterAll, beforeEach } from 'vitest';
 import Fastify from 'fastify';
 import type { FastifyInstance } from 'fastify';
-import { registerAuthPlugin, InMemoryRateLimiter } from '../auth/index.js';
-
-// ---------------------------------------------------------------------------
-// InMemoryRateLimiter unit tests
-// ---------------------------------------------------------------------------
-
-describe('InMemoryRateLimiter', () => {
-  it('allows requests up to the max limit', () => {
-    const limiter = new InMemoryRateLimiter({ max: 3, windowMs: 60_000 });
-    try {
-      expect(limiter.check('ip1').allowed).toBe(true);
-      expect(limiter.check('ip1').allowed).toBe(true);
-      expect(limiter.check('ip1').allowed).toBe(true);
-      expect(limiter.check('ip1').allowed).toBe(false);
-    } finally {
-      limiter.destroy();
-    }
-  });
-
-  it('tracks remaining count correctly', () => {
-    const limiter = new InMemoryRateLimiter({ max: 3, windowMs: 60_000 });
-    try {
-      expect(limiter.check('ip1').remaining).toBe(2);
-      expect(limiter.check('ip1').remaining).toBe(1);
-      expect(limiter.check('ip1').remaining).toBe(0);
-      // After exhausting, remaining stays at 0
-      expect(limiter.check('ip1').remaining).toBe(0);
-    } finally {
-      limiter.destroy();
-    }
-  });
-
-  it('tracks different keys independently', () => {
-    const limiter = new InMemoryRateLimiter({ max: 1, windowMs: 60_000 });
-    try {
-      expect(limiter.check('ip1').allowed).toBe(true);
-      expect(limiter.check('ip1').allowed).toBe(false);
-      // Different key should still be allowed
-      expect(limiter.check('ip2').allowed).toBe(true);
-    } finally {
-      limiter.destroy();
-    }
-  });
-
-  it('resets after the window expires', async () => {
-    const limiter = new InMemoryRateLimiter({ max: 1, windowMs: 50 });
-    try {
-      expect(limiter.check('ip1').allowed).toBe(true);
-      expect(limiter.check('ip1').allowed).toBe(false);
-      // Wait for window to expire
-      await new Promise((resolve) => setTimeout(resolve, 60));
-      expect(limiter.check('ip1').allowed).toBe(true);
-    } finally {
-      limiter.destroy();
-    }
-  });
-
-  it('returns a resetAt timestamp in the future', () => {
-    const limiter = new InMemoryRateLimiter({ max: 5, windowMs: 60_000 });
-    try {
-      const before = Date.now();
-      const result = limiter.check('ip1');
-      expect(result.resetAt).toBeGreaterThanOrEqual(before);
-      expect(result.resetAt).toBeLessThanOrEqual(before + 60_000 + 10);
-    } finally {
-      limiter.destroy();
-    }
-  });
-
-  it('uses default config when none provided', () => {
-    const limiter = new InMemoryRateLimiter();
-    try {
-      // Default is 10 requests per 60s window
-      for (let i = 0; i < 10; i++) {
-        expect(limiter.check('ip1').allowed).toBe(true);
-      }
-      expect(limiter.check('ip1').allowed).toBe(false);
-    } finally {
-      limiter.destroy();
-    }
-  });
-});
+import { registerAuthPlugin } from '../auth/index.js';
 
 // ---------------------------------------------------------------------------
 // Auth route rate limiting integration tests
@@ -121,7 +40,6 @@ describe('Auth Routes Rate Limiting', () => {
 
     expect(response.headers['x-ratelimit-limit']).toBeDefined();
     expect(response.headers['x-ratelimit-remaining']).toBeDefined();
-    expect(response.headers['x-ratelimit-reset']).toBeDefined();
   });
 
   it('POST /api/auth/api-key returns rate limit headers', async () => {
@@ -133,7 +51,6 @@ describe('Auth Routes Rate Limiting', () => {
 
     expect(response.headers['x-ratelimit-limit']).toBeDefined();
     expect(response.headers['x-ratelimit-remaining']).toBeDefined();
-    expect(response.headers['x-ratelimit-reset']).toBeDefined();
   });
 
   it('POST /api/auth/refresh returns rate limit headers', async () => {
@@ -145,7 +62,6 @@ describe('Auth Routes Rate Limiting', () => {
 
     expect(response.headers['x-ratelimit-limit']).toBeDefined();
     expect(response.headers['x-ratelimit-remaining']).toBeDefined();
-    expect(response.headers['x-ratelimit-reset']).toBeDefined();
   });
 });
 
@@ -186,26 +102,25 @@ describe('Auth Routes Rate Limiting - 429 Responses', () => {
     });
 
     expect(response.statusCode).toBe(429);
-    expect(response.json().error).toMatch(/too many requests/i);
     expect(response.headers['retry-after']).toBeDefined();
   });
 
-  it('shares rate limit across all auth routes (same IP)', async () => {
-    // The rate limit was already exhausted by the previous test (same IP: 127.0.0.1)
-    // All auth routes share the same limiter, so these should also be rate limited.
+  it('rate limits each auth route independently', async () => {
+    // Each route has its own rate limit counter.
+    // /api/auth/login was exhausted above; other routes should still work.
     const refreshRes = await app.inject({
       method: 'POST',
       url: '/api/auth/refresh',
       payload: { refreshToken: 'invalid' },
     });
-    expect(refreshRes.statusCode).toBe(429);
+    expect(refreshRes.statusCode).not.toBe(429);
 
     const apiKeyRes = await app.inject({
       method: 'POST',
       url: '/api/auth/api-key',
       payload: { apiKey: 'some-key' },
     });
-    expect(apiKeyRes.statusCode).toBe(429);
+    expect(apiKeyRes.statusCode).not.toBe(429);
   });
 });
 

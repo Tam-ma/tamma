@@ -488,9 +488,10 @@ export class ApiKeyService {
   private hashApiKey(apiKey: string): string {
     const salt = randomBytes(32).toString('hex');
     const derivedKey = scryptSync(apiKey, salt, 64, {
-      N: 16384,  // CPU/memory cost parameter
+      N: 32768,  // CPU/memory cost parameter (2^15, OWASP recommended minimum)
       r: 8,      // Block size
-      p: 1,      // Parallelization
+      p: 2,      // Parallelization
+      maxmem: 64 * 1024 * 1024, // 64 MB memory limit
     }).toString('hex');
     return `${salt}:${derivedKey}`;
   }
@@ -504,9 +505,10 @@ export class ApiKeyService {
       return false;
     }
     const derivedKey = scryptSync(apiKey, salt, 64, {
-      N: 16384,
+      N: 32768,
       r: 8,
-      p: 1,
+      p: 2,
+      maxmem: 64 * 1024 * 1024,
     });
     const storedKeyBuffer = Buffer.from(key, 'hex');
     if (derivedKey.length !== storedKeyBuffer.length) {

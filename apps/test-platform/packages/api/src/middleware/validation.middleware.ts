@@ -406,7 +406,7 @@ export const sanitization = {
    * Escape SQL wildcards for LIKE queries
    */
   escapeSqlWildcards(str: string): string {
-    return str.replace(/[%_]/g, '\\$&');
+    return str.replace(/[\\%_]/g, '\\$&');
   },
 
   /**

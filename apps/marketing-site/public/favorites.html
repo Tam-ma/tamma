@@ -328,7 +328,7 @@
                 // Sanitize values from localStorage
                 const safeBadge = String(fav.badge).replace(/[^0-9]/g, '');
                 const safeLang = fav.lang === 'english' ? 'english' : 'arabic';
-                const safeColor = /^#[0-9a-fA-F]{3,8}$/.test(fav.color) ? fav.color : '#000000';
+                const safeColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(fav.color) ? fav.color : '#000000';
 
                 // Calculate text shadow
                 const shadowOpacity = safeNum(fav.shadowOpacity, 0, 0, 100) / 100;
@@ -342,7 +342,11 @@
                 if (glowSize > 0) {
                     const rgb = hexToRgb(safeColor);
                     if (rgb) {
-                        shadows.push('0 0 ' + glowSize + 'px rgba(' + rgb.r + ',' + rgb.g + ',' + rgb.b + ',0.6)');
+                        // Clamp RGB channels to [0,255] integers to prevent any injection via style sinks
+                        const r = safeNum(rgb.r, 0, 0, 255);
+                        const g = safeNum(rgb.g, 0, 0, 255);
+                        const b = safeNum(rgb.b, 0, 0, 255);
+                        shadows.push('0 0 ' + glowSize + 'px rgba(' + r + ',' + g + ',' + b + ',0.6)');
                     }
                 }
                 const textShadow = shadows.join(', ');

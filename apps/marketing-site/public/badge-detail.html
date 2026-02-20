@@ -460,10 +460,17 @@
             '#ffff00', '#fffacd', '#fff9e6', '#3d3939', '#ef4444'
         ];
 
-        // Get URL parameters
+        // Get URL parameters with sanitization
         const urlParams = new URLSearchParams(window.location.search);
-        const badgeNum = urlParams.get('badge');
-        const lang = urlParams.get('lang') || 'arabic';
+        const rawBadge = urlParams.get('badge');
+        // Sanitize badge: parse as integer and validate range
+        const parsedBadge = Number.parseInt(rawBadge, 10);
+        const badgeNum = (Number.isFinite(parsedBadge) && parsedBadge >= 2 && parsedBadge <= 13)
+            ? String(parsedBadge)
+            : null;
+        // Sanitize lang: only allow known values
+        const rawLang = urlParams.get('lang');
+        const lang = (rawLang === 'english') ? 'english' : 'arabic';
 
         // Eyedropper state
         let eyedropperActive = false;
@@ -506,43 +513,68 @@
             checkIfFavorited();
         }
 
+        // Sanitization helpers for localStorage values
+        function sanitizeColor(val) {
+            if (typeof val !== 'string') return null;
+            return /^#[0-9a-f]{6}$/i.test(val) ? val : null;
+        }
+
+        function sanitizeNumeric(val, min, max) {
+            const num = Number(val);
+            if (!Number.isFinite(num)) return null;
+            return Math.min(max, Math.max(min, num));
+        }
+
         function loadSavedValues() {
-            const favorites = JSON.parse(localStorage.getItem('badgeFavorites') || '[]');
+            let favorites;
+            try {
+                favorites = JSON.parse(localStorage.getItem('badgeFavorites') || '[]');
+            } catch (e) {
+                return;
+            }
+            if (!Array.isArray(favorites)) return;
             const saved = favorites.find(f => f.badge === badgeNum && f.lang === lang);
 
             if (saved) {
-                // Load saved values
-                if (saved.color) {
-                    document.getElementById('colorPicker').value = saved.color;
-                    document.getElementById('colorHex').value = saved.color;
+                // Load saved values with sanitization
+                const color = sanitizeColor(saved.color);
+                if (color) {
+                    document.getElementById('colorPicker').value = color;
+                    document.getElementById('colorHex').value = color;
                 }
-                if (saved.shadowOpacity) {
-                    document.getElementById('shadowOpacity').value = saved.shadowOpacity;
-                    document.getElementById('opacityValue').textContent = saved.shadowOpacity + '%';
+                const shadowOpacity = sanitizeNumeric(saved.shadowOpacity, 0, 100);
+                if (shadowOpacity !== null) {
+                    document.getElementById('shadowOpacity').value = shadowOpacity;
+                    document.getElementById('opacityValue').textContent = shadowOpacity + '%';
                 }
-                if (saved.shadowBlur) {
-                    document.getElementById('shadowBlur').value = saved.shadowBlur;
-                    document.getElementById('blurValue').textContent = saved.shadowBlur + 'px';
+                const shadowBlur = sanitizeNumeric(saved.shadowBlur, 0, 20);
+                if (shadowBlur !== null) {
+                    document.getElementById('shadowBlur').value = shadowBlur;
+                    document.getElementById('blurValue').textContent = shadowBlur + 'px';
                 }
-                if (saved.colorGlow) {
-                    document.getElementById('colorGlow').value = saved.colorGlow;
-                    document.getElementById('glowValue').textContent = saved.colorGlow + 'px';
+                const colorGlow = sanitizeNumeric(saved.colorGlow, 0, 30);
+                if (colorGlow !== null) {
+                    document.getElementById('colorGlow').value = colorGlow;
+                    document.getElementById('glowValue').textContent = colorGlow + 'px';
                 }
-                if (saved.textSize) {
-                    document.getElementById('textSize').value = saved.textSize;
-                    document.getElementById('textSizeValue').textContent = saved.textSize + 'rem';
+                const textSize = sanitizeNumeric(saved.textSize, 1.5, 6);
+                if (textSize !== null) {
+                    document.getElementById('textSize').value = textSize;
+                    document.getElementById('textSizeValue').textContent = textSize + 'rem';
                 }
-                if (saved.verticalAlign) {
-                    document.getElementById('verticalAlign').value = saved.verticalAlign;
-                    document.getElementById('verticalValue').textContent = saved.verticalAlign + '%';
+                const verticalAlign = sanitizeNumeric(saved.verticalAlign, 30, 70);
+                if (verticalAlign !== null) {
+                    document.getElementById('verticalAlign').value = verticalAlign;
+                    document.getElementById('verticalValue').textContent = verticalAlign + '%';
                 }
-                if (saved.horizontalAlign) {
-                    document.getElementById('horizontalAlign').value = saved.horizontalAlign;
-                    document.getElementById('horizontalValue').textContent = saved.horizontalAlign + '%';
+                const horizontalAlign = sanitizeNumeric(saved.horizontalAlign, 30, 70);
+                if (horizontalAlign !== null) {
+                    document.getElementById('horizontalAlign').value = horizontalAlign;
+                    document.getElementById('horizontalValue').textContent = horizontalAlign + '%';
                 }
 
                 // Apply all the loaded values
-                updateTextColor(saved.color);
+                updateTextColor(color || badgeConfig[badgeNum].defaultColor);
                 updateTextSize();
                 updateTextPosition();
             }
@@ -729,10 +761,10 @@
 
             if (isFavorited) {
                 btn.classList.add('favorited');
-                btn.innerHTML = '💔 إزالة من المفضلة';
+                btn.textContent = '💔 إزالة من المفضلة';
             } else {
                 btn.classList.remove('favorited');
-                btn.innerHTML = '⭐ حفظ في المفضلة';
+                btn.textContent = '⭐ حفظ في المفضلة';
             }
         }
 
