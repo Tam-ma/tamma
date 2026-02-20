@@ -238,10 +238,10 @@ async function authPlugin(
   // ------------------------------------------------------------------
   // POST /api/auth/login
   // ------------------------------------------------------------------
-  fastify.post(
+  fastify.post<{ Body: LoginBody }>(
     '/api/auth/login',
     { preHandler: rateLimitPreHandler },
-    async (request: FastifyRequest<{ Body: LoginBody }>, reply: FastifyReply) => {
+    async (request, reply) => {
       const { username, password } = request.body ?? {};
 
       if (!username || !password) {
@@ -270,10 +270,10 @@ async function authPlugin(
   // ------------------------------------------------------------------
   // POST /api/auth/refresh
   // ------------------------------------------------------------------
-  fastify.post(
+  fastify.post<{ Body: RefreshBody }>(
     '/api/auth/refresh',
     { preHandler: rateLimitPreHandler },
-    async (request: FastifyRequest<{ Body: RefreshBody }>, reply: FastifyReply) => {
+    async (request, reply) => {
       const { refreshToken } = request.body ?? {};
 
       if (!refreshToken) {
@@ -308,10 +308,10 @@ async function authPlugin(
   // ------------------------------------------------------------------
   // POST /api/auth/api-key
   // ------------------------------------------------------------------
-  fastify.post(
+  fastify.post<{ Body: ApiKeyBody }>(
     '/api/auth/api-key',
     { preHandler: rateLimitPreHandler },
-    async (request: FastifyRequest<{ Body: ApiKeyBody }>, reply: FastifyReply) => {
+    async (request, reply) => {
       const { apiKey } = request.body ?? {};
 
       if (!apiKey) {
