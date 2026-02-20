@@ -1,5 +1,9 @@
 name: AI Provider Benchmark
 
+permissions:
+  contents: read
+  pull-requests: write
+
 on:
   # Manual trigger via GitHub UI
   workflow_dispatch:
@@ -51,6 +55,9 @@ jobs:
     name: Run AI Provider Benchmark
     runs-on: ubuntu-latest
     timeout-minutes: 30
+    permissions:
+      contents: read
+      pull-requests: write
 
     steps:
       - name: Checkout code

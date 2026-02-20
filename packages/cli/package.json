@@ -5,22 +5,34 @@
   "bin": {
     "tamma": "./dist/index.js"
   },
+  "engines": {
+    "node": ">=22"
+  },
   "scripts": {
     "build": "tsc --build && chmod +x dist/index.js",
+    "build:binary": "node scripts/build-binary.mjs",
+    "build:bundle": "node scripts/build.mjs",
+    "build:publish": "pnpm run typecheck && pnpm run build:bundle && node scripts/prepare-package.mjs",
     "dev": "tsx watch src/index.tsx",
-    "clean": "rm -rf dist .tsbuildinfo",
-    "typecheck": "tsc --noEmit"
+    "clean": "rm -rf dist .tsbuildinfo package.json.publish",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run",
+    "test:smoke": "node scripts/smoke-test.mjs"
   },
   "dependencies": {
+    "@tamma/api": "workspace:*",
     "@tamma/shared": "workspace:*",
     "@tamma/orchestrator": "workspace:*",
     "@tamma/observability": "workspace:*",
+    "@tamma/providers": "workspace:*",
+    "@tamma/platforms": "workspace:*",
     "ink": "^5.0.1",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",
     "ink-select-input": "^6.0.0",
     "react": "^18.3.1",
-    "commander": "^12.1.0"
+    "commander": "^12.1.0",
+    "dotenv": "^16.4.7"
   },
   "devDependencies": {
     "@types/react": "^18.3.17",

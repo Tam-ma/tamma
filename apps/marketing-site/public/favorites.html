@@ -308,6 +308,13 @@
             clearBtn.style.display = 'block';
             exportBtn.style.display = 'block';
 
+            // Sanitize numeric values from localStorage with strict validation and clamping
+            function safeNum(val, defaultVal, min, max) {
+                const n = Number(val);
+                if (!Number.isFinite(n)) return defaultVal;
+                return Math.max(min, Math.min(max, n));
+            }
+
             const grid = document.createElement('div');
             grid.className = 'favorites-grid';
 
@@ -318,50 +325,120 @@
                 const textContent = fav.lang === 'english' ? 'DONE' : 'تَمّ';
                 const textClass = fav.lang === 'english' ? 'english' : 'arabic';
 
+                // Sanitize values from localStorage
+                const safeBadge = String(fav.badge).replace(/[^0-9]/g, '');
+                const safeLang = fav.lang === 'english' ? 'english' : 'arabic';
+                const safeColor = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/.test(fav.color) ? fav.color : '#000000';
+
                 // Calculate text shadow
-                const shadowOpacity = fav.shadowOpacity / 100;
-                const shadowBlur = fav.shadowBlur;
-                const glowSize = fav.colorGlow;
+                const shadowOpacity = safeNum(fav.shadowOpacity, 0, 0, 100) / 100;
+                const shadowBlur = safeNum(fav.shadowBlur, 0, 0, 50);
+                const glowSize = safeNum(fav.colorGlow, 0, 0, 50);
 
                 let shadows = [];
                 if (shadowBlur > 0) {
-                    shadows.push(`0 2px ${shadowBlur}px rgba(0,0,0,${shadowOpacity})`);
+                    shadows.push('0 2px ' + shadowBlur + 'px rgba(0,0,0,' + shadowOpacity + ')');
                 }
                 if (glowSize > 0) {
-                    const rgb = hexToRgb(fav.color);
-                    shadows.push(`0 0 ${glowSize}px rgba(${rgb.r},${rgb.g},${rgb.b},0.6)`);
+                    const rgb = hexToRgb(safeColor);
+                    if (rgb) {
+                        // Clamp RGB channels to [0,255] integers to prevent any injection via style sinks
+                        const r = safeNum(rgb.r, 0, 0, 255);
+                        const g = safeNum(rgb.g, 0, 0, 255);
+                        const b = safeNum(rgb.b, 0, 0, 255);
+                        shadows.push('0 0 ' + glowSize + 'px rgba(' + r + ',' + g + ',' + b + ',0.6)');
+                    }
                 }
                 const textShadow = shadows.join(', ');
 
                 // Calculate text size - scale down for smaller preview (0.65 factor for grid display)
-                const textSize = fav.textSize || 3.5;
+                const textSize = safeNum(fav.textSize, 3.5, 0.5, 10);
                 const scaledSize = textSize * 0.65; // Scale down for grid preview
-                const fontSize = fav.lang === 'english' ? (scaledSize * 0.7) : scaledSize;
+                const fontSize = safeLang === 'english' ? (scaledSize * 0.7) : scaledSize;
 
                 // Calculate text position
-                const verticalAlign = fav.verticalAlign || 50;
-                const horizontalAlign = fav.horizontalAlign || 50;
+                const verticalAlign = safeNum(fav.verticalAlign, 50, 0, 100);
+                const horizontalAlign = safeNum(fav.horizontalAlign, 50, 0, 100);
 
-                item.innerHTML = `
-                    <div class="badge-wrapper">
-                        <img src="/assets/1x/Artboard ${arabicNums[fav.badge]}.png" alt="${fav.name}" class="badge-img">
-                        <div class="badge-text-overlay" style="top: ${verticalAlign}%; left: ${horizontalAlign}%;">
-                            <span class="badge-text ${textClass}" style="color: ${fav.color}; font-size: ${fontSize}rem; text-shadow: ${textShadow};">${textContent}</span>
-                        </div>
-                    </div>
-                    <div class="favorite-info">
-                        <div class="favorite-name">${fav.name}</div>
-                        <div class="favorite-color">
-                            <div class="color-swatch" style="background-color: ${fav.color};"></div>
-                            <span>${fav.color}</span>
-                        </div>
-                        <small style="color: #999;">اللغة: ${fav.lang === 'english' ? 'English' : 'العربية'}</small>
-                    </div>
-                    <div class="favorite-actions">
-                        <button class="action-btn edit-btn" onclick="editFavorite('${fav.badge}', '${fav.lang}')">✏️ تعديل</button>
-                        <button class="action-btn delete-btn" onclick="deleteFavorite(${index})">🗑️ حذف</button>
-                    </div>
-                `;
+                // Build DOM elements safely instead of using innerHTML
+                const badgeWrapper = document.createElement('div');
+                badgeWrapper.className = 'badge-wrapper';
+
+                const img = document.createElement('img');
+                const artboardName = arabicNums[safeBadge];
+                if (artboardName) {
+                    img.src = '/assets/1x/Artboard ' + artboardName + '.png';
+                }
+                img.alt = 'Badge ' + safeBadge;
+                img.className = 'badge-img';
+
+                const textOverlay = document.createElement('div');
+                textOverlay.className = 'badge-text-overlay';
+                textOverlay.style.top = verticalAlign + '%';
+                textOverlay.style.left = horizontalAlign + '%';
+
+                const badgeTextSpan = document.createElement('span');
+                badgeTextSpan.className = 'badge-text ' + textClass;
+                badgeTextSpan.style.color = safeColor;
+                badgeTextSpan.style.fontSize = fontSize + 'rem';
+                badgeTextSpan.style.textShadow = textShadow;
+                badgeTextSpan.textContent = textContent;
+
+                textOverlay.appendChild(badgeTextSpan);
+                badgeWrapper.appendChild(img);
+                badgeWrapper.appendChild(textOverlay);
+
+                const infoDiv = document.createElement('div');
+                infoDiv.className = 'favorite-info';
+
+                const nameDiv = document.createElement('div');
+                nameDiv.className = 'favorite-name';
+                nameDiv.textContent = fav.name || '';
+
+                const colorDiv = document.createElement('div');
+                colorDiv.className = 'favorite-color';
+
+                const colorSwatch = document.createElement('div');
+                colorSwatch.className = 'color-swatch';
+                colorSwatch.style.backgroundColor = safeColor;
+
+                const colorLabel = document.createElement('span');
+                colorLabel.textContent = safeColor;
+
+                colorDiv.appendChild(colorSwatch);
+                colorDiv.appendChild(colorLabel);
+
+                const langSmall = document.createElement('small');
+                langSmall.style.color = '#999';
+                langSmall.textContent = 'اللغة: ' + (safeLang === 'english' ? 'English' : 'العربية');
+
+                infoDiv.appendChild(nameDiv);
+                infoDiv.appendChild(colorDiv);
+                infoDiv.appendChild(langSmall);
+
+                const actionsDiv = document.createElement('div');
+                actionsDiv.className = 'favorite-actions';
+
+                const editBtn = document.createElement('button');
+                editBtn.className = 'action-btn edit-btn';
+                editBtn.textContent = '✏️ تعديل';
+                editBtn.addEventListener('click', function() {
+                    editFavorite(safeBadge, safeLang);
+                });
+
+                const deleteBtn = document.createElement('button');
+                deleteBtn.className = 'action-btn delete-btn';
+                deleteBtn.textContent = '🗑️ حذف';
+                deleteBtn.addEventListener('click', function() {
+                    deleteFavorite(index);
+                });
+
+                actionsDiv.appendChild(editBtn);
+                actionsDiv.appendChild(deleteBtn);
+
+                item.appendChild(badgeWrapper);
+                item.appendChild(infoDiv);
+                item.appendChild(actionsDiv);
 
                 grid.appendChild(item);
             });
@@ -380,7 +457,9 @@
         }
 
         function editFavorite(badge, lang) {
-            window.location.href = `/badge-detail.html?badge=${badge}&lang=${lang}`;
+            const safeBadge = encodeURIComponent(badge);
+            const safeLang = encodeURIComponent(lang);
+            window.location.href = '/badge-detail.html?badge=' + safeBadge + '&lang=' + safeLang;
         }
 
         function deleteFavorite(index) {

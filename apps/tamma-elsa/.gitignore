@@ -1,0 +1,58 @@
+# Tamma ELSA .gitignore
+
+# Build outputs
+bin/
+obj/
+out/
+.vs/
+.vscode/
+*.user
+*.suo
+
+# .NET
+*.dll
+*.exe
+*.pdb
+*.cache
+*.nupkg
+
+# Logs
+logs/
+*.log
+
+# Environment files
+.env
+.env.local
+.env.production
+
+# Local data
+data/
+postgres_data/
+rabbitmq_data/
+
+# Node.js (for dashboard)
+node_modules/
+.npm/
+npm-debug.log
+
+# IDE
+.idea/
+*.swp
+*.swo
+*~
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Docker
+.docker/
+
+# Test results
+TestResults/
+coverage/
+
+# Secrets
+secrets/
+*.pem
+*.key

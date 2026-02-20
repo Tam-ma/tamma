@@ -3,7 +3,7 @@
  * Handles generation, validation, and management of API keys
  */
 
-import { randomBytes, createHash, createHmac } from 'crypto';
+import { randomBytes, scryptSync, timingSafeEqual } from 'crypto';
 import { addDays, addMonths } from 'date-fns';
 import { getDatabase } from '../../../../src/database/connection';
 import { logger } from '../../../../src/observability/logger';
@@ -55,7 +55,6 @@ export class ApiKeyService {
   private readonly KEY_PREFIX = 'tp_';
   private readonly KEY_PREFIX_LENGTH = 8;
   private readonly DEFAULT_EXPIRY_DAYS = 365;
-  private readonly HMAC_SECRET = process.env.API_KEY_HMAC_SECRET || 'default-hmac-secret-change-in-production';
 
   /**
    * Generate a new API key with secure hashing
@@ -483,21 +482,39 @@ export class ApiKeyService {
   }
 
   /**
-   * Hash an API key using HMAC-SHA256
+   * Hash an API key using scrypt (computationally expensive to resist brute-force)
+   * Format: salt:derivedKey (both hex-encoded)
    */
   private hashApiKey(apiKey: string): string {
-    return createHmac('sha256', this.HMAC_SECRET)
-      .update(apiKey)
-      .digest('hex');
+    const salt = randomBytes(32).toString('hex');
+    const derivedKey = scryptSync(apiKey, salt, 64, {
+      N: 32768,  // CPU/memory cost parameter (2^15, OWASP recommended minimum)
+      r: 8,      // Block size
+      p: 2,      // Parallelization
+      maxmem: 64 * 1024 * 1024, // 64 MB memory limit
+    }).toString('hex');
+    return `${salt}:${derivedKey}`;
   }
 
   /**
-   * Verify an API key against its hash
+   * Verify an API key against its scrypt hash using timing-safe comparison
    */
-  private async verifyApiKeyHash(apiKey: string, hash: string): Promise<boolean> {
-    const computedHash = this.hashApiKey(apiKey);
-    // Use timing-safe comparison to prevent timing attacks
-    return computedHash === hash;
+  private async verifyApiKeyHash(apiKey: string, storedHash: string): Promise<boolean> {
+    const [salt, key] = storedHash.split(':');
+    if (!salt || !key) {
+      return false;
+    }
+    const derivedKey = scryptSync(apiKey, salt, 64, {
+      N: 32768,
+      r: 8,
+      p: 2,
+      maxmem: 64 * 1024 * 1024,
+    });
+    const storedKeyBuffer = Buffer.from(key, 'hex');
+    if (derivedKey.length !== storedKeyBuffer.length) {
+      return false;
+    }
+    return timingSafeEqual(derivedKey, storedKeyBuffer);
   }
 
   /**

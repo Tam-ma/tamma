@@ -1,0 +1,134 @@
+import { describe, it, expect, beforeEach } from 'vitest';
+import { InMemoryEventStore } from './event-store.js';
+import { EngineEventType } from './types/index.js';
+
+describe('InMemoryEventStore', () => {
+  let store: InMemoryEventStore;
+
+  beforeEach(() => {
+    store = new InMemoryEventStore();
+  });
+
+  describe('record', () => {
+    it('should create events with id and timestamp', () => {
+      const event = store.record({
+        type: EngineEventType.ISSUE_SELECTED,
+        issueNumber: 42,
+        data: { title: 'Fix bug' },
+      });
+
+      expect(event.id).toBeDefined();
+      expect(typeof event.id).toBe('string');
+      expect(event.id.length).toBeGreaterThan(0);
+      expect(event.timestamp).toBeDefined();
+      expect(typeof event.timestamp).toBe('number');
+      expect(event.type).toBe(EngineEventType.ISSUE_SELECTED);
+      expect(event.issueNumber).toBe(42);
+      expect(event.data).toEqual({ title: 'Fix bug' });
+    });
+
+    it('should assign unique ids to each event', () => {
+      const e1 = store.record({
+        type: EngineEventType.ISSUE_SELECTED,
+        data: {},
+      });
+      const e2 = store.record({
+        type: EngineEventType.ISSUE_ANALYZED,
+        data: {},
+      });
+
+      expect(e1.id).not.toBe(e2.id);
+    });
+  });
+
+  describe('getEvents', () => {
+    it('should return all events when no issueNumber is provided', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 1, data: {} });
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 2, data: {} });
+      store.record({ type: EngineEventType.PLAN_GENERATED, data: {} });
+
+      const events = store.getEvents();
+      expect(events).toHaveLength(3);
+    });
+
+    it('should return empty array when store is empty', () => {
+      expect(store.getEvents()).toEqual([]);
+    });
+
+    it('should filter by issueNumber', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 1, data: {} });
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 2, data: {} });
+      store.record({ type: EngineEventType.PLAN_GENERATED, issueNumber: 1, data: {} });
+
+      const events = store.getEvents(1);
+      expect(events).toHaveLength(2);
+      expect(events.every((e) => e.issueNumber === 1)).toBe(true);
+    });
+
+    it('should return empty array when no events match issueNumber', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 1, data: {} });
+      expect(store.getEvents(999)).toEqual([]);
+    });
+
+    it('should return a copy of events (not a reference)', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, data: {} });
+      const events = store.getEvents();
+      events.pop();
+      expect(store.getEvents()).toHaveLength(1);
+    });
+  });
+
+  describe('getLastEvent', () => {
+    it('should return the most recent event of the given type', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 1, data: { first: true } });
+      store.record({ type: EngineEventType.PLAN_GENERATED, data: {} });
+      store.record({ type: EngineEventType.ISSUE_SELECTED, issueNumber: 2, data: { second: true } });
+
+      const last = store.getLastEvent(EngineEventType.ISSUE_SELECTED);
+      expect(last).toBeDefined();
+      expect(last!.issueNumber).toBe(2);
+      expect(last!.data).toEqual({ second: true });
+    });
+
+    it('should return undefined when no matching events exist', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, data: {} });
+      const last = store.getLastEvent(EngineEventType.ERROR_OCCURRED);
+      expect(last).toBeUndefined();
+    });
+
+    it('should return undefined when store is empty', () => {
+      expect(store.getLastEvent(EngineEventType.ISSUE_SELECTED)).toBeUndefined();
+    });
+  });
+
+  describe('clear', () => {
+    it('should empty the store', () => {
+      store.record({ type: EngineEventType.ISSUE_SELECTED, data: {} });
+      store.record({ type: EngineEventType.PLAN_GENERATED, data: {} });
+      expect(store.getEvents()).toHaveLength(2);
+
+      store.clear();
+      expect(store.getEvents()).toHaveLength(0);
+    });
+  });
+
+  describe('ordering', () => {
+    it('should retrieve events in the order they were recorded', () => {
+      const types = [
+        EngineEventType.ISSUE_SELECTED,
+        EngineEventType.ISSUE_ANALYZED,
+        EngineEventType.PLAN_GENERATED,
+        EngineEventType.PLAN_APPROVED,
+        EngineEventType.BRANCH_CREATED,
+      ];
+
+      for (const type of types) {
+        store.record({ type, data: {} });
+      }
+
+      const events = store.getEvents();
+      expect(events).toHaveLength(5);
+      expect(events.map((e) => e.type)).toEqual(types);
+    });
+  });
+});

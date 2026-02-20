@@ -14,23 +14,15 @@
     "build": "tsc --build",
     "dev": "tsc --build --watch",
     "clean": "rm -rf dist .tsbuildinfo",
-    "typecheck": "tsc --noEmit",
-    "migrate:latest": "node --loader ts-node/esm database/migrate.ts latest",
-    "migrate:rollback": "node --loader ts-node/esm database/migrate.ts rollback"
+    "typecheck": "tsc --noEmit"
   },
   "dependencies": {
     "@tamma/shared": "workspace:*",
-    "@tamma/events": "workspace:*",
     "@tamma/observability": "workspace:*",
     "@tamma/providers": "workspace:*",
-    "@tamma/platforms": "workspace:*",
-    "@tamma/intelligence": "workspace:*",
-    "@tamma/gates": "workspace:*",
-    "@tamma/workers": "workspace:*",
-    "pg": "^8.13.1"
+    "@tamma/platforms": "workspace:*"
   },
   "devDependencies": {
-    "@types/pg": "^8.11.10",
     "typescript": "~5.7.2"
   }
 }

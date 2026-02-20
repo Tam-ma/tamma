@@ -1648,6 +1648,381 @@ So that early adopters can test the system in real projects.
 
 ---
 
+## Epic 7: Autonomous Mentorship Workflow (Post-MVP)
+
+**Goal:** Implement an AI-powered mentorship system that guides junior developers through story implementation using a 28-state workflow machine, providing skill assessment, guided implementation, blocker diagnosis, and progressive quality gates.
+
+**Value Delivered:** Autonomous junior developer mentorship capability, skill progression tracking, adaptive guidance, teaching-focused code review, reduced onboarding time for new team members.
+
+**Estimated Stories:** 10 stories
+
+**Technical Specification:** See `docs/stories/epic-7/README.md` for detailed story breakdown.
+
+---
+
+### **Story 7-1: Mentorship State Machine Core**
+
+As a **system architect**,
+I want a 28-state workflow machine that orchestrates the entire mentorship lifecycle,
+So that junior developer guidance follows a structured, predictable process with clear transitions and error handling.
+
+**Acceptance Criteria:**
+
+1. State machine defines all 28 states from UML specification (INIT_STORY_PROCESSING through STORY_COMPLETE) with typed state transitions
+2. State machine supports event-driven transitions with guard conditions (e.g., correctUnderstanding, partialUnderstanding, misunderstanding, timeout)
+3. State persistence enables session recovery after interruption without losing mentorship progress
+4. Timeout handling triggers automatic transitions (e.g., ASSESS_JUNIOR_CAPABILITY → ESCALATE_DIFFICULTY on timeout)
+5. State machine emits events for all transitions enabling observability and audit trail integration (Epic 4 compatible)
+6. Circular transition detection prevents infinite loops in states like MONITOR_PROGRESS → DETECT_PATTERN → STRATEGIC_REDIRECT
+7. Unit tests cover all 28 states, all valid transitions, and all guard conditions with >90% branch coverage
+
+**Prerequisites:** Story 1.8 (architecture design), Story 2.3 (development plan generation)
+
+---
+
+### **Story 7-2: Skill Assessment Activity**
+
+As a **engineering manager**,
+I want the system to assess a junior developer's capability level before assigning mentorship tasks,
+So that guidance is calibrated to the developer's current skill level and learning pace.
+
+**Acceptance Criteria:**
+
+1. Assessment activity evaluates developer skills across dimensions: language proficiency, framework knowledge, testing capability, Git workflow familiarity, and architecture understanding
+2. Assessment generates a skill profile with scores (0-100) per dimension and an overall readiness score
+3. Assessment adapts difficulty based on prior session history (returning developers skip basic questions)
+4. Assessment results determine initial state transitions: correctUnderstanding → PLAN_DECOMPOSITION, partialUnderstanding → CLARIFY_REQUIREMENTS, misunderstanding → RE_EXPLAIN_STORY
+5. Assessment timeout (configurable, default 10 minutes) triggers ESCALATE_DIFFICULTY transition with partial results preserved
+6. Assessment results stored persistently and linked to developer profile for longitudinal tracking
+7. Unit tests validate scoring algorithm accuracy and transition decision logic for all skill level combinations
+
+**Prerequisites:** Story 7-1 (state machine must exist for transition integration)
+
+---
+
+### **Story 7-3: Context Gathering Activity**
+
+As a **mentor AI agent**,
+I want to gather comprehensive project and codebase context before guiding a junior developer,
+So that mentorship guidance is grounded in the actual project conventions, patterns, and constraints.
+
+**Acceptance Criteria:**
+
+1. Context gathering loads project structure, coding conventions, test patterns, and dependency information from the target repository
+2. Context includes recent commit history (last 20 commits) to understand current development velocity and patterns
+3. Context identifies relevant documentation (README, CONTRIBUTING, architecture docs) and extracts key guidelines
+4. Context maps the story requirements to specific files and modules that will need modification
+5. Context gathering completes within 30 seconds for repositories up to 100K LOC
+6. Context summary formatted for AI consumption includes: project overview, relevant file paths, coding standards, and test conventions
+7. Integration test validates context accuracy against a known test repository with expected outputs
+
+**Prerequisites:** Story 7-1 (state machine core), Story 2.2 (issue context analysis patterns)
+
+---
+
+### **Story 7-4: Claude Analysis Activity**
+
+As a **mentor AI agent**,
+I want AI-powered analysis of junior developer code submissions and plan proposals,
+So that feedback is constructive, teaching-focused, and aligned with project standards.
+
+**Acceptance Criteria:**
+
+1. Analysis activity reviews code submissions against project conventions, test coverage, and acceptance criteria from the story
+2. Analysis generates teaching-oriented feedback that explains the "why" behind suggestions, not just the "what"
+3. Analysis detects common junior developer mistakes (off-by-one errors, missing edge cases, improper error handling) and provides educational explanations
+4. Analysis supports plan assessment: evaluating whether a junior's proposed implementation plan is viable before they begin coding
+5. Analysis integrates with the APPROVE_PLAN / REFINE_PLAN / CORRECT_PLAN state transitions based on plan quality scoring
+6. Analysis response time under 15 seconds for typical code review (500 LOC or fewer)
+7. Unit tests validate feedback quality using golden-file comparisons against known code submissions with expected feedback patterns
+
+**Prerequisites:** Story 7-2 (skill assessment informs analysis depth), Story 7-3 (context gathering provides project standards)
+
+---
+
+### **Story 7-5: Plan Decomposition Activity**
+
+As a **junior developer**,
+I want the system to break down a story into small, guided implementation steps,
+So that I can tackle the work incrementally without feeling overwhelmed by the full scope.
+
+**Acceptance Criteria:**
+
+1. Decomposition breaks a story into 3-10 sequential implementation steps, each completable in 15-45 minutes
+2. Each step includes: clear objective, files to modify, hints for approach, and expected outcome (test to pass or behavior to verify)
+3. Steps are ordered by dependency: foundational changes first, then features, then tests, then cleanup
+4. Decomposition adapts granularity based on skill assessment results (more steps for lower skill levels, fewer for higher)
+5. If junior proposes their own plan, system evaluates it and provides APPROVE_PLAN, REFINE_PLAN, or CORRECT_PLAN transition
+6. Template plans (PROVIDE_TEMPLATE_PLAN state) generated automatically when junior cannot produce a viable plan after timeout
+7. Unit tests validate decomposition produces valid step sequences for sample stories of varying complexity
+
+**Prerequisites:** Story 7-2 (skill level determines granularity), Story 7-4 (AI analysis evaluates plans)
+
+---
+
+### **Story 7-6: Blocker Diagnosis & Resolution**
+
+As a **junior developer**,
+I want the system to diagnose why I am stuck and provide targeted help,
+So that I can overcome blockers quickly without waiting for a human mentor to become available.
+
+**Acceptance Criteria:**
+
+1. Blocker diagnosis categorizes issues into: technicalError, conceptualConfusion, environmentIssue, analysisParalysis, and unknownIssue
+2. Technical error diagnosis analyzes error output, stack traces, and recent code changes to suggest specific fixes
+3. Conceptual confusion diagnosis identifies knowledge gaps and provides targeted explanations with code examples
+4. Environment issue diagnosis checks common setup problems (missing dependencies, wrong versions, configuration errors) and provides fix steps
+5. Analysis paralysis detection triggers BREAK_DOWN_TASK transition, decomposing the current step into smaller sub-steps
+6. Diagnosis completes within 20 seconds and provides actionable next steps for all blocker categories
+7. Unit tests validate diagnosis accuracy for each blocker category using representative error scenarios
+
+**Prerequisites:** Story 7-1 (DIAGNOSE_BLOCKER state transitions), Story 7-4 (AI analysis for diagnosis)
+
+---
+
+### **Story 7-7: Mentorship Quality Gate**
+
+As a **code reviewer**,
+I want teaching-focused quality checks that evaluate both code correctness and learning outcomes,
+So that junior developers produce quality code while also building understanding of why standards matter.
+
+**Acceptance Criteria:**
+
+1. Quality gate evaluates: code correctness, test coverage, adherence to project conventions, and documentation completeness
+2. Quality gate provides educational feedback for each issue found, explaining the principle behind the standard (not just flagging violations)
+3. Minor issues (formatting, naming) trigger AUTO_FIX_ISSUES state with automated corrections and explanations of what was changed
+4. Major issues (logic errors, missing tests) trigger REQUIRE_FIXES state with guided remediation steps
+5. Critical issues (security vulnerabilities, data loss risks) trigger BLOCK_PROGRESS state with mandatory human review
+6. Quality gate tracks improvement: same issues flagged in subsequent reviews generate escalating guidance
+7. Integration test validates quality gate correctly categorizes and routes issues across minor, major, and critical severity levels
+
+**Prerequisites:** Story 7-4 (AI analysis powers quality feedback), Story 3.8 (static analysis integration)
+
+---
+
+### **Story 7-8: Skill Progress Tracking**
+
+As a **engineering manager**,
+I want to track junior developer skill progression over multiple mentorship sessions,
+So that I can measure learning velocity, identify persistent skill gaps, and demonstrate team growth.
+
+**Acceptance Criteria:**
+
+1. Skill tracker records per-session metrics: time to complete, number of blockers, blocker categories, quality gate pass rate, and retry count
+2. Skill progression calculated across dimensions (language, framework, testing, Git, architecture) using weighted moving average
+3. Learning velocity metric shows rate of improvement per dimension with trend indicators (improving, plateauing, declining)
+4. Persistent skill gaps identified when the same blocker category appears across 3+ sessions with targeted learning resource recommendations
+5. Skill profile dashboard data exportable as JSON for integration with external HR/learning management systems
+6. Anonymized aggregate analytics available for team-level skill distribution and growth trends
+7. Unit tests validate progression calculations, trend detection, and gap identification algorithms with synthetic session data
+
+**Prerequisites:** Story 7-2 (initial skill assessment provides baseline), Story 7-6 (blocker data feeds into tracking)
+
+---
+
+### **Story 7-9: Mentorship Session Management**
+
+As a **junior developer**,
+I want to start, pause, resume, and complete mentorship sessions with automatic state preservation,
+So that I can work on mentored tasks across multiple sittings without losing progress.
+
+**Acceptance Criteria:**
+
+1. Session lifecycle supports: create, start, pause, resume, complete, and cancel operations with appropriate state transitions
+2. Session state serialized and persisted on every state transition, enabling recovery within 5 seconds of session resume
+3. Concurrent session limit enforced (configurable, default: 1 active session per developer) to maintain focus
+4. Session timeout detection pauses inactive sessions after configurable idle period (default: 30 minutes) with notification
+5. Session history maintained with full event trail for retrospective analysis and mentorship quality assessment
+6. Session metadata includes: story reference, developer profile link, start time, elapsed active time, and current state
+7. Integration test validates full session lifecycle including pause/resume across simulated process restarts
+
+**Prerequisites:** Story 7-1 (state machine core for transitions), Story 4.2 (event store for session persistence)
+
+---
+
+### **Story 7-10: Mentorship Dashboard & Reporting**
+
+As a **engineering manager**,
+I want a monitoring dashboard and reports for mentorship program effectiveness,
+So that I can track program health, identify at-risk developers, and demonstrate ROI of the mentorship system.
+
+**Acceptance Criteria:**
+
+1. Dashboard displays active mentorship sessions with current state, developer, story, elapsed time, and blocker status
+2. Dashboard shows aggregate metrics: sessions completed this week, average completion time, quality gate pass rate, and escalation rate
+3. Developer leaderboard (opt-in) shows skill progression rankings and achievement badges for completed milestones
+4. At-risk developer alerts trigger when a developer has 3+ consecutive sessions with critical blockers or declining quality scores
+5. Monthly report generation includes: sessions conducted, skills improved, common blockers, time savings vs. human mentorship baseline
+6. Dashboard data served via REST API endpoints for integration with external dashboards (Grafana, Datadog)
+7. Unit tests validate metric aggregation accuracy and alert threshold logic with synthetic dashboard data
+
+**Prerequisites:** Story 7-8 (skill tracking provides metrics), Story 7-9 (session management provides session data), Story 5.3 (dashboard patterns)
+
+---
+
+## Epic 8: Distribution & Installation (Post-MVP)
+
+**Goal:** Enable users to install and run Tamma without cloning the monorepo, providing three tiers of distribution: npm package, standalone binary, and Docker full-stack deployment.
+
+**Value Delivered:** Zero-friction installation for all user types — developers (`npx`), end users (curl binary), and operators (Docker). Automated release pipelines, self-updating binaries, and one-command full-stack deployment.
+
+**Estimated Stories:** 8 stories across 3 tiers
+
+**Technical Specification:** See `docs/stories/epic-8/README.md` and `docs/architecture/installer-tier{1,2,3}-*.md` for detailed plans.
+
+---
+
+### **Story 8-1: esbuild Bundle & Package Structure**
+
+As a **Tamma user**,
+I want to install the CLI via `npx @tamma/cli init` without cloning the monorepo,
+So that I can set up and run Tamma on any machine with just Node.js installed.
+
+**Acceptance Criteria:**
+
+1. esbuild bundles all 7 workspace packages into a single ESM file at `packages/cli/dist/index.js`
+2. Third-party dependencies kept external and listed in published package's `dependencies`
+3. `createRequire` pattern replaced with build-time `TAMMA_VERSION` constant via esbuild `define`
+4. JSX transform works correctly for all Ink components
+5. `prepare-package.mjs` generates publish-ready `package.json` replacing `workspace:*` references
+6. Smoke test validates `--version`, `--help`, `init`, `start --help`
+7. Bundle size under 500KB uncompressed JS
+8. Existing `tsc --build` development workflow unchanged
+
+**Prerequisites:** None (first story in Epic 8)
+
+---
+
+### **Story 8-2: npm Publish CI/CD Pipeline**
+
+As a **release engineer**,
+I want an automated pipeline that publishes `@tamma/cli` to npm on release tags,
+So that new versions are available to users immediately after tagging.
+
+**Acceptance Criteria:**
+
+1. GitHub Actions workflow triggers on `cli-v*` tag push
+2. Workflow: install → build → typecheck → test → bundle → smoke test → publish with provenance
+3. Post-publish verification installs from npm and runs `npx @tamma/cli --version`
+4. Bundle build added to existing CI so every PR validates the bundle
+5. `NPM_TOKEN` secret configured; npm org `@tamma` created with public access
+6. Release process documented: bump version → commit → tag → push
+
+**Prerequisites:** Story 8-1
+
+---
+
+### **Story 8-3: Standalone Binary Compilation**
+
+As a **Tamma user**,
+I want a single standalone binary that runs without Node.js or any runtime dependencies,
+So that I can install Tamma on any machine regardless of available development tools.
+
+**Acceptance Criteria:**
+
+1. `bun build --compile` produces executables for 4 platforms: darwin-arm64, darwin-x64, linux-x64, linux-arm64
+2. Build script generates SHA256 checksums and `manifest.json`
+3. Ink/React TUI renders correctly in compiled binary
+4. Synchronous logger fallback replaces pino worker threads for binary mode
+5. `isStandaloneBinary()` detection skips Node.js version check in preflight
+6. Binary size under 60MB uncompressed
+7. Smoke tests pass on each platform
+
+**Prerequisites:** Story 8-1 (version injection pattern)
+
+---
+
+### **Story 8-4: Install Scripts & GitHub Releases**
+
+As a **Tamma user**,
+I want to install Tamma with `curl install.sh | bash` that downloads the correct binary for my platform,
+So that I can get started without managing Node.js, npm, or other prerequisites.
+
+**Acceptance Criteria:**
+
+1. `install.sh` detects OS/arch, downloads binary, verifies SHA256, installs to `~/.local/bin/tamma`
+2. Script supports proxy, version pinning, custom install dir, and `NO_COLOR`
+3. `install.ps1` provides equivalent Windows PowerShell experience
+4. GitHub Actions release workflow builds binaries on 4 platforms and creates GitHub Release
+5. Post-release verification runs install script on CI matrix
+6. `shellcheck` passes on `install.sh`
+
+**Prerequisites:** Story 8-3
+
+---
+
+### **Story 8-5: Auto-Update & Package Manager Distribution**
+
+As a **Tamma user**,
+I want the CLI to check for updates and upgrade with `tamma upgrade`,
+So that I always have the latest version without manual tracking.
+
+**Acceptance Criteria:**
+
+1. `tamma upgrade` downloads and atomically replaces current binary from GitHub Releases
+2. Background update check (24h cooldown, 3s timeout) prints notification on startup
+3. SHA256 verified before replacement
+4. Homebrew tap (`meywd/homebrew-tap`) with auto-updating formula
+5. `brew tap meywd/tap && brew install tamma` works
+
+**Prerequisites:** Story 8-4
+
+---
+
+### **Story 8-6: TypeScript & Dashboard Dockerfiles**
+
+As a **DevOps engineer**,
+I want Dockerfiles for the TypeScript engine, API server, and dashboard,
+So that the full Tamma platform can be deployed as containers.
+
+**Acceptance Criteria:**
+
+1. Multi-stage `Dockerfile.ts` builds both `tamma-api` and `tamma-engine` targets
+2. `Dockerfile.dashboard` builds Vite SPA and serves via nginx with API proxy
+3. All images use non-root users, tini as PID 1, Alpine base
+4. Engine supports `--mode service` flag for headless container operation
+5. Image sizes: TS < 300MB, Dashboard < 30MB
+
+**Prerequisites:** None (parallel with Tier 1/2)
+
+---
+
+### **Story 8-7: Docker Compose Full Stack**
+
+As a **platform operator**,
+I want a Docker Compose configuration that runs the entire Tamma platform with `docker compose up -d`,
+So that I can deploy and manage all 7 services as a cohesive unit.
+
+**Acceptance Criteria:**
+
+1. Compose defines: postgres, rabbitmq, elsa-server, tamma-api-dotnet, tamma-api, tamma-engine, tamma-dashboard
+2. Health checks and startup ordering via `depends_on` conditions
+3. Named volumes for persistent data; `.env.example` documents all variables
+4. Dev/prod profiles via compose override files
+5. All services healthy within 3 minutes; `_FILE` suffix for Docker secrets
+
+**Prerequisites:** Story 8-6
+
+---
+
+### **Story 8-8: Docker CI/CD & CLI Integration**
+
+As a **Tamma user**,
+I want `tamma init --full-stack` to generate a ready-to-use Docker deployment,
+So that I can deploy the full platform without cloning the repository.
+
+**Acceptance Criteria:**
+
+1. CI workflow builds and pushes all 5 images to GHCR on merge to main and version tags
+2. Three tag forms: `latest`, semver, `sha-{commit}`
+3. Smoke test workflow verifies full stack health in CI
+4. `tamma init --full-stack` generates compose, .env, init-db.sql, nginx conf using pre-built images
+5. Interactive prompt collects secrets and writes to `.env`
+
+**Prerequisites:** Stories 8-6, 8-7
+
+---
+
 ## Story Guidelines Reference
 
 **Story Format:**

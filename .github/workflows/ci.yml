@@ -1,0 +1,78 @@
+name: CI
+
+on:
+  push:
+    branches: [main, feat/engine-mvp]
+  pull_request:
+    branches: [main]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  typescript-tests:
+    name: TypeScript Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Typecheck
+        run: pnpm typecheck
+
+      - name: Run tests
+        run: pnpm vitest run
+
+      - name: Verify CLI bundle builds
+        run: pnpm --filter @tamma/cli run build:bundle
+
+      - name: Shellcheck install script
+        run: shellcheck install.sh
+
+  dotnet-tests:
+    name: .NET Tests
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    permissions:
+      contents: read
+    defaults:
+      run:
+        working-directory: apps/tamma-elsa
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Restore
+        run: dotnet restore Tamma.sln
+
+      - name: Build
+        run: dotnet build Tamma.sln --no-restore -c Release
+
+      - name: Test
+        run: dotnet test Tamma.sln --no-build -c Release --verbosity normal

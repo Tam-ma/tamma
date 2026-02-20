@@ -1,0 +1,192 @@
+name: Release Binaries
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write # For creating releases
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  build:
+    name: Build ${{ matrix.platform }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - platform: darwin-arm64
+            runner: macos-14
+          - platform: darwin-x64
+            runner: macos-13
+          - platform: linux-x64
+            runner: ubuntu-latest
+          - platform: linux-arm64
+            runner: ubuntu-24.04-arm
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 30
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v2
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r run build
+
+      - name: Build binary
+        run: node packages/cli/scripts/build-binary.mjs --target ${{ matrix.platform }}
+
+      - name: Upload artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: binary-${{ matrix.platform }}
+          path: packages/cli/dist/binaries/tamma-*
+          if-no-files-found: error
+          retention-days: 7
+
+  release:
+    name: Create Release
+    needs: build
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download all artifacts
+        uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: List artifacts
+        run: ls -la artifacts/
+
+      - name: Create checksums file
+        run: |
+          cd artifacts
+          cat *.sha256 > checksums.txt
+
+      - name: Extract version
+        id: version
+        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          name: v${{ steps.version.outputs.version }}
+          body: |
+            ## Install
+
+            **macOS / Linux:**
+            ```sh
+            curl -fsSL https://raw.githubusercontent.com/meywd/tamma/main/install.sh | sh
+            ```
+
+            **Windows (PowerShell):**
+            ```powershell
+            irm https://raw.githubusercontent.com/meywd/tamma/main/install.ps1 | iex
+            ```
+
+            **npm:**
+            ```sh
+            npm install -g @tamma/cli@${{ steps.version.outputs.version }}
+            ```
+
+            ## Checksums
+
+            See `checksums.txt` or individual `.sha256` files for SHA256 checksums.
+          files: |
+            artifacts/tamma-*
+            artifacts/checksums.txt
+          fail_on_unmatched_files: true
+
+  verify:
+    name: Verify Install (${{ matrix.os }})
+    needs: release
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - os: macos-14
+          - os: macos-13
+          - os: ubuntu-latest
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run install script
+        env:
+          TAMMA_VERSION: ${{ needs.release.outputs.version }}
+        run: |
+          chmod +x install.sh
+          ./install.sh
+          ~/.local/bin/tamma --version
+
+  update-homebrew:
+    name: Update Homebrew Formula
+    needs: release
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download checksums
+        uses: actions/download-artifact@v4
+        with:
+          pattern: binary-*
+          merge-multiple: true
+          path: artifacts
+
+      - name: Generate formula
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          TEMPLATE=$(cat packages/cli/homebrew/tamma.rb.template)
+          # Replace version
+          FORMULA="${TEMPLATE//\{\{VERSION\}\}/$VERSION}"
+          # Replace checksums from .sha256 files
+          for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
+            HASH=$(cut -d' ' -f1 "artifacts/tamma-${VERSION}-${platform}.sha256")
+            KEY="SHA256_$(echo "$platform" | tr '[:lower:]-' '[:upper:]_')"
+            FORMULA="${FORMULA//\{\{$KEY\}\}/$HASH}"
+          done
+          echo "$FORMULA" > tamma.rb
+          cat tamma.rb
+
+      - name: Push to Homebrew tap
+        uses: cpina/github-action-push-to-another-repository@v1.7.2
+        env:
+          SSH_DEPLOY_KEY: ${{ secrets.HOMEBREW_TAP_DEPLOY_KEY }}
+        with:
+          source-directory: .
+          destination-github-username: meywd
+          destination-repository-name: homebrew-tap
+          target-branch: main
+          target-directory: Formula
+          commit-message: "tamma ${GITHUB_REF#refs/tags/}"

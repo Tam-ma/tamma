@@ -102,6 +102,101 @@ export interface ProviderCapabilities {
   };
 }
 
+// --- Provider Category Architecture ---
+// These interfaces implement the documented provider hierarchy from
+// docs/architecture/provider-research.md. The existing IAIProvider and
+// IAgentProvider (in agent-types.ts) remain as backward-compatible aliases.
+
+/**
+ * Provider category discriminant
+ */
+export type ProviderCategory = 'llm-api' | 'cli-agent';
+
+/**
+ * Base provider interface — common contract for all provider types.
+ * Both LLM API providers and CLI agent providers extend this.
+ */
+export interface IProvider {
+  /** Human-readable provider name */
+  readonly name: string;
+  /** Provider category discriminant */
+  readonly type: ProviderCategory;
+  /** Initialize with configuration */
+  initialize(config: ProviderConfig): Promise<void>;
+  /** Release resources */
+  dispose(): Promise<void>;
+  /** Check if the provider is reachable / configured */
+  isAvailable(): Promise<boolean>;
+}
+
+/**
+ * LLM-specific capability flags
+ */
+export interface LLMCapabilities {
+  streaming: boolean;
+  functionCalling: boolean;
+  vision: boolean;
+  jsonMode: boolean;
+  maxContextTokens: number;
+  maxOutputTokens: number;
+}
+
+/**
+ * CLI agent capability flags — describes what a headless coding agent can do
+ */
+export interface CLIAgentCapabilities {
+  fileOperations: boolean;
+  commandExecution: boolean;
+  gitOperations: boolean;
+  browserAutomation: boolean;
+  mcpSupport: boolean;
+  sessionResume: boolean;
+  structuredOutput: boolean;
+  streaming: boolean;
+}
+
+/**
+ * LLM API provider interface — for cloud/local LLM API calls.
+ * Extends IProvider with chat, completion, analysis, and review operations.
+ */
+export interface ILLMProvider extends IProvider {
+  readonly type: 'llm-api';
+  readonly capabilities: LLMCapabilities;
+
+  /** Streaming chat */
+  chat(request: MessageRequest): AsyncIterable<MessageChunk>;
+  /** Single-shot completion */
+  complete(request: MessageRequest): Promise<MessageResponse>;
+  /** Semantic analysis of code/text */
+  analyze(request: MessageRequest): Promise<MessageResponse>;
+  /** Code review */
+  review(request: MessageRequest): Promise<MessageResponse>;
+  /** List available models */
+  listModels(): Promise<ModelInfo[]>;
+}
+
+/**
+ * CLI agent provider interface — for headless coding agents (Claude Code, etc.).
+ * Extends IProvider with task execution and session management.
+ */
+export interface ICLIAgentProvider extends IProvider {
+  readonly type: 'cli-agent';
+  readonly capabilities: CLIAgentCapabilities;
+
+  /** Execute an autonomous coding task */
+  execute(
+    config: import('./agent-types.js').AgentTaskConfig,
+    onProgress?: import('./agent-types.js').AgentProgressCallback,
+  ): Promise<import('@tamma/shared').AgentTaskResult>;
+
+  /** Resume a previous session */
+  resumeSession(
+    sessionId: string,
+    prompt: string,
+    onProgress?: import('./agent-types.js').AgentProgressCallback,
+  ): Promise<import('@tamma/shared').AgentTaskResult>;
+}
+
 /**
  * Provider configuration
  */

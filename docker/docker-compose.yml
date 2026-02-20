@@ -1,0 +1,174 @@
+# =============================================================================
+# Tamma Platform — Docker Compose (base configuration)
+#
+# Usage:
+#   Development (auto-loads override):  docker compose up -d
+#   Production:  docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#
+# Required environment:
+#   See .env.example for the full list.
+# =============================================================================
+
+services:
+  # ---------------------------------------------------------------------------
+  # Infrastructure: PostgreSQL
+  # ---------------------------------------------------------------------------
+  postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER:-tamma}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?POSTGRES_PASSWORD is required}
+      POSTGRES_DB: ${POSTGRES_DB:-tamma}
+    volumes:
+      - tamma-pg-data:/var/lib/postgresql/data
+      - ./init-db.sql:/docker-entrypoint-initdb.d/init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-tamma}"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # Infrastructure: RabbitMQ
+  # ---------------------------------------------------------------------------
+  rabbitmq:
+    image: rabbitmq:3.13-management-alpine
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-tamma}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-tamma}
+    volumes:
+      - tamma-rmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "check_running"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # ELSA .NET Workflow Engine
+  # ---------------------------------------------------------------------------
+  elsa-server:
+    build:
+      context: ../apps/tamma-elsa/src
+      dockerfile: Tamma.ElsaServer/Dockerfile
+    environment:
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-tamma};Username=${POSTGRES_USER:-tamma};Password=${POSTGRES_PASSWORD}"
+      RabbitMq__HostName: rabbitmq
+      RabbitMq__UserName: ${RABBITMQ_USER:-tamma}
+      RabbitMq__Password: ${RABBITMQ_PASSWORD:-tamma}
+    depends_on:
+      postgres:
+        condition: service_healthy
+      rabbitmq:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:5000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 30s
+      retries: 3
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # Tamma .NET REST API (ELSA management)
+  # ---------------------------------------------------------------------------
+  tamma-api-dotnet:
+    build:
+      context: ../apps/tamma-elsa/src
+      dockerfile: Tamma.Api/Dockerfile
+    environment:
+      ConnectionStrings__PostgreSql: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-tamma};Username=${POSTGRES_USER:-tamma};Password=${POSTGRES_PASSWORD}"
+      ElsaServer__Url: http://elsa-server:5000
+      TammaServer__Url: http://tamma-api:3100
+    depends_on:
+      elsa-server:
+        condition: service_healthy
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:3000/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # Tamma TypeScript API (Fastify)
+  # ---------------------------------------------------------------------------
+  tamma-api:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ts
+      target: tamma-api
+    environment:
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-tamma}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tamma}"
+      GITHUB_TOKEN: ${GITHUB_TOKEN}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY}
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "wget", "-qO-", "http://localhost:3100/health"]
+      interval: 15s
+      timeout: 5s
+      start_period: 15s
+      retries: 3
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # Tamma Engine (autonomous issue processing)
+  # ---------------------------------------------------------------------------
+  tamma-engine:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.ts
+      target: tamma-engine
+    environment:
+      GITHUB_TOKEN: ${GITHUB_TOKEN:?GITHUB_TOKEN is required}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?ANTHROPIC_API_KEY is required}
+      GITHUB_OWNER: ${GITHUB_OWNER:?GITHUB_OWNER is required}
+      GITHUB_REPO: ${GITHUB_REPO:?GITHUB_REPO is required}
+      DATABASE_URL: "postgresql://${POSTGRES_USER:-tamma}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tamma}"
+    volumes:
+      - tamma-engine-workdir:/home/tamma/workdir
+    depends_on:
+      tamma-api:
+        condition: service_healthy
+    networks:
+      - tamma-net
+
+  # ---------------------------------------------------------------------------
+  # Tamma Dashboard (React SPA via nginx)
+  # ---------------------------------------------------------------------------
+  tamma-dashboard:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile.dashboard
+    depends_on:
+      tamma-api:
+        condition: service_healthy
+    networks:
+      - tamma-net
+
+# =============================================================================
+# Volumes
+# =============================================================================
+volumes:
+  tamma-pg-data:
+  tamma-rmq-data:
+  tamma-engine-workdir:
+
+# =============================================================================
+# Networks
+# =============================================================================
+networks:
+  tamma-net:
+    driver: bridge

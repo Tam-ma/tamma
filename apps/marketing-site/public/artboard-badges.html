@@ -419,12 +419,19 @@
 
         // Handle badge clicks
         document.addEventListener('DOMContentLoaded', function() {
+            const allowedBadges = new Set(['2','3','4','5','6','7','8','9','10','11','12','13']);
             const badges = document.querySelectorAll('.badge-item');
             badges.forEach(badge => {
                 badge.addEventListener('click', function() {
-                    const badgeNum = this.getAttribute('data-badge');
+                    const rawBadge = this.getAttribute('data-badge');
+                    // Sanitize: parse as integer and validate against allowlist
+                    const parsed = Number.parseInt(rawBadge, 10);
+                    if (!Number.isFinite(parsed) || parsed < 2 || parsed > 13) return;
+                    const badgeNum = String(parsed);
+                    if (!allowedBadges.has(badgeNum)) return;
+                    // lang is derived from internal state, not user input
                     const lang = document.body.classList.contains('english-mode') ? 'english' : 'arabic';
-                    window.location.href = `/badge-detail.html?badge=${badgeNum}&lang=${lang}`;
+                    window.location.href = '/badge-detail.html?badge=' + encodeURIComponent(badgeNum) + '&lang=' + encodeURIComponent(lang);
                 });
             });
         });

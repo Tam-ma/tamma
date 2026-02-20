@@ -9,8 +9,11 @@
   },
   "references": [
     { "path": "../shared" },
+    { "path": "../api" },
     { "path": "../observability" },
-    { "path": "../orchestrator" }
+    { "path": "../orchestrator" },
+    { "path": "../providers" },
+    { "path": "../platforms" }
   ],
   "include": ["src/**/*"],
   "exclude": ["node_modules", "dist", "**/*.test.ts", "**/*.spec.ts"]

@@ -1,0 +1,25 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <TargetFramework>net8.0</TargetFramework>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <Nullable>enable</Nullable>
+    <RootNamespace>Tamma.Activities</RootNamespace>
+    <AssemblyName>Tamma.Activities</AssemblyName>
+    <Version>1.0.0</Version>
+    <Authors>Tamma Team</Authors>
+    <Description>Custom ELSA activities for Tamma Mentorship Engine</Description>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <PackageReference Include="Elsa" Version="3.0.0" />
+    <PackageReference Include="Elsa.Http" Version="3.0.0" />
+    <PackageReference Include="Microsoft.Extensions.Logging.Abstractions" Version="8.0.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\Tamma.Core\Tamma.Core.csproj" />
+    <ProjectReference Include="..\Tamma.Data\Tamma.Data.csproj" />
+  </ItemGroup>
+
+</Project>

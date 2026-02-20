@@ -1,0 +1,39 @@
+{
+  "name": "@tamma/scrum-master",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Scrum Master task loop and agent coordination for the Tamma platform",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc --build",
+    "dev": "tsc --build --watch",
+    "clean": "rm -rf dist .tsbuildinfo",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest"
+  },
+  "dependencies": {
+    "@tamma/shared": "workspace:*",
+    "@tamma/gates": "workspace:*",
+    "@tamma/intelligence": "workspace:*",
+    "@tamma/cost-monitor": "workspace:*",
+    "nanoid": "^5.0.9"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vitest": "^3.0.6"
+  },
+  "keywords": [
+    "scrum-master",
+    "agent",
+    "coordination",
+    "task-loop",
+    "workflow"
+  ]
+}
