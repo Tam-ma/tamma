@@ -12,7 +12,7 @@
 
 import { execFileSync, execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { readFileSync, writeFileSync, mkdirSync, statSync } from 'node:fs';
+import { readFileSync, writeFileSync, mkdirSync, statSync, copyFileSync, unlinkSync } from 'node:fs';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -90,21 +90,43 @@ for (const target of selectedTargets) {
     process.exit(1);
   }
 
-  // Generate SHA256 checksum
+  // Generate SHA256 checksum for the raw binary
   const fileBuffer = readFileSync(outfile);
   const sha256 = createHash('sha256').update(fileBuffer).digest('hex');
   const checksumFile = `${outfile}.sha256`;
   writeFileSync(checksumFile, `${sha256}  ${binaryName}\n`);
 
   const size = statSync(outfile).size;
+
+  // Create .tar.gz archive (Homebrew requires archives, not raw binaries)
+  // Archive contains a single file named "tamma" (matching Homebrew formula's bin.install)
+  const tarName = `${binaryName}.tar.gz`;
+  const tarPath = join(outputDir, tarName);
+  const stagingDir = join(outputDir, `_staging-${target.platform}`);
+  mkdirSync(stagingDir, { recursive: true });
+  copyFileSync(outfile, join(stagingDir, 'tamma'));
+  execSync(`tar -czf "${tarPath}" -C "${stagingDir}" tamma`, { stdio: 'inherit' });
+  // Clean up staging
+  unlinkSync(join(stagingDir, 'tamma'));
+
+  // Generate SHA256 checksum for the tar.gz
+  const tarBuffer = readFileSync(tarPath);
+  const tarSha256 = createHash('sha256').update(tarBuffer).digest('hex');
+  writeFileSync(`${tarPath}.sha256`, `${tarSha256}  ${tarName}\n`);
+  const tarSize = statSync(tarPath).size;
+
   assets.push({
     name: binaryName,
     platform: target.platform,
     sha256,
     size,
+    tarName,
+    tarSha256,
+    tarSize,
   });
 
   console.log(`  ${binaryName}: ${(size / 1024 / 1024).toFixed(1)} MB (sha256: ${sha256.slice(0, 12)}...)`);
+  console.log(`  ${tarName}: ${(tarSize / 1024 / 1024).toFixed(1)} MB (sha256: ${tarSha256.slice(0, 12)}...)`);
 }
 
 // Write manifest

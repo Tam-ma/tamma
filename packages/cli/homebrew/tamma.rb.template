@@ -2,7 +2,7 @@ class Tamma < Formula
   desc "AI-powered autonomous development platform"
   homepage "https://github.com/meywd/tamma"
   version "{{VERSION}}"
-  license "MIT"
+  license "Apache-2.0"
 
   on_macos do
     if Hardware::CPU.arm?

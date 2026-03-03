@@ -1,19 +1,98 @@
-name: Release Binaries
+name: Release
 
 on:
   push:
     tags: ['v*']
 
 permissions:
-  contents: write # For creating releases
+  contents: write  # For creating releases
+  id-token: write  # For npm provenance
 
 concurrency:
   group: release-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
-  build:
+  # ── Job 1: Publish to npm ──────────────────────────────────────────────────
+  publish-npm:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment: npm
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Extract version from tag
+        id: version
+        run: |
+          VERSION="${GITHUB_REF#refs/tags/v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Verify version match
+        run: |
+          PKG_VERSION=$(node -p "require('./packages/cli/package.json').version")
+          if [ "${{ steps.version.outputs.version }}" != "$PKG_VERSION" ]; then
+            echo "::error::Tag version (${{ steps.version.outputs.version }}) does not match package.json version ($PKG_VERSION)"
+            exit 1
+          fi
+          echo "Version: ${{ steps.version.outputs.version }}"
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+          registry-url: 'https://registry.npmjs.org'
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Build all packages
+        run: pnpm -r run build
+
+      - name: Typecheck CLI
+        run: pnpm --filter @tamma/cli run typecheck
+
+      - name: Run CLI tests
+        run: pnpm vitest run packages/cli/src
+
+      - name: Build publish bundle
+        run: pnpm --filter @tamma/cli run build:publish
+
+      - name: Run smoke tests
+        run: pnpm --filter @tamma/cli run test:smoke
+
+      - name: Verify bundle version
+        run: |
+          BUNDLE_VERSION=$(node packages/cli/dist/index.js --version 2>/dev/null || true)
+          echo "Bundle reports version: $BUNDLE_VERSION"
+          if [ "$BUNDLE_VERSION" != "${{ steps.version.outputs.version }}" ]; then
+            echo "::warning::Bundle version ($BUNDLE_VERSION) may not match tag (${{ steps.version.outputs.version }})"
+          fi
+
+      - name: Prepare publish directory
+        run: |
+          cp packages/cli/package.json.publish packages/cli/package.json
+          echo "Package contents:"
+          cd packages/cli && npm pack --dry-run 2>&1
+
+      - name: Publish to npm
+        working-directory: packages/cli
+        run: npm publish --provenance --access public
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+
+  # ── Job 2: Build platform binaries ─────────────────────────────────────────
+  build-binaries:
     name: Build ${{ matrix.platform }}
+    needs: publish-npm
     strategy:
       fail-fast: false
       matrix:
@@ -51,7 +130,7 @@ jobs:
       - name: Build all packages
         run: pnpm -r run build
 
-      - name: Build binary
+      - name: Build binary and tar.gz
         run: node packages/cli/scripts/build-binary.mjs --target ${{ matrix.platform }}
 
       - name: Upload artifacts
@@ -62,13 +141,12 @@ jobs:
           if-no-files-found: error
           retention-days: 7
 
-  release:
-    name: Create Release
-    needs: build
+  # ── Job 3: Create GitHub Release ───────────────────────────────────────────
+  create-release:
+    name: Create GitHub Release
+    needs: [publish-npm, build-binaries]
     runs-on: ubuntu-latest
     timeout-minutes: 10
-    outputs:
-      version: ${{ steps.version.outputs.version }}
 
     steps:
       - name: Checkout
@@ -83,35 +161,36 @@ jobs:
       - name: List artifacts
         run: ls -la artifacts/
 
-      - name: Create checksums file
+      - name: Create combined checksums file
         run: |
           cd artifacts
           cat *.sha256 > checksums.txt
 
-      - name: Extract version
-        id: version
-        run: echo "version=${GITHUB_REF#refs/tags/v}" >> "$GITHUB_OUTPUT"
-
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
-          name: v${{ steps.version.outputs.version }}
+          name: v${{ needs.publish-npm.outputs.version }}
           body: |
             ## Install
 
-            **macOS / Linux:**
+            **npm (recommended):**
+            ```sh
+            npm install -g @tamma/cli@${{ needs.publish-npm.outputs.version }}
+            ```
+
+            **macOS / Linux (auto-detects best method):**
             ```sh
             curl -fsSL https://raw.githubusercontent.com/meywd/tamma/main/install.sh | sh
             ```
 
-            **Windows (PowerShell):**
-            ```powershell
-            irm https://raw.githubusercontent.com/meywd/tamma/main/install.ps1 | iex
+            **Homebrew:**
+            ```sh
+            brew install meywd/tap/tamma
             ```
 
-            **npm:**
+            **Self-update:**
             ```sh
-            npm install -g @tamma/cli@${{ steps.version.outputs.version }}
+            tamma upgrade
             ```
 
             ## Checksums
@@ -122,16 +201,22 @@ jobs:
             artifacts/checksums.txt
           fail_on_unmatched_files: true
 
+  # ── Job 4: Verify installations ────────────────────────────────────────────
   verify:
-    name: Verify Install (${{ matrix.os }})
-    needs: release
+    name: Verify (${{ matrix.method }} on ${{ matrix.os }})
+    needs: create-release
     strategy:
       fail-fast: false
       matrix:
         include:
-          - os: macos-14
-          - os: macos-13
           - os: ubuntu-latest
+            method: npm
+          - os: ubuntu-latest
+            method: binary
+          - os: macos-14
+            method: npm
+          - os: macos-14
+            method: binary
     runs-on: ${{ matrix.os }}
     timeout-minutes: 10
 
@@ -139,17 +224,35 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Run install script
+      - name: Setup Node.js
+        if: matrix.method == 'npm'
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - name: Verify npm install
+        if: matrix.method == 'npm'
+        run: |
+          # Wait for npm propagation
+          sleep 30
+          npm install -g @tamma/cli@${{ needs.create-release.outputs.version || github.ref_name }}
+          INSTALLED_VERSION=$(tamma --version)
+          echo "Installed version: $INSTALLED_VERSION"
+
+      - name: Verify binary install
+        if: matrix.method == 'binary'
         env:
-          TAMMA_VERSION: ${{ needs.release.outputs.version }}
+          TAMMA_VERSION: ${{ needs.create-release.outputs.version || github.ref_name }}
+          TAMMA_INSTALL_METHOD: binary
         run: |
           chmod +x install.sh
           ./install.sh
           ~/.local/bin/tamma --version
 
+  # ── Job 5: Update Homebrew tap ─────────────────────────────────────────────
   update-homebrew:
     name: Update Homebrew Formula
-    needs: release
+    needs: create-release
     runs-on: ubuntu-latest
     timeout-minutes: 10
 
@@ -170,9 +273,9 @@ jobs:
           TEMPLATE=$(cat packages/cli/homebrew/tamma.rb.template)
           # Replace version
           FORMULA="${TEMPLATE//\{\{VERSION\}\}/$VERSION}"
-          # Replace checksums from .sha256 files
+          # Replace checksums from .tar.gz.sha256 files
           for platform in darwin-arm64 darwin-x64 linux-arm64 linux-x64; do
-            HASH=$(cut -d' ' -f1 "artifacts/tamma-${VERSION}-${platform}.sha256")
+            HASH=$(cut -d' ' -f1 "artifacts/tamma-${VERSION}-${platform}.tar.gz.sha256")
             KEY="SHA256_$(echo "$platform" | tr '[:lower:]-' '[:upper:]_')"
             FORMULA="${FORMULA//\{\{$KEY\}\}/$HASH}"
           done

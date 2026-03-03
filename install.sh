@@ -1,15 +1,17 @@
 #!/bin/sh
-# install.sh - Install Tamma CLI from GitHub Releases
+# install.sh - Install Tamma CLI
 #
 # Usage:
 #   curl -fsSL https://raw.githubusercontent.com/meywd/tamma/main/install.sh | sh
+#   ./install.sh --uninstall
 #
 # Environment variables:
-#   TAMMA_VERSION    - Specific version to install (default: latest)
-#   TAMMA_INSTALL_DIR - Installation directory (default: $HOME/.local/bin)
-#   HTTPS_PROXY      - Proxy for HTTPS requests
-#   GITHUB_TOKEN     - GitHub token for API rate limiting
-#   NO_COLOR         - Disable colored output when set
+#   TAMMA_VERSION        - Specific version to install (default: latest)
+#   TAMMA_INSTALL_DIR    - Installation directory for binary installs (default: $HOME/.local/bin)
+#   TAMMA_INSTALL_METHOD - Force install method: "npm", "binary", or auto (default: auto)
+#   HTTPS_PROXY          - Proxy for HTTPS requests
+#   GITHUB_TOKEN         - GitHub token for API rate limiting
+#   NO_COLOR             - Disable colored output when set
 #
 set -eu
 
@@ -20,6 +22,7 @@ GITHUB_API="https://api.github.com/repos/${GITHUB_REPO}/releases/latest"
 DOWNLOAD_BASE="https://github.com/${GITHUB_REPO}/releases/download"
 INSTALL_DIR="${TAMMA_INSTALL_DIR:-${HOME}/.local/bin}"
 TMPDIR_BASE="${TMPDIR:-/tmp}"
+STATE_DIR="${HOME}/.tamma"
 
 # ── Color helpers ──────────────────────────────────────────────────────────────
 
@@ -336,28 +339,66 @@ add_to_path() {
   esac
 }
 
-# ── Main ───────────────────────────────────────────────────────────────────────
+# ── Node.js / npm detection ───────────────────────────────────────────────────
 
-main() {
-  setup_colors
-  print_banner
+has_node() {
+  command -v node >/dev/null 2>&1
+}
 
-  # Detect platform
-  os="$(detect_os)"
-  arch="$(detect_arch)"
-  info "Detected platform: ${os}-${arch}"
+has_npm() {
+  command -v npm >/dev/null 2>&1
+}
 
-  # Resolve version
-  if [ -n "${TAMMA_VERSION:-}" ]; then
-    version="${TAMMA_VERSION}"
-    # Strip leading 'v' if user passed it
-    version="$(printf '%s' "${version}" | sed 's/^v//')"
-    info "Installing specified version: ${version}"
-  else
-    info "Fetching latest version..."
-    version="$(get_latest_version)"
-    info "Latest version: ${version}"
+# Check if Node.js >= 22 is available
+check_node_version() {
+  if ! has_node; then
+    return 1
   fi
+  node_version="$(node -v 2>/dev/null | sed 's/^v//')"
+  node_major="$(printf '%s' "${node_version}" | cut -d. -f1)"
+  if [ -z "${node_major}" ] || [ "${node_major}" -lt 22 ] 2>/dev/null; then
+    return 1
+  fi
+  return 0
+}
+
+# ── Install via npm ────────────────────────────────────────────────────────────
+
+install_via_npm() {
+  version="${1:-}"
+
+  if ! has_npm; then
+    error "npm is not available. Cannot install via npm."
+    exit 1
+  fi
+
+  if ! check_node_version; then
+    error "Node.js >= 22 is required. Found: $(node -v 2>/dev/null || echo 'none')"
+    exit 1
+  fi
+
+  info "Installing @tamma/cli via npm..."
+
+  if [ -n "${version}" ]; then
+    npm install -g "@tamma/cli@${version}"
+  else
+    npm install -g @tamma/cli
+  fi
+
+  installed_version="$(tamma --version 2>/dev/null || true)"
+  if [ -n "${installed_version}" ]; then
+    success "Installed tamma ${installed_version} via npm"
+  else
+    success "Installed @tamma/cli via npm"
+  fi
+}
+
+# ── Install via binary download ────────────────────────────────────────────────
+
+install_via_binary() {
+  os="$1"
+  arch="$2"
+  version="$3"
 
   # Compute asset names
   binary_name="tamma-${version}-${os}-${arch}"
@@ -402,6 +443,145 @@ main() {
 
   # Offer to add to PATH
   add_to_path "${INSTALL_DIR}"
+}
+
+# ── Uninstall ──────────────────────────────────────────────────────────────────
+
+uninstall() {
+  setup_colors
+  info "Uninstalling Tamma..."
+
+  removed_something=false
+
+  # Detect npm install
+  npm_path="$(command -v tamma 2>/dev/null || true)"
+  if [ -n "${npm_path}" ] && has_npm; then
+    # Check if it was installed via npm (npm ls -g will find it)
+    if npm ls -g @tamma/cli >/dev/null 2>&1; then
+      info "Found npm installation of @tamma/cli"
+      npm uninstall -g @tamma/cli
+      success "Removed @tamma/cli from npm global packages"
+      removed_something=true
+    fi
+  fi
+
+  # Detect binary install
+  binary_path="${INSTALL_DIR}/tamma"
+  if [ -f "${binary_path}" ]; then
+    info "Found binary at ${binary_path}"
+    rm -f "${binary_path}"
+    success "Removed ${binary_path}"
+    removed_something=true
+  fi
+
+  # Clean state directory
+  if [ -d "${STATE_DIR}" ]; then
+    info "Found state directory at ${STATE_DIR}"
+
+    # Prompt for confirmation before removing state
+    if [ -t 0 ] || [ -e /dev/tty ]; then
+      if [ ! -t 0 ]; then
+        exec 3</dev/tty
+      else
+        exec 3<&0
+      fi
+      printf '%b' "  Remove Tamma state directory ${BOLD}${STATE_DIR}${RESET}? [y/N] "
+      read -r answer <&3
+      exec 3<&-
+
+      case "${answer}" in
+        [yY]|[yY][eE][sS])
+          rm -rf "${STATE_DIR}"
+          success "Removed ${STATE_DIR}"
+          removed_something=true
+          ;;
+        *)
+          info "Kept ${STATE_DIR}"
+          ;;
+      esac
+    else
+      info "Skipping state directory removal (no TTY). Remove manually:"
+      info "  rm -rf ${STATE_DIR}"
+    fi
+  fi
+
+  if [ "${removed_something}" = true ]; then
+    success "Tamma has been uninstalled."
+  else
+    warn "No Tamma installation found."
+  fi
+
+  # Remind about PATH cleanup
+  rc_file="$(detect_shell_rc)"
+  if grep -q "Added by Tamma installer" "${rc_file}" 2>/dev/null; then
+    warn "Your shell config ${rc_file} still has Tamma PATH entries."
+    info "Remove the lines marked '# Added by Tamma installer' from ${rc_file}"
+  fi
+}
+
+# ── Main ───────────────────────────────────────────────────────────────────────
+
+main() {
+  setup_colors
+
+  # Handle --uninstall flag
+  for arg in "$@"; do
+    case "${arg}" in
+      --uninstall|uninstall)
+        uninstall
+        exit 0
+        ;;
+    esac
+  done
+
+  print_banner
+
+  # Detect platform
+  os="$(detect_os)"
+  arch="$(detect_arch)"
+  info "Detected platform: ${os}-${arch}"
+
+  # Resolve version
+  if [ -n "${TAMMA_VERSION:-}" ]; then
+    version="${TAMMA_VERSION}"
+    # Strip leading 'v' if user passed it
+    version="$(printf '%s' "${version}" | sed 's/^v//')"
+    info "Installing specified version: ${version}"
+  else
+    info "Fetching latest version..."
+    version="$(get_latest_version)"
+    info "Latest version: ${version}"
+  fi
+
+  # Determine install method
+  method="${TAMMA_INSTALL_METHOD:-auto}"
+  case "${method}" in
+    npm)
+      install_via_npm "${version}"
+      ;;
+    binary)
+      install_via_binary "${os}" "${arch}" "${version}"
+      ;;
+    auto)
+      # Prefer npm if Node.js 22+ and npm are available
+      if check_node_version && has_npm; then
+        info "Node.js $(node -v) and npm detected — installing via npm"
+        install_via_npm "${version}"
+      else
+        if has_node; then
+          info "Node.js $(node -v) found but version >= 22 required — falling back to binary"
+        else
+          info "Node.js not found — installing standalone binary"
+        fi
+        install_via_binary "${os}" "${arch}" "${version}"
+      fi
+      ;;
+    *)
+      error "Unknown TAMMA_INSTALL_METHOD: ${method}"
+      error "Valid values: npm, binary, auto"
+      exit 1
+      ;;
+  esac
 
   # Print success message
   printf '\n'

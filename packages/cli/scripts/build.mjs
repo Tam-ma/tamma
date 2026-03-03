@@ -11,7 +11,7 @@
  */
 
 import { build } from 'esbuild';
-import { readFileSync, statSync } from 'node:fs';
+import { chmodSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -70,8 +70,11 @@ const result = await build({
   logLevel: 'info',
 });
 
-// Report bundle size
+// Make bundle executable (has #!/usr/bin/env node shebang)
 const outfile = join(cliDir, 'dist/index.js');
+chmodSync(outfile, 0o755);
+
+// Report bundle size
 const stats = statSync(outfile);
 const sizeKB = (stats.size / 1024).toFixed(1);
 console.log(`\nBundle: dist/index.js (${sizeKB} KB)`);

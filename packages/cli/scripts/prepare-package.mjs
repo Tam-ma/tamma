@@ -79,7 +79,7 @@ const publishPkg = {
   description: 'CLI for the Tamma autonomous development platform',
   type: 'module',
   bin: { tamma: './dist/index.js' },
-  files: ['dist/'],
+  files: ['dist/', 'README.md', 'LICENSE'],
   engines: { node: '>=22' },
   dependencies: sortObject(collectedDeps),
   ...(Object.keys(optionalDeps).length > 0 ? { optionalDependencies: sortObject(optionalDeps) } : {}),
@@ -89,7 +89,7 @@ const publishPkg = {
     url: 'https://github.com/meywd/tamma.git',
     directory: 'packages/cli',
   },
-  license: 'MIT',
+  license: 'Apache-2.0',
   author: 'meywd',
 };
 
@@ -104,6 +104,47 @@ if (existsSync(licenseSrc) && !existsSync(licenseDst)) {
   copyFileSync(licenseSrc, licenseDst);
   console.log('Copied LICENSE from repo root');
 }
+
+// Generate README.md for the npm package
+const readmePath = join(cliDir, 'README.md');
+const readmeContent = `# @tamma/cli
+
+AI-powered autonomous development platform CLI.
+
+## Install
+
+\`\`\`sh
+# npm (recommended)
+npm install -g @tamma/cli
+
+# curl (auto-detects platform)
+curl -fsSL https://raw.githubusercontent.com/meywd/tamma/main/install.sh | sh
+
+# Homebrew
+brew install meywd/tap/tamma
+\`\`\`
+
+## Usage
+
+\`\`\`sh
+tamma --help
+tamma start
+\`\`\`
+
+## Requirements
+
+- Node.js >= 22
+
+## Documentation
+
+See the [Tamma repository](https://github.com/meywd/tamma) for full documentation.
+
+## License
+
+Apache-2.0
+`;
+writeFileSync(readmePath, readmeContent);
+console.log('Generated README.md for npm package');
 
 // Summary
 console.log(`\nGenerated: ${publishPath}`);
