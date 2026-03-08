@@ -111,8 +111,9 @@ export class ProviderFactory implements IProviderFactory {
     });
 
     this.creators.set(PROVIDER_TYPES.OPENCODE, async (_config) => {
-      // Placeholder - will be implemented in Story 1-10
-      throw new Error('OpenCode provider not yet implemented');
+      throw new Error(
+        'OpenCode is a CLI agent provider. Use OpenCodeProvider directly instead of the factory.',
+      );
     });
 
     this.creators.set(PROVIDER_TYPES.Z_AI, async (_config) => {
@@ -120,14 +121,18 @@ export class ProviderFactory implements IProviderFactory {
       throw new Error('Z.AI provider not yet implemented');
     });
 
-    this.creators.set(PROVIDER_TYPES.ZEN_MCP, async (_config) => {
-      // Placeholder - will be implemented in Story 1-10
-      throw new Error('Zen MCP provider not yet implemented');
+    this.creators.set(PROVIDER_TYPES.ZEN_MCP, async (config) => {
+      const { ZenMCPProvider } = await import('./zen-mcp-provider.js');
+      const provider = new ZenMCPProvider();
+      await provider.initialize(config);
+      return provider;
     });
 
-    this.creators.set(PROVIDER_TYPES.OPENROUTER, async (_config) => {
-      // Placeholder - will be implemented in Story 1-10
-      throw new Error('OpenRouter provider not yet implemented');
+    this.creators.set(PROVIDER_TYPES.OPENROUTER, async (config) => {
+      const { OpenRouterProvider } = await import('./openrouter-provider.js');
+      const provider = new OpenRouterProvider();
+      await provider.initialize(config);
+      return provider;
     });
   }
 }

@@ -11,3 +11,6 @@ export { ProviderFactory } from './factory.js';
 
 export * from './agent-types.js';
 export { ClaudeAgentProvider } from './claude-agent-provider.js';
+export { OpenRouterProvider } from './openrouter-provider.js';
+export { OpenCodeProvider } from './opencode-provider.js';
+export { ZenMCPProvider } from './zen-mcp-provider.js';

@@ -20,7 +20,9 @@
     "@tamma/shared": "workspace:*",
     "@tamma/observability": "workspace:*",
     "@anthropic-ai/sdk": "^0.68.0",
-    "openai": "^4.77.3"
+    "openai": "^4.77.3",
+    "@opencode-ai/sdk": "^1.2.15",
+    "@modelcontextprotocol/sdk": "^1.27.0"
   },
   "devDependencies": {
     "typescript": "~5.7.2"
