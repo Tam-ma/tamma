@@ -443,3 +443,45 @@ export const PROVIDER_TYPES = {
  * Provider type
  */
 export type ProviderType = (typeof PROVIDER_TYPES)[keyof typeof PROVIDER_TYPES];
+
+/**
+ * Health status entry returned by IProviderHealthTracker.getStatus().
+ * JSON-serializable (Record, not Map) for compatibility with API responses,
+ * logging, and diagnostics.
+ */
+export interface HealthStatusEntry {
+  healthy: boolean;
+  failures: number;
+  circuitOpen: boolean;
+}
+
+/**
+ * Interface for the provider health tracker (circuit breaker per provider+model).
+ *
+ * Story 9-5's ProviderChain depends on this interface, not the concrete class,
+ * following the dependency inversion principle. This enables testing with mock
+ * implementations.
+ *
+ * Circuit breaker state is in-memory only. Process restart resets all state.
+ * This is an intentional design decision because provider outages are typically
+ * transient.
+ */
+export interface IProviderHealthTracker {
+  /** Check if a provider+model key is healthy (circuit closed or half-open probe allowed). */
+  isHealthy(key: string): boolean;
+
+  /** Record a failure for a provider+model key. Non-retryable ProviderErrors are NOT counted. */
+  recordFailure(key: string, error?: Error): void;
+
+  /** Record a success for a provider+model key. Closes circuit if in half-open state. */
+  recordSuccess(key: string): void;
+
+  /** Get JSON-serializable health status for all tracked provider+model keys. */
+  getStatus(): Record<string, HealthStatusEntry>;
+
+  /** Delete health state for a single key. Useful for operational recovery. */
+  reset(key: string): void;
+
+  /** Clear all health state. Useful for operational recovery and testing. */
+  clear(): void;
+}
