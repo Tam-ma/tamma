@@ -9,3 +9,4 @@ export * from './contracts/index.js';
 export * from './errors.js';
 export { InMemoryEventStore } from './event-store.js';
 export * from './telemetry/index.js';
+export * from './config/index.js';
