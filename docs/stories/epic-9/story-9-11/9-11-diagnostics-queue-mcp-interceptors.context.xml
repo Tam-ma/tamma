@@ -1,0 +1,264 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-11</storyId>
+    <title>Diagnostics Queue and MCP Interceptors</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-11/9-11-diagnostics-queue-mcp-interceptors.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>a diagnostics queue for batching telemetry events and a tool interceptor chain for blocking pre/post transformations on MCP tool calls</iWant>
+    <soThat>I can collect telemetry from providers and MCP tool calls with zero hot-path overhead, route diagnostics to the cost tracker, and apply sanitization/validation interceptors to tool invocations without modifying core tool execution logic</soThat>
+    <tasks>
+      <task id="1" title="Create DiagnosticsEvent types and DiagnosticsQueue class">
+        - [ ] Create `packages/shared/src/telemetry/diagnostics-event.ts` with discriminated union `DiagnosticsEvent` type (F01)
+        - [ ] Import `AgentType` from `../types/knowledge.js`
+        - [ ] Define 6 event types: `tool:invoke`, `tool:complete`, `tool:error`, `provider:call`, `provider:complete`, `provider:error`
+        - [ ] Define `DiagnosticsErrorCode` union type (F01)
+        - [ ] Define `DiagnosticsEventBase` with shared fields, `correlationId?: string` (F15), and optional context fields
+        - [ ] Define `ToolDiagnosticsEvent extends DiagnosticsEventBase` with required `toolName` (F01)
+        - [ ] Define `ProviderDiagnosticsEvent extends DiagnosticsEventBase` with required `providerName` (F01)
+        - [ ] Export `DiagnosticsEvent = ToolDiagnosticsEvent | ProviderDiagnosticsEvent` (F01)
+        - [ ] Create `packages/shared/src/telemetry/diagnostics-queue.ts` with `DiagnosticsQueue` class implementing `IDiagnosticsQueue` (F18)
+        - [ ] Export `DiagnosticsEventProcessor` type alias, `DiagnosticsQueueLogger` interface, `IDiagnosticsQueue` interface (F02, F18)
+        - [ ] Constructor accepts `{ drainIntervalMs?, maxQueueSize?, logger?: DiagnosticsQueueLogger }` (F02)
+        - [ ] Implement `emit()` as synchronous push with bounded queue (drop oldest when full), increment `droppedCount` (F02)
+        - [ ] Implement `getDroppedCount()` accessor (F02)
+        - [ ] Implement timer-based `drain()` with `drainPromise` guard and structured error logging (F05)
+        - [ ] Implement `setProcessor()` that starts the drain timer with `.unref()`
+        - [ ] Implement `dispose()` that clears timer then re-drains in loop until empty (max 10 iterations) (F12)
+        - [ ] Events MUST be delivered to processors in FIFO order; batching preserves insertion order (F17)
+        - [ ] Create `packages/shared/src/telemetry/index.ts` barrel export
+        - [ ] MODIFY `packages/shared/package.json` -- add `./telemetry` entry to the exports map (F13)
+      </task>
+      <task id="2" title="Create DiagnosticsProcessor mapping events to cost tracker">
+        - [ ] Create `packages/shared/src/telemetry/diagnostics-processor.ts`
+        - [ ] Import `ICostTracker`, `UsageRecordInput` from `@tamma/cost-monitor`; use `mapProviderName()` and `mapTaskType()` instead of unsafe casts (F08)
+        - [ ] Import `ILogger` from `../contracts.js`
+        - [ ] Implement `createDiagnosticsProcessor()` factory accepting `ICostTracker` and optional `ILogger`
+        - [ ] Filter to only `tool:complete`, `tool:error`, `provider:complete`, `provider:error` events
+        - [ ] Map `DiagnosticsEvent` fields to `UsageRecordInput` per mapping table (F19)
+        - [ ] Swallow per-event errors with optional logger warning
+        - [ ] Define `IDiagnosticsProcessor` interface in `@tamma/shared` to avoid circular deps; implement concrete processor at app level (F03)
+        - [ ] Prerequisite: `@tamma/cost-monitor` must import `AgentType` from `@tamma/shared`, not redefine locally (F20)
+        - [ ] Modify `packages/shared/src/index.ts` to export telemetry barrel
+      </task>
+      <task id="3" title="Create ToolInterceptorChain with pre/post interceptors">
+        - [ ] Create `packages/mcp-client/src/interceptors.ts`
+        - [ ] Import `ToolResult` from `./types.js`
+        - [ ] Define `PreInterceptor` type: `(toolName, args) =&gt; Promise&lt;{ args, warnings }&gt;`
+        - [ ] Define `PostInterceptor` type: `(toolName, result) =&gt; Promise&lt;{ result, warnings }&gt;`
+        - [ ] Implement `ToolInterceptorChain` class with `addPreInterceptor()`, `addPostInterceptor()`
+        - [ ] Implement `runPre()` with try/catch per interceptor (fail-open for non-security); validate returned args for prototype pollution keys (`__proto__`, `constructor`, `prototype`) (F09, F16)
+        - [ ] Implement `runPost()` with try/catch per interceptor (fail-open for non-security) (F09)
+        - [ ] Empty chain must be a no-op passthrough
+      </task>
+      <task id="4" title="Create built-in interceptor factories">
+        - [ ] Use `IContentSanitizer` (I-prefix) from Story 9-7, which returns `{ result: string; warnings: string[] }` -- remove local `ContentSanitizer` interface (F10)
+        - [ ] Use `validateUrl()` from Story 9-7 which returns `{ valid: boolean; warnings: string[] }` -- remove separate `UrlValidator` interface (F11)
+        - [ ] Implement `createSanitizationInterceptor(sanitizer: IContentSanitizer)` returning a `PostInterceptor` that sanitizes text content in `ToolResult`
+        - [ ] Implement `createUrlValidationInterceptor(validateUrl)` returning a `PreInterceptor` that validates URL args
+        - [ ] Export all types and factories from `packages/mcp-client/src/interceptors.ts`
+        - [ ] Update `packages/mcp-client/src/index.ts` to export interceptors
+      </task>
+      <task id="5" title="Modify MCPClient.invokeTool() for interceptor chain support">
+        - [ ] Add `private interceptorChain?: ToolInterceptorChain` field to `MCPClient`
+        - [ ] Preferred: accept interceptor chain in `MCPClientOptions` at construction time; alternatively add `setInterceptorChain()` setter (F04)
+        - [ ] In `invokeTool()`, after argument validation and before `tool:invoked` emit, run `interceptorChain.runPre()` to transform args
+        - [ ] Log pre-interceptor warnings via `this.logger?.warn()` (F14)
+        - [ ] In `invokeTool()`, after result construction and before `tool:completed` emit, run `interceptorChain.runPost()` to transform result
+        - [ ] Log post-interceptor warnings via `this.logger?.warn()` (F14)
+        - [ ] Use `finalArgs` from pre-interceptor output for execution
+        - [ ] Use `finalResult` from post-interceptor output for return value
+      </task>
+      <task id="6" title="Bridge MCPClient events to DiagnosticsQueue">
+        - [ ] Document the wiring pattern: `mcpClient.on('tool:invoked', ...)` maps to `diagnosticsQueue.emit({ type: 'tool:invoke', ... })`
+        - [ ] Document the wiring pattern: `mcpClient.on('tool:completed', ...)` maps to `diagnosticsQueue.emit({ type: data.success ? 'tool:complete' : 'tool:error', ... })`
+        - [ ] Generate `correlationId` via `crypto.randomUUID()` for start/end event pairing (F15)
+        - [ ] Truncate args via `truncateArgs()` (max 10KB) before queueing (F06)
+        - [ ] Redact sensitive keys (password, token, apiKey, secret, authorization) from args before queueing (F07)
+        - [ ] Sanitize `errorMessage` via `sanitizeErrorMessage()` from Story 9-2 before storing (F07)
+        - [ ] Context fields (agentType, projectId, engineId, taskId, taskType) come from the caller's runtime context
+        - [ ] Create unit tests for the bridge wiring logic
+        - [ ] Create `packages/shared/src/telemetry/diagnostics-queue.test.ts`
+        - [ ] Create `packages/shared/src/telemetry/diagnostics-processor.test.ts`
+        - [ ] Create `packages/mcp-client/src/interceptors.test.ts`
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">`DiagnosticsEvent` is a discriminated union of `ToolDiagnosticsEvent` and `ProviderDiagnosticsEvent` with typed `DiagnosticsErrorCode` (F01)</criterion>
+    <criterion id="2">`DiagnosticsQueue.emit()` is synchronous -- returns before queue drains</criterion>
+    <criterion id="3">Queue drains to processor on interval (5000ms default)</criterion>
+    <criterion id="4">`drainPromise` guard prevents concurrent drain from timer + dispose racing</criterion>
+    <criterion id="5">Processor errors are logged via `DiagnosticsQueueLogger.warn()` (not swallowed silently) (F05)</criterion>
+    <criterion id="6">Queue drops oldest events when full (`maxQueueSize`, default 1000) and increments `droppedCount` (F02)</criterion>
+    <criterion id="7">`dispose()` stops timer then re-drains in loop until empty (max 10 iterations) (F12)</criterion>
+    <criterion id="8">Drain timer uses `.unref()` so it does not keep the process alive</criterion>
+    <criterion id="9">`createDiagnosticsProcessor()` maps `DiagnosticsEvent` to `UsageRecordInput` using `mapProviderName()` and `mapTaskType()` (F08)</criterion>
+    <criterion id="10">Pre-interceptor modifies args (blocking, awaited)</criterion>
+    <criterion id="11">Post-interceptor sanitizes result (blocking, awaited)</criterion>
+    <criterion id="12">Interceptors run in registration order, piped (output of one is input to next)</criterion>
+    <criterion id="13">Empty interceptor chain is a no-op passthrough</criterion>
+    <criterion id="14">`createSanitizationInterceptor()` uses `IContentSanitizer` from Story 9-7 (F10)</criterion>
+    <criterion id="15">`createUrlValidationInterceptor()` uses `validateUrl()` from Story 9-7 (F11)</criterion>
+    <criterion id="16">`invokeTool()` calls `runPre()` before execution and `runPost()` after, and logs warnings (F14)</criterion>
+    <criterion id="17">Interceptor chain can be set via `MCPClientOptions` or `setInterceptorChain()` (F04)</criterion>
+    <criterion id="18">Bridge wiring maps `mcpClient` events to `diagnosticsQueue.emit()` with `correlationId`, truncated args, and redacted sensitive keys (F06, F07, F15)</criterion>
+    <criterion id="19">`pnpm --filter @tamma/shared run typecheck` passes</criterion>
+    <criterion id="20">`pnpm vitest run packages/shared/src/telemetry` passes</criterion>
+    <criterion id="21">`pnpm vitest run packages/mcp-client/src/interceptors` passes</criterion>
+    <criterion id="22">Events are delivered to processors in FIFO order; batching preserves insertion order (F17)</criterion>
+    <criterion id="23">`IDiagnosticsQueue` interface exported with `emit()`, `setProcessor()`, `dispose()`, `getDroppedCount()` (F18)</criterion>
+    <criterion id="24">`packages/shared/package.json` has `./telemetry` subpath export (F13)</criterion>
+    <criterion id="25">Interceptor errors are caught per-interceptor (fail-open); prototype pollution keys stripped from returned args (F09, F16)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-11/9-11-diagnostics-queue-mcp-interceptors.md">Story specification with full type definitions, class designs, and bridge wiring patterns</doc>
+      <doc path="docs/architecture.md">Technical architecture (event sourcing, naming conventions, error handling patterns)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, async/await patterns, naming conventions</doc>
+    </docs>
+    <code>
+      <file path="packages/shared/src/telemetry/diagnostics-event.ts" action="create">DiagnosticsEventType union, DiagnosticsErrorCode, DiagnosticsEventBase, ToolDiagnosticsEvent, ProviderDiagnosticsEvent discriminated union (F01)</file>
+      <file path="packages/shared/src/telemetry/diagnostics-queue.ts" action="create">DiagnosticsQueue class implementing IDiagnosticsQueue, DiagnosticsQueueLogger, droppedCount, structured error logging, re-drain dispose (F02, F05, F12, F17, F18)</file>
+      <file path="packages/shared/src/telemetry/diagnostics-processor.ts" action="create">createDiagnosticsProcessor() factory mapping events to UsageRecordInput</file>
+      <file path="packages/shared/src/telemetry/index.ts" action="create">Barrel export for telemetry module</file>
+      <file path="packages/shared/src/telemetry/diagnostics-queue.test.ts" action="create">Unit tests for DiagnosticsQueue</file>
+      <file path="packages/shared/src/telemetry/diagnostics-processor.test.ts" action="create">Unit tests for createDiagnosticsProcessor</file>
+      <file path="packages/shared/src/index.ts" action="modify">Add export for telemetry barrel</file>
+      <file path="packages/shared/package.json" action="modify">Add ./telemetry subpath export (F13)</file>
+      <file path="packages/mcp-client/src/interceptors.ts" action="create">ToolInterceptorChain with per-interceptor error isolation and prototype pollution protection, IContentSanitizer/validateUrl factories (F09, F10, F11, F16)</file>
+      <file path="packages/mcp-client/src/interceptors.test.ts" action="create">Unit tests for ToolInterceptorChain and interceptor factories</file>
+      <file path="packages/mcp-client/src/client.ts" action="modify">Add interceptorChain field (via MCPClientOptions or setter), runPre/runPost in invokeTool() with warning logging (F04, F14)</file>
+      <file path="packages/mcp-client/src/index.ts" action="modify">Export interceptor types and classes</file>
+      <file path="packages/shared/src/types/knowledge.ts" action="reference">AgentType union type used by DiagnosticsEvent</file>
+      <file path="packages/cost-monitor/src/types.ts" action="reference">ICostTracker, UsageRecordInput, Provider, TaskType used by diagnostics processor</file>
+      <file path="packages/shared/src/contracts/index.ts" action="reference">ILogger interface used by diagnostics processor</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">Shared types package -- DiagnosticsQueue lives here</dependency>
+      <dependency name="@tamma/mcp-client" type="internal">MCP client package -- ToolInterceptorChain lives here</dependency>
+      <dependency name="@tamma/cost-monitor" type="internal">Cost tracking -- ICostTracker interface consumed by diagnostics processor</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+      <dependency name="eventemitter3" type="peerDependency">EventEmitter used by MCPClient (already installed)</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="separation-of-concerns">DiagnosticsQueue lives in `@tamma/shared` with no dependency on `@tamma/mcp-client`; ToolInterceptorChain lives in `@tamma/mcp-client` with no queue or processor logic</constraint>
+    <constraint type="zero-overhead">`DiagnosticsQueue.emit()` must be synchronous -- no await, no Promise return, no blocking the caller</constraint>
+    <constraint type="process-safety">Drain timer must use `.unref()` so it does not keep the Node.js process alive</constraint>
+    <constraint type="concurrency">`drainPromise` guard must prevent concurrent drain from timer callback and `dispose()` racing</constraint>
+    <constraint type="fault-tolerance">Processor errors must be logged via DiagnosticsQueueLogger.warn() -- they must not crash the queue or lose events (F05)</constraint>
+    <constraint type="interceptor-isolation">Interceptor errors must be caught per-interceptor; non-security interceptors fail-open, security-critical interceptors fail-closed (F09)</constraint>
+    <constraint type="prototype-pollution">Interceptor return values must be filtered for forbidden keys (__proto__, constructor, prototype) (F16)</constraint>
+    <constraint type="arg-truncation">Tool arguments in DiagnosticsEvent must be truncated to MAX_DIAGNOSTICS_ARG_SIZE (10KB) (F06)</constraint>
+    <constraint type="data-redaction">Sensitive keys (password, token, apiKey, secret, authorization) must be redacted from args; errorMessage must be sanitized (F07)</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; interfaces use I-prefix; types use PascalCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="imports">Use `.js` extensions in import paths for ESM compatibility</constraint>
+    <constraint type="immutability">Interceptors must not mutate input args or results -- return new objects</constraint>
+    <constraint type="backward-compatibility">Interceptor chain preferably accepted via MCPClientOptions; setInterceptorChain() setter also supported (F04)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AgentType" source="packages/shared/src/types/knowledge.ts">
+      <description>Union type of agent roles: 'scrum_master' | 'architect' | 'researcher' | 'analyst' | 'planner' | 'implementer' | 'reviewer' | 'tester' | 'documenter'</description>
+    </interface>
+    <interface name="ICostTracker" source="packages/cost-monitor/src/types.ts">
+      <description>Main cost tracker service interface with recordUsage(UsageRecordInput): Promise&lt;UsageRecord&gt;</description>
+    </interface>
+    <interface name="UsageRecordInput" source="packages/cost-monitor/src/types.ts">
+      <description>Input for creating a usage record: projectId, engineId, agentType, taskId, taskType, provider, model, inputTokens, outputTokens, totalTokens, latencyMs, success, errorCode?, traceId?, cacheReadTokens?, cacheWriteTokens?</description>
+    </interface>
+    <interface name="Provider" source="packages/cost-monitor/src/types.ts">
+      <description>LLM provider identifier: 'anthropic' | 'openai' | 'openrouter' | 'google' | 'local' | 'claude-code'</description>
+    </interface>
+    <interface name="TaskType" source="packages/cost-monitor/src/types.ts">
+      <description>Task type for categorization: 'analysis' | 'planning' | 'implementation' | 'review' | 'testing' | 'documentation' | 'research'</description>
+    </interface>
+    <interface name="ILogger" source="packages/shared/src/contracts/index.ts">
+      <description>Logging interface with info(), warn(), error(), debug() methods and optional child() factory</description>
+    </interface>
+    <interface name="ToolResult" source="packages/mcp-client/src/types.ts">
+      <description>Tool invocation result: { success: boolean; content: ToolResultContent[]; error?: string; metadata?: { latencyMs, serverName, toolName } }</description>
+    </interface>
+    <interface name="ToolInvocationOptions" source="packages/mcp-client/src/types.ts">
+      <description>Tool invocation options: timeout?, signal?: AbortSignal</description>
+    </interface>
+    <interface name="IMCPClient" source="packages/mcp-client/src/types.ts">
+      <description>MCP client interface with invokeTool(), listTools(), readResource(), on(), dispose()</description>
+    </interface>
+    <interface name="IDiagnosticsQueue" source="packages/shared/src/telemetry/diagnostics-queue.ts">
+      <description>Queue interface with emit(), setProcessor(), dispose(), getDroppedCount() (F18)</description>
+    </interface>
+    <interface name="DiagnosticsQueueLogger" source="packages/shared/src/telemetry/diagnostics-queue.ts">
+      <description>Logger interface for queue: warn(msg, context?), debug?(msg, context?) (F02)</description>
+    </interface>
+    <interface name="IContentSanitizer" source="packages/shared (Story 9-7)">
+      <description>Content sanitizer with sanitize(content: string): { result: string; warnings: string[] } (F10)</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/shared/src/telemetry/diagnostics-queue.test.ts">Unit tests for DiagnosticsQueue class</location>
+      <location path="packages/shared/src/telemetry/diagnostics-processor.test.ts">Unit tests for createDiagnosticsProcessor factory</location>
+      <location path="packages/mcp-client/src/interceptors.test.ts">Unit tests for ToolInterceptorChain and built-in interceptor factories</location>
+    </locations>
+    <ideas>
+      <idea>Test emit() returns synchronously and does not trigger drain immediately</idea>
+      <idea>Test queue drains on interval (use fake timers)</idea>
+      <idea>Test drainPromise guard: call dispose() while timer drain is in-flight, verify no concurrent execution</idea>
+      <idea>Test processor throwing does not lose subsequent events</idea>
+      <idea>Test queue drops oldest when maxQueueSize is exceeded</idea>
+      <idea>Test dispose() stops timer and flushes all remaining events</idea>
+      <idea>Test timer uses .unref() by checking the return value of setInterval</idea>
+      <idea>Test createDiagnosticsProcessor maps tool:complete event to UsageRecordInput with correct field mapping</idea>
+      <idea>Test createDiagnosticsProcessor maps provider:complete event to UsageRecordInput</idea>
+      <idea>Test createDiagnosticsProcessor skips tool:invoke and provider:call events (non-completion)</idea>
+      <idea>Test createDiagnosticsProcessor handles missing optional fields with defaults (tokens=0, model='unknown')</idea>
+      <idea>Test pre-interceptor receives args, returns modified args</idea>
+      <idea>Test post-interceptor receives result, returns modified result</idea>
+      <idea>Test multiple pre-interceptors run in order, each receiving output of previous</idea>
+      <idea>Test multiple post-interceptors run in order, each receiving output of previous</idea>
+      <idea>Test empty ToolInterceptorChain.runPre() returns original args with no warnings</idea>
+      <idea>Test empty ToolInterceptorChain.runPost() returns original result with no warnings</idea>
+      <idea>Test createSanitizationInterceptor sanitizes text content in ToolResult</idea>
+      <idea>Test createUrlValidationInterceptor adds warning for blocked URLs</idea>
+      <idea>Test invokeTool with interceptor chain calls runPre before execution</idea>
+      <idea>Test invokeTool with interceptor chain calls runPost after execution</idea>
+      <idea>Test invokeTool without interceptor chain works unchanged (backward compat)</idea>
+      <idea>Test bridge: mcpClient tool:invoked event maps to diagnosticsQueue tool:invoke event</idea>
+      <idea>Test bridge: mcpClient tool:completed event with success=true maps to diagnosticsQueue tool:complete</idea>
+      <idea>Test bridge: mcpClient tool:completed event with success=false maps to diagnosticsQueue tool:error</idea>
+      <idea>Test getDroppedCount() returns correct count after queue overflow (F02)</idea>
+      <idea>Test drain() logs structured warning on processor failure via DiagnosticsQueueLogger (F05)</idea>
+      <idea>Test dispose() re-drains until queue is empty (F12)</idea>
+      <idea>Test events delivered in FIFO order within batch (F17)</idea>
+      <idea>Test interceptor error is caught and chain continues with unmodified args (F09)</idea>
+      <idea>Test prototype pollution keys are stripped from interceptor output (F16)</idea>
+      <idea>Test invokeTool logs pre/post interceptor warnings (F14)</idea>
+      <idea>Test bridge wiring includes correlationId in both start and end events (F15)</idea>
+      <idea>Test bridge wiring truncates args exceeding MAX_DIAGNOSTICS_ARG_SIZE (F06)</idea>
+      <idea>Test bridge wiring redacts sensitive keys from args (F07)</idea>
+      <idea>Test bridge wiring sanitizes errorMessage (F07)</idea>
+      <idea>Test createDiagnosticsProcessor uses mapProviderName/mapTaskType instead of unsafe casts (F08)</idea>
+    </ideas>
+  </tests>
+</story-context>

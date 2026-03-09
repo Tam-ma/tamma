@@ -1,0 +1,236 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>2</storyId>
+    <title>Provider Diagnostics</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-2/9-2-provider-diagnostics.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator</asA>
+    <iWant>every provider call instrumented to emit usage diagnostics to a shared async queue that drains to the cost-monitor</iWant>
+    <soThat>I can track per-provider and per-model costs, tokens, latency, errors, and success rates through the existing ICostTracker.generateReport() pipeline</soThat>
+    <tasks>
+      <task id="1" title="Create DiagnosticsEvent type and DiagnosticsQueue in shared telemetry package">
+        - [ ] Create packages/shared/src/telemetry/diagnostics-event.ts with DiagnosticsEventBase, ToolDiagnosticsEvent, ProviderDiagnosticsEvent discriminated union, DiagnosticsEventType, DiagnosticsErrorCode
+        - [ ] Create packages/shared/src/telemetry/sanitize-error.ts with sanitizeErrorMessage() utility (truncate 500 chars, strip API key patterns)
+        - [ ] Create packages/shared/src/telemetry/validate-diagnostics.ts with validateCostUsd(), validateTokenCount(), validateErrorCode()
+        - [ ] Create packages/shared/src/telemetry/diagnostics-queue.ts with DiagnosticsEventProcessor and DiagnosticsQueue class (drainPromise guard, setProcessor guard, droppedCount)
+        - [ ] Create packages/shared/src/telemetry/index.ts barrel export
+        - [ ] Add telemetry subpath export to packages/shared/package.json
+        - [ ] Update packages/shared/src/index.ts to re-export telemetry barrel
+        - [ ] Write unit tests for DiagnosticsQueue (emit, drain, dispose, overflow, unref timer, drainPromise guard, setProcessor warning, droppedCount, structured error logging)
+        - [ ] Write unit tests for sanitizeErrorMessage()
+        - [ ] Write unit tests for value validation utilities
+      </task>
+      <task id="2" title="Create InstrumentedAgentProvider decorator">
+        - [ ] Create packages/providers/src/instrumented-agent-provider.ts implementing IAgentProvider
+        - [ ] Emit provider:call on entry, provider:complete on success, provider:error on failure
+        - [ ] Capture latencyMs, success, costUsd, errorCode (typed as DiagnosticsErrorCode), errorMessage (sanitized), agentType, projectId, engineId, taskId, taskType
+        - [ ] Use sanitizeErrorMessage() for all errorMessage assignments
+        - [ ] Add updateContext() method for mutable taskId/taskType between calls
+        - [ ] Delegate isAvailable() and dispose() to inner provider
+        - [ ] Access result.tokens for token tracking (note: requires AgentTaskResult token field)
+        - [ ] Write unit tests with mock inner provider and mock DiagnosticsQueue
+      </task>
+      <task id="3" title="Create InstrumentedLLMProvider decorator implementing full IAIProvider">
+        - [ ] Create packages/providers/src/instrumented-llm-provider.ts implementing full IAIProvider interface
+        - [ ] Implement initialize(), sendMessage() (streaming), sendMessageSync(), getCapabilities(), getModels(), dispose()
+        - [ ] Instrument sendMessageSync() with provider:call/complete/error events
+        - [ ] Instrument sendMessage() streaming: wrap AsyncIterable to track tokens incrementally and emit events on completion
+        - [ ] Extract tokens from response.usage (inputTokens, outputTokens)
+        - [ ] Add projectId and engineId to constructor context (matching InstrumentedAgentProvider)
+        - [ ] Use sanitizeErrorMessage() for all errorMessage assignments
+        - [ ] Do NOT expose isAvailable() -- IAIProvider does not define it
+        - [ ] Add security boundary comments noting prompt content access
+        - [ ] Write unit tests verifying full IAIProvider implementation, streaming instrumentation, no isAvailable() method
+      </task>
+      <task id="4" title="Update cost-monitor types and create provider name mapping">
+        - [ ] Add 'opencode' | 'z-ai' | 'zen-mcp' to Provider type union in packages/cost-monitor/src/types.ts
+        - [ ] Replace local AgentType definition with import from @tamma/shared
+        - [ ] Re-export AgentType for backward compatibility
+        - [ ] Create packages/providers/src/provider-name-mapping.ts with mapProviderName() safe validation function
+        - [ ] Verify all existing references to Provider and AgentType still compile
+      </task>
+      <task id="5" title="Create diagnostics processor for cost tracking">
+        - [ ] Create packages/providers/src/diagnostics-processor.ts
+        - [ ] Map DiagnosticsEvent fields to UsageRecordInput fields
+        - [ ] Use mapProviderName() instead of unsafe `as Provider` cast
+        - [ ] Use sanitizeErrorMessage() for error messages
+        - [ ] Apply value validation (costUsd >= 0, tokens in range, errorCode max 100 chars)
+        - [ ] Call costTracker.recordUsage() for each provider:complete and provider:error event
+        - [ ] Use structured error logging instead of silent swallow: logger?.warn() for processor errors
+        - [ ] Write unit tests verifying correct UsageRecordInput mapping, mapProviderName usage, error resilience, value validation
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">DiagnosticsQueue.emit() is synchronous -- executeTask/sendMessageSync returns before the queue drains</criterion>
+    <criterion id="2">InstrumentedAgentProvider emits provider:call, provider:complete, and provider:error DiagnosticsEvents with correct fields (providerName, model, agentType typed as AgentType, projectId, engineId, taskId, taskType, latencyMs, success, costUsd, errorCode typed as DiagnosticsErrorCode)</criterion>
+    <criterion id="3">InstrumentedLLMProvider implements full IAIProvider interface: initialize(), sendMessage() (streaming), sendMessageSync(), getCapabilities(), getModels(), dispose()</criterion>
+    <criterion id="4">InstrumentedLLMProvider sendMessage() wraps AsyncIterable to track tokens incrementally and emit provider:complete on stream end, provider:error on stream failure</criterion>
+    <criterion id="5">InstrumentedLLMProvider does NOT expose isAvailable() (IAIProvider does not define it)</criterion>
+    <criterion id="6">DiagnosticsProcessor maps DiagnosticsEvent to UsageRecordInput using mapProviderName() (not unsafe cast) and calls costTracker.recordUsage()</criterion>
+    <criterion id="7">Processor failure uses structured error logging (logger?.warn) instead of silent swallow, and does NOT affect queued events or provider call flow</criterion>
+    <criterion id="8">Provider type in cost-monitor includes 'opencode', 'z-ai', 'zen-mcp'</criterion>
+    <criterion id="9">AgentType in cost-monitor is imported from @tamma/shared, not redefined locally</criterion>
+    <criterion id="10">Queue overflow drops oldest event (shift) when maxQueueSize is reached and increments droppedCount</criterion>
+    <criterion id="11">Queue drain timer is unref'd so it does not prevent process exit</criterion>
+    <criterion id="12">DiagnosticsEvent is defined in diagnostics-event.ts (not inline in diagnostics-queue.ts) with discriminated union: ToolDiagnosticsEvent and ProviderDiagnosticsEvent</criterion>
+    <criterion id="13">Context fields (agentType, projectId, engineId, taskId, taskType) are required on DiagnosticsEvent, not optional</criterion>
+    <criterion id="14">setProcessor() logs warning via optional logger if processor already set (does not silently replace)</criterion>
+    <criterion id="15">drainPromise guard prevents concurrent drain from timer + dispose() racing</criterion>
+    <criterion id="16">errorMessage is sanitized via sanitizeErrorMessage() (truncate 500 chars, strip API key patterns)</criterion>
+    <criterion id="17">errorCode is typed as DiagnosticsErrorCode union, not plain string</criterion>
+    <criterion id="18">InstrumentedAgentProvider supports per-call taskId/taskType via updateContext() method</criterion>
+    <criterion id="19">InstrumentedLLMProvider context includes projectId and engineId (matching InstrumentedAgentProvider)</criterion>
+    <criterion id="20">Value validation: costUsd >= 0, token counts in [0, 10_000_000], errorCode truncated to 100 chars</criterion>
+    <criterion id="21">getDroppedCount() exposes number of events dropped due to overflow</criterion>
+    <criterion id="22">InstrumentedLLMProvider has security boundary comments noting it must NOT log or store prompt text</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-2/9-2-provider-diagnostics.md" title="Story 9-2: Provider Diagnostics Collector" section="Design" snippet="DiagnosticsEvent is defined in its own file diagnostics-event.ts with discriminated union pattern. Context fields agentType, projectId, engineId, taskId, taskType are required." />
+      <doc path="docs/stories/epic-9/story-9-11/9-11-diagnostics-queue-mcp-interceptors.md" title="Story 9-11: Diagnostics Queue canonical design" section="Design Part A" snippet="DiagnosticsQueue with drainPromise guard, DiagnosticsEvent in separate file, required context fields." />
+      <doc path="docs/architecture.md" title="Technical Architecture" section="Event Sourcing (DCB Pattern)" snippet="All system actions are captured as immutable events; every operation must emit events for audit trail." />
+    </docs>
+    <code>
+      <ref path="packages/providers/src/agent-types.ts" title="IAgentProvider interface" snippet="IAgentProvider { executeTask(config, onProgress?): Promise&lt;AgentTaskResult&gt;; isAvailable(): Promise&lt;boolean&gt;; dispose(): Promise&lt;void&gt;; }" />
+      <ref path="packages/providers/src/types.ts" title="IAIProvider interface" snippet="IAIProvider { initialize(config): Promise&lt;void&gt;; sendMessage(request, options?): Promise&lt;AsyncIterable&lt;MessageChunk&gt;&gt;; sendMessageSync(request): Promise&lt;MessageResponse&gt;; getCapabilities(): ProviderCapabilities; getModels(): Promise&lt;ModelInfo[]&gt;; dispose(): Promise&lt;void&gt;; }" />
+      <ref path="packages/cost-monitor/src/types.ts" title="UsageRecordInput and ICostTracker" snippet="UsageRecordInput = Omit&lt;UsageRecord, 'id' | 'timestamp' | 'inputCostUsd' | 'outputCostUsd' | 'totalCostUsd'&gt;; ICostTracker { recordUsage(usage: UsageRecordInput): Promise&lt;UsageRecord&gt;; generateReport(options): Promise&lt;CostReport&gt;; }" />
+      <ref path="packages/shared/src/types/knowledge.ts" title="AgentType definition" snippet="AgentType = 'scrum_master' | 'architect' | 'researcher' | 'analyst' | 'planner' | 'implementer' | 'reviewer' | 'tester' | 'documenter'" />
+      <ref path="packages/shared/src/types/index.ts" title="AgentTaskResult" snippet="AgentTaskResult { success: boolean; output: string; costUsd: number; durationMs: number; error?: string; tokens?: { input: number; output: number }; }" />
+      <ref path="packages/shared/src/index.ts" title="Shared package barrel" snippet="export * from './types/index.js'; export * from './utils/index.js'; export * from './contracts/index.js'; export * from './errors.js';" />
+    </code>
+    <dependencies>
+      <dep package="@tamma/shared" version="workspace:*" reason="DiagnosticsQueue, DiagnosticsEvent, sanitizeErrorMessage, validateDiagnostics live here; AgentType imported from here" />
+      <dep package="@tamma/cost-monitor" version="workspace:*" reason="UsageRecordInput and ICostTracker for diagnostics processor; Provider type for mapProviderName" />
+      <dep package="@tamma/providers" version="workspace:*" reason="IAgentProvider and IAIProvider interfaces wrapped by decorators; mapProviderName utility" />
+      <dep package="vitest" version="^3.0.6" reason="Test framework" />
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="performance" description="DiagnosticsQueue.emit() must be synchronous with zero async overhead in the hot path" source="Story 9-2 Design" />
+    <constraint type="architecture" description="DiagnosticsEvent is defined in diagnostics-event.ts as a discriminated union (ToolDiagnosticsEvent | ProviderDiagnosticsEvent), not inline in diagnostics-queue.ts" source="Story 9-11 alignment" />
+    <constraint type="architecture" description="DiagnosticsQueue lives in packages/shared/src/telemetry/, NOT in mcp-client ToolHookRegistry" source="Story 9-2 Design" />
+    <constraint type="interface" description="InstrumentedLLMProvider must implement full IAIProvider interface: initialize(), sendMessage(), sendMessageSync(), getCapabilities(), getModels(), dispose()" source="Finding #2" />
+    <constraint type="interface" description="InstrumentedLLMProvider must NOT expose isAvailable() because IAIProvider does not define it" source="Story 9-2 Design" />
+    <constraint type="reliability" description="Processor failures must use structured error logging (logger?.warn) instead of silent swallow, and must not affect the queue or provider call flow" source="Finding #9" />
+    <constraint type="typing" description="agentType field must be typed as AgentType from @tamma/shared, not string" source="Story 9-2 Design" />
+    <constraint type="typing" description="errorCode must be typed as DiagnosticsErrorCode union, not plain string" source="Finding #15" />
+    <constraint type="typing" description="Context fields (agentType, projectId, engineId, taskId, taskType) are required on DiagnosticsEvent, not optional" source="Story 9-11 alignment" />
+    <constraint type="compatibility" description="cost-monitor AgentType must be re-exported after importing from @tamma/shared for backward compatibility" source="Story 9-2 Fixes" />
+    <constraint type="process-lifecycle" description="Queue drain timer must be unref'd so Node.js process can exit cleanly" source="Story 9-2 Design" />
+    <constraint type="concurrency" description="drainPromise guard prevents concurrent drain from timer + dispose() racing" source="Story 9-11 alignment" />
+    <constraint type="security" description="sanitizeErrorMessage() must truncate to 500 chars and strip API key patterns (Bearer, sk-*, key-*) from all errorMessage fields" source="Finding #3" />
+    <constraint type="security" description="InstrumentedLLMProvider has access to prompt content via MessageRequest and must NOT log or store prompt text" source="Finding #16" />
+    <constraint type="safety" description="mapProviderName() validates provider names against known set instead of unsafe 'as Provider' cast" source="Finding #7" />
+    <constraint type="observability" description="setProcessor() must log warning via optional logger if processor already set, not silently replace" source="Finding #4" />
+    <constraint type="validation" description="costUsd >= 0, token counts in [0, 10_000_000], errorCode truncated to 100 chars" source="Finding #13" />
+  </constraints>
+
+  <interfaces>
+    <interface name="DiagnosticsEventBase" kind="interface" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="{ type: DiagnosticsEventType; timestamp: number; agentType: AgentType; projectId: string; engineId: string; taskId: string; taskType: string; latencyMs?: number; success?: boolean; costUsd?: number; errorCode?: DiagnosticsErrorCode; errorMessage?: string; tokens?: { input: number; output: number }; }" />
+    <interface name="ToolDiagnosticsEvent" kind="interface" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="extends DiagnosticsEventBase { type: 'tool:invoke' | 'tool:complete' | 'tool:error'; toolName: string; serverName?: string; args?: Record&lt;string, unknown&gt;; }" />
+    <interface name="ProviderDiagnosticsEvent" kind="interface" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="extends DiagnosticsEventBase { type: 'provider:call' | 'provider:complete' | 'provider:error'; providerName: string; model?: string; }" />
+    <interface name="DiagnosticsEvent" kind="type-alias" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="ToolDiagnosticsEvent | ProviderDiagnosticsEvent" />
+    <interface name="DiagnosticsEventType" kind="type-alias" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="'tool:invoke' | 'tool:complete' | 'tool:error' | 'provider:call' | 'provider:complete' | 'provider:error'" />
+    <interface name="DiagnosticsErrorCode" kind="type-alias" path="packages/shared/src/telemetry/diagnostics-event.ts"
+      signature="'RATE_LIMIT_EXCEEDED' | 'QUOTA_EXCEEDED' | 'TIMEOUT' | 'AUTH_FAILED' | 'NETWORK_ERROR' | 'TASK_FAILED' | 'UNKNOWN'" />
+    <interface name="sanitizeErrorMessage" kind="function" path="packages/shared/src/telemetry/sanitize-error.ts"
+      signature="(message: string): string — truncates to 500 chars, strips API key patterns (Bearer, sk-*, key-*)" />
+    <interface name="DiagnosticsEventProcessor" kind="type-alias" path="packages/shared/src/telemetry/diagnostics-queue.ts"
+      signature="(events: DiagnosticsEvent[]) => Promise&lt;void&gt;" />
+    <interface name="DiagnosticsQueueLogger" kind="interface" path="packages/shared/src/telemetry/diagnostics-queue.ts"
+      signature="{ warn(message: string, context?: Record&lt;string, unknown&gt;): void; }" />
+    <interface name="DiagnosticsQueue" kind="class" path="packages/shared/src/telemetry/diagnostics-queue.ts"
+      signature="{ constructor(options?: { drainIntervalMs?: number; maxQueueSize?: number }, logger?: DiagnosticsQueueLogger); setProcessor(processor: DiagnosticsEventProcessor): void; emit(event: DiagnosticsEvent): void; getDroppedCount(): number; dispose(): Promise&lt;void&gt;; }" />
+    <interface name="InstrumentedAgentContext" kind="interface" path="packages/providers/src/instrumented-agent-provider.ts"
+      signature="{ providerName: string; model: string; agentType: AgentType; projectId: string; engineId: string; taskId: string; taskType: string; }" />
+    <interface name="InstrumentedAgentProvider" kind="class" path="packages/providers/src/instrumented-agent-provider.ts"
+      signature="implements IAgentProvider { constructor(inner: IAgentProvider, diagnostics: DiagnosticsQueue, context: InstrumentedAgentContext); updateContext(updates: Partial&lt;Pick&lt;InstrumentedAgentContext, 'taskId' | 'taskType'&gt;&gt;): void; executeTask(config, onProgress?): Promise&lt;AgentTaskResult&gt;; isAvailable(): Promise&lt;boolean&gt;; dispose(): Promise&lt;void&gt;; }" />
+    <interface name="InstrumentedLLMContext" kind="interface" path="packages/providers/src/instrumented-llm-provider.ts"
+      signature="{ providerName: string; model: string; agentType: AgentType; projectId: string; engineId: string; taskId: string; taskType: string; }" />
+    <interface name="InstrumentedLLMProvider" kind="class" path="packages/providers/src/instrumented-llm-provider.ts"
+      signature="implements IAIProvider { constructor(inner: IAIProvider, diagnostics: DiagnosticsQueue, context: InstrumentedLLMContext); initialize(config): Promise&lt;void&gt;; sendMessage(request, options?): Promise&lt;AsyncIterable&lt;MessageChunk&gt;&gt;; sendMessageSync(request): Promise&lt;MessageResponse&gt;; getCapabilities(): ProviderCapabilities; getModels(): Promise&lt;ModelInfo[]&gt;; dispose(): Promise&lt;void&gt;; }" />
+    <interface name="mapProviderName" kind="function" path="packages/providers/src/provider-name-mapping.ts"
+      signature="(name: string | undefined): Provider — validates against known providers set, defaults to 'claude-code'" />
+    <interface name="IAgentProvider" kind="interface" path="packages/providers/src/agent-types.ts"
+      signature="{ executeTask(config: AgentTaskConfig, onProgress?: AgentProgressCallback): Promise&lt;AgentTaskResult&gt;; isAvailable(): Promise&lt;boolean&gt;; dispose(): Promise&lt;void&gt;; }" />
+    <interface name="IAIProvider" kind="interface" path="packages/providers/src/types.ts"
+      signature="{ initialize(config): Promise&lt;void&gt;; sendMessage(request, options?): Promise&lt;AsyncIterable&lt;MessageChunk&gt;&gt;; sendMessageSync(request): Promise&lt;MessageResponse&gt;; getCapabilities(): ProviderCapabilities; getModels(): Promise&lt;ModelInfo[]&gt;; dispose(): Promise&lt;void&gt;; }" />
+    <interface name="UsageRecordInput" kind="type-alias" path="packages/cost-monitor/src/types.ts"
+      signature="Omit&lt;UsageRecord, 'id' | 'timestamp' | 'inputCostUsd' | 'outputCostUsd' | 'totalCostUsd'&gt;" />
+    <interface name="ICostTracker" kind="interface" path="packages/cost-monitor/src/types.ts"
+      signature="{ recordUsage(usage: UsageRecordInput): Promise&lt;UsageRecord&gt;; generateReport(options: ReportOptions): Promise&lt;CostReport&gt;; ... }" />
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x test framework</standard>
+      <standard>Unit test coverage: 80% line, 75% branch, 85% function minimum</standard>
+      <standard>Critical paths (error handling, queue overflow, processor failure, drain concurrency, sanitization): 100% coverage</standard>
+      <standard>Mock external dependencies using vi.fn() and vi.mock()</standard>
+      <standard>Test files colocated with source: *.test.ts</standard>
+      <standard>TypeScript strict mode compliance</standard>
+    </standards>
+    <locations>
+      <location pattern="packages/shared/src/telemetry/diagnostics-queue.test.ts" purpose="DiagnosticsQueue unit tests" />
+      <location pattern="packages/shared/src/telemetry/diagnostics-event.test.ts" purpose="DiagnosticsEvent discriminated union tests" />
+      <location pattern="packages/shared/src/telemetry/sanitize-error.test.ts" purpose="sanitizeErrorMessage unit tests" />
+      <location pattern="packages/shared/src/telemetry/validate-diagnostics.test.ts" purpose="Value validation utility tests" />
+      <location pattern="packages/providers/src/instrumented-agent-provider.test.ts" purpose="InstrumentedAgentProvider unit tests" />
+      <location pattern="packages/providers/src/instrumented-llm-provider.test.ts" purpose="InstrumentedLLMProvider unit tests (full IAIProvider)" />
+      <location pattern="packages/providers/src/provider-name-mapping.test.ts" purpose="mapProviderName unit tests" />
+      <location pattern="packages/providers/src/diagnostics-processor.test.ts" purpose="DiagnosticsProcessor unit tests" />
+    </locations>
+    <ideas>
+      <test idea="DiagnosticsQueue emit is synchronous" acceptanceCriteria="1" description="Verify that emit() returns immediately without awaiting; executeTask returns before queue drains" />
+      <test idea="DiagnosticsQueue overflow drops oldest and increments droppedCount" acceptanceCriteria="10,21" description="Push maxQueueSize+1 events, verify first event is dropped, last event is present, and getDroppedCount() returns 1" />
+      <test idea="DiagnosticsQueue drain timer is unref'd" acceptanceCriteria="11" description="Verify drainTimer.unref() is called after setInterval" />
+      <test idea="DiagnosticsQueue dispose flushes remaining events" acceptanceCriteria="7" description="Push events, call dispose(), verify processor receives remaining batch" />
+      <test idea="DiagnosticsQueue drainPromise prevents concurrent drain" acceptanceCriteria="15" description="Trigger drain while another drain is in flight; verify only one processor call occurs, second drain waits" />
+      <test idea="DiagnosticsQueue setProcessor warns on replace" acceptanceCriteria="14" description="Call setProcessor twice, verify logger.warn is called on the second call" />
+      <test idea="DiagnosticsQueue drain uses structured error logging" acceptanceCriteria="7" description="Processor throws, verify logger.warn called with error message instead of silent swallow" />
+      <test idea="DiagnosticsEvent discriminated union types" acceptanceCriteria="12" description="Verify ToolDiagnosticsEvent requires toolName, ProviderDiagnosticsEvent requires providerName, both share base fields" />
+      <test idea="DiagnosticsEvent context fields are required" acceptanceCriteria="13" description="Verify agentType, projectId, engineId, taskId, taskType are required (not optional) on DiagnosticsEvent" />
+      <test idea="sanitizeErrorMessage truncates to 500 chars" acceptanceCriteria="16" description="Pass 600-char message, verify output is 500 chars + '...'" />
+      <test idea="sanitizeErrorMessage strips Bearer tokens" acceptanceCriteria="16" description="Pass message with 'Bearer abc123...', verify token is replaced with [REDACTED]" />
+      <test idea="sanitizeErrorMessage strips sk-* keys" acceptanceCriteria="16" description="Pass message with 'sk-abcdef1234567890abcdef', verify key is replaced with [REDACTED]" />
+      <test idea="InstrumentedAgentProvider emits provider:call on entry" acceptanceCriteria="2" description="Call executeTask, verify diagnostics.emit called with type provider:call including projectId, engineId, taskId, taskType before inner.executeTask resolves" />
+      <test idea="InstrumentedAgentProvider emits provider:complete on success" acceptanceCriteria="2" description="Mock inner returning success, verify provider:complete event with latencyMs, success=true, costUsd, tokens" />
+      <test idea="InstrumentedAgentProvider emits provider:error on failure" acceptanceCriteria="2" description="Mock inner throwing, verify provider:error event with typed DiagnosticsErrorCode, sanitized errorMessage, success=false" />
+      <test idea="InstrumentedAgentProvider updateContext changes taskId/taskType" acceptanceCriteria="18" description="Call updateContext({taskId: 'new'}), then executeTask, verify new taskId in emitted events" />
+      <test idea="InstrumentedAgentProvider delegates isAvailable" acceptanceCriteria="2" description="Call isAvailable(), verify inner.isAvailable() is called" />
+      <test idea="InstrumentedLLMProvider implements full IAIProvider" acceptanceCriteria="3" description="Verify class has initialize(), sendMessage(), sendMessageSync(), getCapabilities(), getModels(), dispose()" />
+      <test idea="InstrumentedLLMProvider sendMessage wraps stream" acceptanceCriteria="4" description="Mock streaming sendMessage, consume stream, verify provider:complete emitted on stream end with accumulated tokens" />
+      <test idea="InstrumentedLLMProvider sendMessage emits error on stream failure" acceptanceCriteria="4" description="Mock streaming sendMessage, throw during iteration, verify provider:error emitted with sanitized errorMessage" />
+      <test idea="InstrumentedLLMProvider has no isAvailable method" acceptanceCriteria="5" description="Verify typeof instance.isAvailable === 'undefined' at runtime; TypeScript compile check" />
+      <test idea="InstrumentedLLMProvider context includes projectId and engineId" acceptanceCriteria="19" description="Verify constructor context requires projectId and engineId, and they appear in emitted events" />
+      <test idea="InstrumentedLLMProvider security: no prompt logging" acceptanceCriteria="22" description="Verify sendMessage and sendMessageSync do not include request content in emitted events" />
+      <test idea="InstrumentedLLMProvider emits events with token counts" acceptanceCriteria="3" description="Mock sendMessageSync returning response with usage, verify tokens.input and tokens.output in complete event" />
+      <test idea="InstrumentedLLMProvider emits provider:error on sendMessageSync failure" acceptanceCriteria="3" description="Mock inner.sendMessageSync throwing, verify provider:error event with sanitized errorMessage" />
+      <test idea="mapProviderName validates known providers" acceptanceCriteria="6" description="Verify mapProviderName('anthropic') returns 'anthropic', mapProviderName('unknown-xyz') returns 'claude-code'" />
+      <test idea="DiagnosticsProcessor maps event to UsageRecordInput" acceptanceCriteria="6" description="Feed provider:complete event to processor, verify costTracker.recordUsage called with correct UsageRecordInput using mapProviderName" />
+      <test idea="DiagnosticsProcessor uses structured error logging" acceptanceCriteria="7" description="Mock costTracker.recordUsage throwing, verify logger.warn called and processing continues" />
+      <test idea="Provider type includes new providers" acceptanceCriteria="8" description="Verify Provider type accepts 'opencode', 'z-ai', 'zen-mcp' without TypeScript errors" />
+      <test idea="AgentType imported from shared" acceptanceCriteria="9" description="Verify cost-monitor AgentType is the same type as @tamma/shared AgentType" />
+      <test idea="Value validation: costUsd clamped to non-negative" acceptanceCriteria="20" description="validateCostUsd(-1) returns 0, validateCostUsd(5) returns 5" />
+      <test idea="Value validation: token count clamped to range" acceptanceCriteria="20" description="validateTokenCount(-1) returns 0, validateTokenCount(20_000_000) returns 10_000_000" />
+      <test idea="Value validation: errorCode truncated" acceptanceCriteria="20" description="validateErrorCode with 200-char string returns 100-char string" />
+      <test idea="DiagnosticsErrorCode type safety" acceptanceCriteria="17" description="Verify DiagnosticsErrorCode accepts 'RATE_LIMIT_EXCEEDED' etc. but not arbitrary strings" />
+    </ideas>
+  </tests>
+</story-context>

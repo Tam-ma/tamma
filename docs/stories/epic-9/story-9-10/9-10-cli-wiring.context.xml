@@ -1,0 +1,220 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-10</storyId>
+    <title>CLI Wiring</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-10/9-10-cli-wiring.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>the CLI commands (start.tsx and server.ts) to use config-driven multi-agent resolution instead of a hardcoded ClaudeAgentProvider, with proper diagnostics queue lifecycle and cost tracking</iWant>
+    <soThat>the CLI honors the agents config, tracks costs to disk, and flushes telemetry before shutdown without data loss</soThat>
+    <tasks>
+      <task id="1" title="Wire config-driven agent setup in start.tsx (replace hardcoded agent)">
+        - [ ] Replace `import { ClaudeAgentProvider } from '@tamma/providers'` with imports for RoleBasedAgentResolver, AgentProviderFactory, ProviderHealthTracker, AgentPromptRegistry
+        - [ ] Import type IRoleBasedAgentResolver from '@tamma/providers'
+        - [ ] Import normalizeAgentsConfig from '../config.js' (re-exported from @tamma/shared per Story 9-1)
+        - [ ] Import DiagnosticsQueue, createDiagnosticsProcessor from '@tamma/shared'
+        - [ ] Import ContentSanitizer from '@tamma/shared/security'
+        - [ ] Import createCostTracker, FileStore from '@tamma/cost-monitor'
+        - [ ] Replace `const agent = new ClaudeAgentProvider()` with config-driven setup
+        - [ ] Build costStorePath using `path.join(config.engine.workingDirectory, '.tamma', 'cost-data.json')`
+        - [ ] Create FileStore with plain string path (NOT object)
+        - [ ] Create DiagnosticsQueue with drainIntervalMs: 5000, maxQueueSize: 1000
+        - [ ] Wire diagnosticsQueue.setProcessor with createDiagnosticsProcessor(costTracker, logger)
+        - [ ] Create ContentSanitizer conditionally based on config.security?.sanitizeContent
+        - [ ] Log info message when ContentSanitizer is created (default-on)
+        - [ ] Create RoleBasedAgentResolver with options object, typed as IRoleBasedAgentResolver
+        - [ ] Pass agentResolver (typed as IRoleBasedAgentResolver, not agent) to both TammaEngine constructor calls (service mode and interactive mode)
+      </task>
+      <task id="2" title="Wire config-driven agent setup in server.ts">
+        - [ ] Replace `import { ClaudeAgentProvider } from '@tamma/providers'` with multi-agent imports
+        - [ ] Import type IRoleBasedAgentResolver from '@tamma/providers'
+        - [ ] Import normalizeAgentsConfig from '../config.js' (re-exported from @tamma/shared per Story 9-1)
+        - [ ] Import DiagnosticsQueue, createDiagnosticsProcessor from '@tamma/shared'
+        - [ ] Import ContentSanitizer from '@tamma/shared/security'
+        - [ ] Import createCostTracker, FileStore from '@tamma/cost-monitor'
+        - [ ] Replace `const agent = new ClaudeAgentProvider()` with config-driven setup (same pattern as start.tsx)
+        - [ ] Log info message when ContentSanitizer is created (default-on)
+        - [ ] Pass agentResolver (typed as IRoleBasedAgentResolver) to TammaEngine constructor
+        - [ ] Add diagnosticsQueue and costTracker disposal to shutdown handler with try/catch, re-entrancy guard, and timeout
+      </task>
+      <task id="3" title="Fix shutdown lifecycle (diagnosticsQueue + costTracker disposal)">
+        - [ ] Add `await diagnosticsQueue.dispose()` BEFORE `process.exit(0)` in service mode shutdown (start.tsx)
+        - [ ] Add `await costTracker.dispose()` AFTER diagnosticsQueue.dispose() in service mode shutdown
+        - [ ] Add `await diagnosticsQueue.dispose()` BEFORE `process.exit(0)` in interactive mode shutdown (start.tsx)
+        - [ ] Add `await costTracker.dispose()` AFTER diagnosticsQueue.dispose() in interactive mode shutdown
+        - [ ] Add `await diagnosticsQueue.dispose()` BEFORE `await app.close()` in server.ts shutdown
+        - [ ] Add `await costTracker.dispose()` AFTER diagnosticsQueue.dispose() in server.ts shutdown
+        - [ ] Wrap each disposal call in try/catch so a single failure does not prevent subsequent disposals
+        - [ ] Add `shuttingDown` re-entrancy guard to all three shutdown handlers
+        - [ ] Add 10-second unref'd shutdown timeout to all three shutdown handlers
+        - [ ] Ensure dry-run mode disposes diagnosticsQueue and costTracker before exit
+        - [ ] Ensure interactive mode early-exit paths dispose diagnosticsQueue and costTracker
+        - [ ] Verify: process.on('beforeExit') is NOT used (it never fires with process.exit(0))
+      </task>
+      <task id="4" title="Add cost-monitor dependency and ensure normalizeAgentsConfig is exported">
+        - [ ] Add `"@tamma/cost-monitor": "workspace:*"` to packages/cli/package.json dependencies
+        - [ ] Verify normalizeAgentsConfig() is exported from packages/cli/src/config.ts (re-exported from @tamma/shared per Story 9-1)
+        - [ ] Verify Story 9-1's mergeConfig() fix handles config.agents and config.security sections
+        - [ ] Run pnpm install to update lockfile
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">start.tsx no longer imports or instantiates ClaudeAgentProvider directly; uses RoleBasedAgentResolver constructed from normalizeAgentsConfig() output</criterion>
+    <criterion id="2">server.ts no longer imports or instantiates ClaudeAgentProvider directly; uses same config-driven agent setup pattern as start.tsx</criterion>
+    <criterion id="3">TammaEngine receives `agentResolver` (not `agent`) in both start.tsx (service + interactive modes) and server.ts</criterion>
+    <criterion id="4">Cost data saved to `.tamma/cost-data.json` under config.engine.workingDirectory after a run</criterion>
+    <criterion id="5">FileStore constructed with plain string path `costStorePath`, not an object like `{ filePath }`</criterion>
+    <criterion id="6">`diagnosticsQueue.dispose()` called BEFORE `process.exit(0)` in all three shutdown handlers (start.tsx service, start.tsx interactive, server.ts)</criterion>
+    <criterion id="7">`costTracker.dispose()` called AFTER `diagnosticsQueue.dispose()` and BEFORE `process.exit(0)` in all three shutdown handlers</criterion>
+    <criterion id="8">`process.on('beforeExit')` is NOT used anywhere for disposal (it never fires with `process.exit(0)`)</criterion>
+    <criterion id="9">Legacy config with only `agent` field works via `normalizeAgentsConfig()` producing a single-entry provider chain</criterion>
+    <criterion id="10">New config with `agents` field uses role-based resolution with per-role provider chains</criterion>
+    <criterion id="11">`@tamma/cost-monitor` listed as dependency in packages/cli/package.json</criterion>
+    <criterion id="12">Server shutdown order: engineRegistry.disposeAll() -> diagnosticsQueue.dispose() -> costTracker.dispose() -> app.close() -> process.exit(0)</criterion>
+    <criterion id="13">ContentSanitizer created only when `config.security?.sanitizeContent !== false`</criterion>
+    <criterion id="14">Each disposal call in shutdown handlers is wrapped in try/catch so a single failure does not prevent subsequent disposals</criterion>
+    <criterion id="15">Shutdown handlers include a `shuttingDown` re-entrancy guard — second signal causes immediate process.exit(1)</criterion>
+    <criterion id="16">Shutdown handlers set a 10-second unref'd timeout that forces process.exit(1) if disposal hangs</criterion>
+    <criterion id="17">`agentResolver` is typed as `IRoleBasedAgentResolver` (not the concrete class) when passed to TammaEngine</criterion>
+    <criterion id="18">When ContentSanitizer is created, an info-level log message is emitted</criterion>
+    <criterion id="19">Dry-run mode disposes diagnosticsQueue and costTracker before exit</criterion>
+    <criterion id="20">Interactive mode early-exit paths (no candidates, user skips) dispose diagnosticsQueue and costTracker</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-10/9-10-cli-wiring.md">Story specification with exact code snippets for all modifications</doc>
+      <doc path="docs/stories/epic-9/story-9-0/9-0-overview.md">Epic 9 overview with dependency graph showing Story 10 depends on Stories 1, 9, 11a, 11b</doc>
+      <doc path="docs/stories/epic-9/story-9-9/9-9-engine-integration.md">Engine integration story — EngineContext accepts agentResolver instead of agent</doc>
+      <doc path="docs/stories/epic-9/story-9-8/9-8-role-based-agent-resolver.md">RoleBasedAgentResolver API with options-object constructor</doc>
+      <doc path="docs/stories/epic-9/story-9-1/9-1-configuration-schema.md">Configuration schema story — normalizeAgentsConfig(), AgentsConfig types</doc>
+      <doc path="docs/architecture.md">Technical architecture (TammaConfig, event sourcing, naming conventions)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, naming conventions</doc>
+    </docs>
+    <code>
+      <file path="packages/cli/src/commands/start.tsx" action="modify">Replace hardcoded ClaudeAgentProvider with config-driven RoleBasedAgentResolver; fix shutdown to dispose diagnosticsQueue and costTracker before process.exit(0)</file>
+      <file path="packages/cli/src/commands/server.ts" action="modify">Replace hardcoded ClaudeAgentProvider with config-driven RoleBasedAgentResolver; add diagnosticsQueue and costTracker disposal to shutdown</file>
+      <file path="packages/cli/src/config.ts" action="modify">Ensure normalizeAgentsConfig() is exported (may already be from Story 9-1)</file>
+      <file path="packages/cli/package.json" action="modify">Add @tamma/cost-monitor workspace dependency</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/providers" type="internal">RoleBasedAgentResolver, IRoleBasedAgentResolver, AgentProviderFactory, ProviderHealthTracker, AgentPromptRegistry</dependency>
+      <dependency name="@tamma/shared" type="internal">DiagnosticsQueue, createDiagnosticsProcessor, ContentSanitizer</dependency>
+      <dependency name="@tamma/cost-monitor" type="internal">createCostTracker, FileStore, CostTracker</dependency>
+      <dependency name="@tamma/orchestrator" type="internal">TammaEngine (EngineContext now accepts agentResolver)</dependency>
+      <dependency name="@tamma/platforms" type="internal">GitHubPlatform (unchanged)</dependency>
+      <dependency name="@tamma/observability" type="internal">createLogger (unchanged)</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="backward-compatibility">Legacy config with only `agent` field must continue to work; `normalizeAgentsConfig()` bridges it to AgentsConfig</constraint>
+    <constraint type="constructor-api">FileStore constructor takes a plain string (filePath: string), NOT an object — see file-store.ts line 39</constraint>
+    <constraint type="shutdown-lifecycle">process.on('beforeExit') NEVER fires when shutdown() calls process.exit(0); disposal must happen inside shutdown() before process.exit(0)</constraint>
+    <constraint type="variable-scope">`cwd` does not exist in start.tsx scope; use `config.engine.workingDirectory` instead</constraint>
+    <constraint type="class-naming">The diagnostics queue class is `DiagnosticsQueue` from `@tamma/shared`, NOT `ToolHookRegistry` from mcp-client</constraint>
+    <constraint type="prompt-registry-naming">The prompt registry class is `AgentPromptRegistry` (NOT `PromptRegistry`) to avoid collision with MCP PromptRegistry in packages/mcp-client</constraint>
+    <constraint type="resolver-constructor">RoleBasedAgentResolver uses options-object constructor (RoleBasedAgentResolverOptions), not positional parameters</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode</constraint>
+    <constraint type="imports">Use .js extensions in import paths for ESM compatibility</constraint>
+    <constraint type="security">No API keys or secrets in default config values or test fixtures</constraint>
+    <constraint type="disposal-order">Disposal order: engine.dispose() -> diagnosticsQueue.dispose() -> costTracker.dispose() -> process.exit(0)</constraint>
+    <constraint type="error-handling">Each disposal call in shutdown must be wrapped in try/catch so a single failure does not prevent subsequent disposals or process exit</constraint>
+    <constraint type="re-entrancy">Shutdown handlers must use a `shuttingDown` guard — second signal causes immediate process.exit(1)</constraint>
+    <constraint type="shutdown-timeout">Shutdown must set a 10-second timeout (unref'd) that forces process.exit(1) if disposal hangs</constraint>
+    <constraint type="dip">The CLI creates a concrete RoleBasedAgentResolver but passes it to the engine typed as IRoleBasedAgentResolver per Story 9-9's DIP requirement</constraint>
+    <constraint type="mergeConfig-dependency">Story 9-1's mergeConfig() fix must be implemented before or alongside Story 9-10, otherwise config.agents and config.security will be silently dropped during config loading</constraint>
+    <constraint type="sanitizer-logging">When ContentSanitizer is created (default-on), log an info message: 'Content sanitization enabled (default-on; set security.sanitizeContent=false to disable)'</constraint>
+    <constraint type="dry-run-disposal">Dry-run mode must dispose diagnosticsQueue and costTracker before exit</constraint>
+    <constraint type="early-exit-disposal">Interactive mode early-exit paths (no candidates, user skips) must dispose diagnosticsQueue and costTracker</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="RoleBasedAgentResolver" source="packages/providers/src/role-based-agent-resolver.ts">
+      <description>Resolves workflow phase to agent role to provider chain. Constructor takes RoleBasedAgentResolverOptions object with config, factory, health, promptRegistry, diagnostics, costTracker?, sanitizer?, logger?</description>
+    </interface>
+    <interface name="RoleBasedAgentResolverOptions" source="packages/providers/src/role-based-agent-resolver.ts">
+      <description>Options object: { config: AgentsConfig, factory: IAgentProviderFactory, health: IProviderHealthTracker, promptRegistry: IAgentPromptRegistry, diagnostics: DiagnosticsQueue, costTracker?: ICostTracker, sanitizer?: IContentSanitizer, logger?: ILogger }</description>
+    </interface>
+    <interface name="IRoleBasedAgentResolver" source="packages/providers/src/role-based-agent-resolver.types.ts">
+      <description>Interface for RoleBasedAgentResolver. The CLI creates a concrete RoleBasedAgentResolver but passes it to the engine typed as IRoleBasedAgentResolver per Story 9-9's DIP requirement.</description>
+    </interface>
+    <interface name="AgentProviderFactory" source="packages/providers/src/agent-provider-factory.ts">
+      <description>Creates IAgentProvider by name string. Has register() and create() methods. Pre-registers claude-code, opencode, openrouter, zen-mcp</description>
+    </interface>
+    <interface name="ProviderHealthTracker" source="packages/providers/src/provider-health.ts">
+      <description>Tracks provider health status (success/failure counts, circuit breaker state). Used by ProviderChain for failover decisions</description>
+    </interface>
+    <interface name="AgentPromptRegistry" source="packages/providers/src/agent-prompt-registry.ts">
+      <description>Resolves prompt templates with fallback: per-provider-per-role -> per-role -> per-provider-default -> global default -> built-in. Has render(role, providerName, vars) method</description>
+    </interface>
+    <interface name="DiagnosticsQueue" source="packages/shared/src/telemetry/diagnostics-queue.ts">
+      <description>Async event queue for telemetry. Constructor takes { drainIntervalMs, maxQueueSize }. Has setProcessor(), emit(), dispose() methods</description>
+    </interface>
+    <interface name="createDiagnosticsProcessor" source="packages/shared/src/telemetry/diagnostics-processor.ts">
+      <description>Factory function: createDiagnosticsProcessor(costTracker, logger) -> DiagnosticsEventProcessor. Maps DiagnosticsEvent to costTracker.recordUsage()</description>
+    </interface>
+    <interface name="ContentSanitizer" source="packages/shared/src/security/content-sanitizer.ts">
+      <description>Sanitizes content for security (strips secrets, validates URLs). No-arg constructor</description>
+    </interface>
+    <interface name="FileStore" source="packages/cost-monitor/src/storage/file-store.ts">
+      <description>File-based ICostStorage. Constructor: new FileStore(filePath: string, autoFlushIntervalMs?: number). Has flush(), load(), dispose() methods</description>
+    </interface>
+    <interface name="createCostTracker" source="packages/cost-monitor/src/cost-tracker.ts">
+      <description>Factory: createCostTracker(options?: CostTrackerOptions) -> CostTracker. Options has storage?: ICostStorage field</description>
+    </interface>
+    <interface name="normalizeAgentsConfig" source="packages/cli/src/config.ts">
+      <description>Bridges legacy single-agent config to AgentsConfig. Returns config.agents when present; derives from config.agent via LEGACY_PROVIDER_MAP otherwise. Re-exported from @tamma/shared per Story 9-1.</description>
+    </interface>
+    <interface name="TammaEngine (EngineContext)" source="packages/orchestrator/src/engine.ts">
+      <description>After Story 9-9, EngineContext accepts optional agent?: IAgentProvider and optional agentResolver?: IRoleBasedAgentResolver (at least one required)</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/cli/src/commands/start.test.tsx">Tests for config-driven agent setup and shutdown lifecycle in start command</location>
+      <location path="packages/cli/src/commands/server.test.ts">Tests for config-driven agent setup and shutdown lifecycle in server command</location>
+    </locations>
+    <ideas>
+      <idea>Test that start.tsx with legacy `agent` config creates a RoleBasedAgentResolver with single-entry provider chain via normalizeAgentsConfig()</idea>
+      <idea>Test that start.tsx with new `agents` config passes it directly to RoleBasedAgentResolver</idea>
+      <idea>Test that TammaEngine receives agentResolver (not agent) in service mode</idea>
+      <idea>Test that TammaEngine receives agentResolver (not agent) in interactive mode</idea>
+      <idea>Test that server.ts passes agentResolver to TammaEngine</idea>
+      <idea>Test shutdown in service mode: engine.dispose() -> diagnosticsQueue.dispose() -> costTracker.dispose() -> process.exit(0)</idea>
+      <idea>Test shutdown in interactive mode: engine.dispose() -> diagnosticsQueue.dispose() -> costTracker.dispose() -> process.exit(0)</idea>
+      <idea>Test server shutdown: engineRegistry.disposeAll() -> diagnosticsQueue.dispose() -> costTracker.dispose() -> app.close() -> process.exit(0)</idea>
+      <idea>Test FileStore is constructed with plain string path, not object</idea>
+      <idea>Test costStorePath is computed as path.join(config.engine.workingDirectory, '.tamma', 'cost-data.json')</idea>
+      <idea>Test ContentSanitizer is created when config.security?.sanitizeContent is undefined (default true)</idea>
+      <idea>Test ContentSanitizer is NOT created when config.security?.sanitizeContent is false</idea>
+      <idea>Test DiagnosticsQueue is created with correct options (drainIntervalMs: 5000, maxQueueSize: 1000)</idea>
+      <idea>Test diagnosticsQueue.setProcessor is called with createDiagnosticsProcessor result</idea>
+      <idea>Test that process.on('beforeExit') is NOT used for disposal</idea>
+      <idea>Test shutdown re-entrancy guard: second signal causes immediate process.exit(1)</idea>
+      <idea>Test shutdown timeout (10s) forces process.exit(1) if disposal hangs</idea>
+      <idea>Test each disposal call is wrapped in try/catch — failure of one does not prevent others</idea>
+      <idea>Test that ContentSanitizer creation logs info message when enabled</idea>
+      <idea>Test that agentResolver is typed as IRoleBasedAgentResolver when passed to TammaEngine</idea>
+      <idea>Test dry-run mode disposes diagnosticsQueue and costTracker before exit</idea>
+      <idea>Test interactive mode early-exit paths (no candidates, user skips) dispose diagnosticsQueue and costTracker</idea>
+    </ideas>
+  </tests>
+</story-context>

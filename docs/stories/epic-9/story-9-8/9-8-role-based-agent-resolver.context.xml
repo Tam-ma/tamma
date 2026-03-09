@@ -1,0 +1,233 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-8</storyId>
+    <title>Role-Based Agent Resolver</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-8/9-8-role-based-agent-resolver.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>orchestrator engine or CLI consumer</asA>
+    <iWant>to resolve a workflow phase or agent role into a fully configured, instrumented, and optionally secured IAgentProvider</iWant>
+    <soThat>the engine can request providers by phase name without knowing about provider chains, health tracking, prompt registries, or security wrapping</soThat>
+    <tasks>
+      <task id="1" title="Implement RoleBasedAgentResolver core (constructor, phase-to-role mapping)">
+        - [ ] Create `packages/providers/src/role-based-agent-resolver.ts`
+        - [ ] Define `RoleBasedAgentResolverOptions` interface with config, factory, health, promptRegistry, diagnostics, costTracker?, sanitizer?, logger?
+        - [ ] Implement constructor that accepts single options object (no positional params)
+        - [ ] Store all dependencies as private readonly fields
+        - [ ] Initialize `chains` as `Map&lt;AgentType, IProviderChain&gt;`
+        - [ ] Implement `getAgentForPhase(phase, context)` that maps phase to role via `config.phaseRoleMap` with `DEFAULT_PHASE_ROLE_MAP` fallback, then delegates to `getAgentForRole()`
+        - [ ] Write unit tests for phase-to-role mapping and custom phaseRoleMap overrides
+      </task>
+      <task id="2" title="Implement getAgentForRole with chain creation and security wrapping">
+        - [ ] Implement `getAgentForRole(role, context)` that calls `getOrCreateChain(role)` then `chain.getProvider()`
+        - [ ] Pass `{ agentType: role, ...context }` to `chain.getProvider()`
+        - [ ] Wrap returned provider with `SecureAgentProvider` if `this.sanitizer` is provided
+        - [ ] Return unwrapped provider when no sanitizer is configured
+        - [ ] Write unit tests: provider is instrumented, provider is secure when sanitizer exists, provider is unwrapped when no sanitizer
+      </task>
+      <task id="3" title="Implement getTaskConfig with 3-level merge precedence">
+        - [ ] Implement `getTaskConfig(role, taskOverrides?)` with merge precedence: defaults &lt; role config &lt; task overrides
+        - [ ] Build base from `this.config.defaults` (allowedTools, maxBudgetUsd, permissionMode)
+        - [ ] Build roleLevel from `this.config.roles?.[role]` only for defined fields (use conditional spread)
+        - [ ] Return merged `{ ...base, ...roleLevel, ...taskOverrides }`
+        - [ ] Write unit tests: merge precedence, undefined roleConfig falls back to defaults, task overrides win
+      </task>
+      <task id="4" title="Implement getPrompt delegation and getOrCreateChain with empty-array fallback">
+        - [ ] Implement `getPrompt(role, providerName, vars)` delegating to `this.promptRegistry.render(role, providerName, vars)`
+        - [ ] Implement private `getOrCreateChain(role)` with lazy ProviderChain creation and Map caching
+        - [ ] Handle empty-array fallback: `providerChain: []` must fall back to defaults (check `.length`, not just `??`)
+        - [ ] Pass ProviderChainOptions object `{ entries, factory, health, diagnostics, costTracker, logger }` to ProviderChain constructor
+        - [ ] Write unit tests: getPrompt delegates correctly, empty providerChain falls back, chains are cached
+      </task>
+      <task id="5" title="Export all new modules from providers index">
+        - [ ] Add `export { RoleBasedAgentResolver } from './role-based-agent-resolver.js'` to `packages/providers/src/index.ts`
+        - [ ] Add `export type { RoleBasedAgentResolverOptions } from './role-based-agent-resolver.js'`
+        - [ ] Verify all Epic 9 Story 3-8 modules are exported: errors, provider-health, agent-provider-factory, provider-chain, agent-prompt-registry, secure-agent-provider, instrumented-agent-provider, role-based-agent-resolver
+        - [ ] Run `pnpm --filter @tamma/providers run typecheck` to verify compilation
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">`getAgentForPhase('PLAN_GENERATION', ctx)` resolves to the 'architect' role via DEFAULT_PHASE_ROLE_MAP and returns an IAgentProvider</criterion>
+    <criterion id="2">Custom `phaseRoleMap` in config overrides DEFAULT_PHASE_ROLE_MAP (e.g., mapping PLAN_GENERATION to 'researcher')</criterion>
+    <criterion id="3">`getAgentForRole('implementer', ctx)` returns an InstrumentedAgentProvider from the role's provider chain</criterion>
+    <criterion id="4">When `sanitizer` is provided, returned provider is wrapped with SecureAgentProvider</criterion>
+    <criterion id="5">When `sanitizer` is not provided, returned provider is NOT wrapped (returned directly from chain)</criterion>
+    <criterion id="6">`getTaskConfig('implementer', overrides)` merges: defaults &lt; role config &lt; task overrides (last wins)</criterion>
+    <criterion id="7">`getTaskConfig('researcher')` with no role config returns defaults only</criterion>
+    <criterion id="8">Role with `providerChain: []` falls back to `config.defaults.providerChain` (empty array is NOT treated as configured)</criterion>
+    <criterion id="9">`getPrompt(role, provider, vars)` delegates to `IAgentPromptRegistry.render()` with sanitized vars and returns rendered template</criterion>
+    <criterion id="10">Constructor accepts `RoleBasedAgentResolverOptions` object (no positional parameters)</criterion>
+    <criterion id="11">Uses `DiagnosticsQueue` from `@tamma/shared/src/telemetry/`, NOT `ToolHookRegistry` from mcp-client</criterion>
+    <criterion id="12">All new exports are available from `packages/providers/src/index.ts`</criterion>
+    <criterion id="13">`pnpm --filter @tamma/providers run typecheck` passes under strict TypeScript</criterion>
+    <criterion id="14">`pnpm vitest run packages/providers/src/role-based-agent-resolver` passes with all unit tests green</criterion>
+    <criterion id="15">Constructor throws when `defaults.providerChain` is empty or missing</criterion>
+    <criterion id="16">`getOrCreateChain()` and `getTaskConfig()` reject forbidden keys (`__proto__`, `constructor`, `prototype`)</criterion>
+    <criterion id="17">`getTaskConfig()` clamping: `maxBudgetUsd` override cannot exceed resolved ceiling, `bypassPermissions` requires env var, `allowedTools` is intersected</criterion>
+    <criterion id="18">`getPrompt()` sanitizes `{{` and `}}` from variable values to prevent template injection</criterion>
+    <criterion id="19">`getAgentForRole()` logs warn when sanitizer is not configured</criterion>
+    <criterion id="20">`dispose()` clears the chains Map</criterion>
+    <criterion id="21">`getRoleForPhase(phase)` returns the role synchronously without creating a provider</criterion>
+    <criterion id="22">Class implements `IRoleBasedAgentResolver` interface</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-8/9-8-role-based-agent-resolver.md">Story specification with full class implementation and code snippets</doc>
+      <doc path="docs/stories/epic-9/story-9-1/9-1-configuration-schema.md">Configuration types: AgentsConfig, WorkflowPhase, DEFAULT_PHASE_ROLE_MAP, ProviderChainEntry, AgentRoleConfig</doc>
+      <doc path="docs/stories/epic-9/story-9-5/9-5-provider-chain.md">ProviderChain class with fallback, health check, budget check, and instrumentation wrapping</doc>
+      <doc path="docs/stories/epic-9/story-9-4/9-4-agent-provider-factory.md">AgentProviderFactory that creates IAgentProvider by name string with wrapAsAgent()</doc>
+      <doc path="docs/stories/epic-9/story-9-3/9-3-provider-health-tracker.md">ProviderHealthTracker circuit breaker with sliding window failures and half-open probing</doc>
+      <doc path="docs/stories/epic-9/story-9-6/9-6-agent-prompt-registry.md">AgentPromptRegistry with 6-level resolution chain and {{variable}} template rendering</doc>
+      <doc path="docs/stories/epic-9/story-9-7/9-7-content-sanitization.md">ContentSanitizer class and SecureAgentProvider decorator</doc>
+      <doc path="docs/stories/epic-9/story-9-2/9-2-provider-diagnostics.md">DiagnosticsQueue and InstrumentedAgentProvider for usage tracking</doc>
+      <doc path="docs/stories/epic-9/story-9-9/9-9-engine-integration.md">Engine integration showing how RoleBasedAgentResolver is consumed</doc>
+      <doc path="docs/architecture.md">Technical architecture (naming conventions, error handling, event sourcing)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, naming conventions</doc>
+    </docs>
+    <code>
+      <file path="packages/providers/src/role-based-agent-resolver.ts" action="create">RoleBasedAgentResolver class with options-object constructor, getAgentForPhase(), getAgentForRole(), getTaskConfig(), getPrompt(), getOrCreateChain()</file>
+      <file path="packages/providers/src/role-based-agent-resolver.test.ts" action="create">Unit tests covering all acceptance criteria</file>
+      <file path="packages/providers/src/index.ts" action="modify">Export RoleBasedAgentResolver, RoleBasedAgentResolverOptions, and all Epic 9 modules</file>
+      <file path="packages/providers/src/agent-types.ts" action="reference">IAgentProvider interface, AgentTaskConfig, AgentProgressCallback</file>
+      <file path="packages/shared/src/types/agent-config.ts" action="reference">AgentsConfig, WorkflowPhase, DEFAULT_PHASE_ROLE_MAP, ProviderChainEntry, AgentRoleConfig</file>
+      <file path="packages/shared/src/types/knowledge.ts" action="reference">AgentType union type</file>
+      <file path="packages/providers/src/provider-chain.ts" action="reference">ProviderChain class (Story 5)</file>
+      <file path="packages/providers/src/agent-provider-factory.ts" action="reference">AgentProviderFactory class (Story 4)</file>
+      <file path="packages/providers/src/provider-health.ts" action="reference">ProviderHealthTracker class (Story 3)</file>
+      <file path="packages/providers/src/agent-prompt-registry.ts" action="reference">AgentPromptRegistry class (Story 6)</file>
+      <file path="packages/providers/src/secure-agent-provider.ts" action="reference">SecureAgentProvider decorator (Story 7)</file>
+      <file path="packages/providers/src/instrumented-agent-provider.ts" action="reference">InstrumentedAgentProvider decorator (Story 2)</file>
+      <file path="packages/shared/src/telemetry/diagnostics-queue.ts" action="reference">DiagnosticsQueue class (Story 2/11)</file>
+      <file path="packages/providers/src/errors.ts" action="reference">createProviderError(), isProviderError() (Story 3)</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">Shared types (AgentsConfig, WorkflowPhase, AgentType, DiagnosticsQueue)</dependency>
+      <dependency name="@tamma/cost-monitor" type="internal">ICostTracker interface (optional dependency for budget checking)</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="dependencies">Requires Story 9-1 (config types), Story 9-5 (ProviderChain), Story 9-6 (AgentPromptRegistry), Story 9-7 (SecureAgentProvider) to be completed first</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; interfaces use I-prefix; types use PascalCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="imports">Use .js extensions in import paths for ESM compatibility</constraint>
+    <constraint type="constructor">Use options-object pattern (RoleBasedAgentResolverOptions), NOT positional parameters</constraint>
+    <constraint type="immutability">getTaskConfig() must not mutate config objects -- always create new objects via spread</constraint>
+    <constraint type="diagnostics">Use DiagnosticsQueue from @tamma/shared/src/telemetry/, NOT ToolHookRegistry from mcp-client</constraint>
+    <constraint type="security">No API keys or secrets in test fixtures; SecureAgentProvider wrapping is opt-in via sanitizer presence</constraint>
+    <constraint type="empty-array">providerChain: [] must be detected and fall back to defaults -- ?? does NOT trigger for empty arrays</constraint>
+    <constraint type="no-pooling">Providers are NOT pooled -- each getAgentForRole() call may create a fresh provider via the factory chain</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="IAgentProvider" source="packages/providers/src/agent-types.ts">
+      <description>Agent provider interface with executeTask(config, onProgress?), isAvailable(), dispose()</description>
+    </interface>
+    <interface name="AgentTaskConfig" source="packages/providers/src/agent-types.ts">
+      <description>Task configuration with prompt, cwd, model?, maxBudgetUsd?, allowedTools?, permissionMode?, outputFormat?, sessionId?</description>
+    </interface>
+    <interface name="AgentsConfig" source="packages/shared/src/types/agent-config.ts">
+      <description>Multi-agent configuration with defaults (AgentRoleConfig), roles? (Partial&lt;Record&lt;AgentType, Partial&lt;AgentRoleConfig&gt;&gt;&gt;), phaseRoleMap? (Partial&lt;Record&lt;WorkflowPhase, AgentType&gt;&gt;)</description>
+    </interface>
+    <interface name="WorkflowPhase" source="packages/shared/src/types/agent-config.ts">
+      <description>Union type: 'ISSUE_SELECTION' | 'CONTEXT_ANALYSIS' | 'PLAN_GENERATION' | 'CODE_GENERATION' | 'PR_CREATION' | 'CODE_REVIEW' | 'TEST_EXECUTION' | 'STATUS_MONITORING'</description>
+    </interface>
+    <interface name="AgentType" source="packages/shared/src/types/knowledge.ts">
+      <description>Union type: 'scrum_master' | 'architect' | 'researcher' | 'analyst' | 'planner' | 'implementer' | 'reviewer' | 'tester' | 'documenter'</description>
+    </interface>
+    <interface name="ProviderChainEntry" source="packages/shared/src/types/agent-config.ts">
+      <description>Provider chain entry with provider (string), model?, apiKey?, config?</description>
+    </interface>
+    <interface name="AgentRoleConfig" source="packages/shared/src/types/agent-config.ts">
+      <description>Role configuration with providerChain, allowedTools?, maxBudgetUsd?, permissionMode?, systemPrompt?, providerPrompts?</description>
+    </interface>
+    <interface name="IProviderChain" source="packages/providers/src/provider-chain.ts">
+      <description>Ordered provider chain interface with getProvider(context) that returns InstrumentedAgentProvider, handles health checks, budget checks, and fallback</description>
+    </interface>
+    <interface name="IAgentProviderFactory" source="packages/providers/src/agent-provider-factory.ts">
+      <description>Factory interface that creates IAgentProvider by name string; LLM providers eagerly wrapped via wrapAsAgent()</description>
+    </interface>
+    <interface name="IProviderHealthTracker" source="packages/providers/src/provider-health.ts">
+      <description>Circuit breaker interface per provider+model key with isHealthy(), recordFailure(), recordSuccess()</description>
+    </interface>
+    <interface name="IAgentPromptRegistry" source="packages/providers/src/agent-prompt-registry.ts">
+      <description>Prompt template resolver interface with 6-level fallback chain and {{variable}} rendering via render(role, providerName, vars)</description>
+    </interface>
+    <interface name="SecureAgentProvider" source="packages/providers/src/secure-agent-provider.ts">
+      <description>Decorator wrapping IAgentProvider with input/output content sanitization</description>
+    </interface>
+    <interface name="IContentSanitizer" source="packages/shared/src/security/content-sanitizer.ts">
+      <description>Interface with sanitize(input) and sanitizeOutput(output) for HTML stripping, zero-width char removal, prompt injection detection</description>
+    </interface>
+    <interface name="DiagnosticsQueue" source="packages/shared/src/telemetry/diagnostics-queue.ts">
+      <description>Event queue with synchronous emit() and background drain to processor</description>
+    </interface>
+    <interface name="ICostTracker" source="packages/cost-monitor">
+      <description>Cost tracking interface with checkLimit(), recordUsage(), generateReport()</description>
+    </interface>
+    <interface name="IRoleBasedAgentResolver" source="packages/providers/src/role-based-agent-resolver.ts">
+      <description>Public interface for the resolver: getAgentForPhase(), getAgentForRole(), getTaskConfig(), getPrompt(), getRoleForPhase(), dispose()</description>
+    </interface>
+    <interface name="ILogger" source="packages/shared/contracts">
+      <description>Logger interface with debug(), info(), warn(), error() methods</description>
+    </interface>
+    <interface name="DEFAULT_PHASE_ROLE_MAP" source="packages/shared/src/types/agent-config.ts">
+      <description>Constant mapping all 8 WorkflowPhase values to AgentType defaults (e.g., PLAN_GENERATION -> architect)</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock all external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/providers/src/role-based-agent-resolver.test.ts">Unit tests for RoleBasedAgentResolver</location>
+    </locations>
+    <ideas>
+      <idea>Test: getAgentForPhase('PLAN_GENERATION') maps to 'architect' role via DEFAULT_PHASE_ROLE_MAP</idea>
+      <idea>Test: getAgentForPhase('CODE_GENERATION') maps to 'implementer' role</idea>
+      <idea>Test: custom phaseRoleMap overrides DEFAULT_PHASE_ROLE_MAP (e.g., PLAN_GENERATION -> 'researcher')</idea>
+      <idea>Test: getAgentForRole creates ProviderChain from role-specific providerChain entries</idea>
+      <idea>Test: getAgentForRole uses defaults.providerChain when role has no providerChain configured</idea>
+      <idea>Test: getAgentForRole with providerChain: [] falls back to defaults (empty array guard)</idea>
+      <idea>Test: returned provider is wrapped with SecureAgentProvider when sanitizer is provided</idea>
+      <idea>Test: returned provider is NOT wrapped when sanitizer is absent</idea>
+      <idea>Test: getTaskConfig merge precedence -- task overrides > role config > defaults</idea>
+      <idea>Test: getTaskConfig with undefined roleConfig falls back to defaults only</idea>
+      <idea>Test: getTaskConfig with partial role config merges correctly (only defined fields override)</idea>
+      <idea>Test: getPrompt delegates to AgentPromptRegistry.render() with correct args</idea>
+      <idea>Test: getPrompt passes vars through to render()</idea>
+      <idea>Test: constructor accepts RoleBasedAgentResolverOptions (options object, not positional)</idea>
+      <idea>Test: ProviderChain instances are cached per role (Map reuse on second call)</idea>
+      <idea>Test: different roles create different ProviderChain instances</idea>
+      <idea>Test: fallback works when first provider in chain fails (delegates to ProviderChain behavior)</idea>
+      <idea>Test: constructor throws when defaults.providerChain is empty or missing</idea>
+      <idea>Test: getOrCreateChain rejects forbidden keys (__proto__, constructor, prototype)</idea>
+      <idea>Test: getTaskConfig rejects forbidden keys (__proto__, constructor, prototype)</idea>
+      <idea>Test: getAgentForPhase rejects forbidden role key from phaseRoleMap</idea>
+      <idea>Test: getTaskConfig clamping — maxBudgetUsd override cannot exceed resolved ceiling</idea>
+      <idea>Test: getTaskConfig clamping — bypassPermissions requires TAMMA_ALLOW_BYPASS_PERMISSIONS=true</idea>
+      <idea>Test: getTaskConfig clamping — allowedTools override is intersected with resolved tools</idea>
+      <idea>Test: getPrompt sanitizes {{ and }} from variable values</idea>
+      <idea>Test: getAgentForRole logs debug message with role and context</idea>
+      <idea>Test: getAgentForRole logs warn when sanitizer is not configured</idea>
+      <idea>Test: dispose() clears the chains Map</idea>
+      <idea>Test: getRoleForPhase returns role synchronously without creating provider</idea>
+      <idea>Test: class implements IRoleBasedAgentResolver interface</idea>
+    </ideas>
+  </tests>
+</story-context>

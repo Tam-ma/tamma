@@ -1,0 +1,225 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>5</storyId>
+    <title>Provider Chain</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-5/9-5-provider-chain.md</sourceStoryPath>
+  </metadata>
+
+  <technical-context>
+    <architecture-pattern>Ordered fallback chain with circuit breaker, budget checking, and instrumented wrapping</architecture-pattern>
+    <primary-goal>Given a list of ProviderChainEntry[], try each in order, skip unhealthy/over-budget providers, wrap the first available provider with InstrumentedAgentProvider, and record all attempts in diagnostics</primary-goal>
+
+    <core-interface name="IProviderChain">
+      <description>Interface for the provider chain. Story 9-8's RoleBasedAgentResolver depends on this interface, not the concrete ProviderChain class.</description>
+      <method name="getProvider">
+        <signature>getProvider(context: { agentType: AgentType; projectId: string; engineId: string }): Promise&lt;IAgentProvider&gt;</signature>
+      </method>
+    </core-interface>
+
+    <core-class name="ProviderChain" implements="IProviderChain">
+      <description>Iterates an ordered list of ProviderChainEntry[] to find the first healthy, budget-compliant, available provider. Wraps the result with InstrumentedAgentProvider for diagnostics. Records failures into IProviderHealthTracker for circuit breaker logic. Safe for concurrent getProvider() calls -- state management (health, budget) is delegated to injected services. No internal mutable state beyond the frozen entries array. Per-entry retries are not supported; transient failures are handled by the circuit breaker's half-open recovery mechanism and by the caller retrying chain resolution.</description>
+      <constructor-pattern>Options object (ProviderChainOptions) -- not positional parameters</constructor-pattern>
+      <constructor-dependencies>
+        <dependency name="entries" type="readonly ProviderChainEntry[]">Ordered list of provider+model combos to try. Defensively copied and frozen in constructor.</dependency>
+        <dependency name="factory" type="IAgentProviderFactory">Creates IAgentProvider instances from ProviderChainEntry (interface from Story 9-4, not concrete AgentProviderFactory)</dependency>
+        <dependency name="health" type="IProviderHealthTracker">Circuit breaker: tracks failures, marks providers unhealthy (interface from Story 9-3, not concrete ProviderHealthTracker)</dependency>
+        <dependency name="diagnostics" type="DiagnosticsQueue">Shared telemetry queue for provider call instrumentation</dependency>
+        <dependency name="costTracker" type="ICostTracker" optional="true">Budget checking via checkLimit() before attempting a provider</dependency>
+        <dependency name="logger" type="ILogger" optional="true">Structured logging for debug/warn messages</dependency>
+      </constructor-dependencies>
+      <method name="getProvider">
+        <signature>async getProvider(context: { agentType: AgentType; projectId: string; engineId: string }): Promise&lt;IAgentProvider&gt;</signature>
+        <description>Returns the first available healthy provider, wrapped with InstrumentedAgentProvider</description>
+      </method>
+    </core-class>
+
+    <options-interface name="ProviderChainOptions">
+      <field name="entries" type="readonly ProviderChainEntry[]" />
+      <field name="factory" type="IAgentProviderFactory" />
+      <field name="health" type="IProviderHealthTracker" />
+      <field name="diagnostics" type="DiagnosticsQueue" />
+      <field name="costTracker" type="ICostTracker" optional="true" />
+      <field name="logger" type="ILogger" optional="true" />
+    </options-interface>
+
+    <key-behaviors>
+      <behavior id="1">Iterates entries in priority order (first entry = highest priority)</behavior>
+      <behavior id="2">Guards empty providerChain with explicit EMPTY_PROVIDER_CHAIN error (retryable: false, severity: 'critical') before iterating</behavior>
+      <behavior id="3">Skips circuit-open providers via health.isHealthy(key) -- uses IProviderHealthTracker interface</behavior>
+      <behavior id="4">Checks budget via costTracker.checkLimit() before attempting (with fail-closed policy: if checkLimit() throws, skip the provider and log warning)</behavior>
+      <behavior id="5">Wraps returned provider with InstrumentedAgentProvider for diagnostics/cost tracking</behavior>
+      <behavior id="6">Does NOT call recordSuccess() after isAvailable() -- success recording is InstrumentedAgentProvider's responsibility on actual task completion</behavior>
+      <behavior id="7">Calls provider.dispose() when isAvailable() returns false to prevent resource leaks</behavior>
+      <behavior id="8">Calls provider.dispose() on error; dispose errors are logged (not silently swallowed)</behavior>
+      <behavior id="9">Uses isProviderError() type guard before passing errors to recordFailure() -- no unsafe casts</behavior>
+      <behavior id="10">Throws NO_AVAILABLE_PROVIDER with provider names only in message; detailed error info in structured context (sanitized -- no raw e.message in the error message string)</behavior>
+      <behavior id="11">Unknown provider strings do not crash budget check (safe Set-based validation)</behavior>
+      <behavior id="12">Uses ProviderHealthTracker.buildKey() for centralized key construction (not inline template literal)</behavior>
+      <behavior id="13">Module-level KNOWN_PROVIDERS constant (not re-created per iteration)</behavior>
+      <behavior id="14">Constructor defensively copies and freezes entries array</behavior>
+      <behavior id="15">NO_AVAILABLE_PROVIDER has retryable: false -- the chain itself does not retry. Callers (engine) should retry the entire chain resolution with backoff if all providers are temporarily circuit-open.</behavior>
+      <behavior id="16">Per-entry retries are not supported. Transient failures are handled by the circuit breaker's half-open recovery mechanism and by the caller retrying chain resolution.</behavior>
+    </key-behaviors>
+
+    <provider-key-format>
+      <description>Provider health key format: "provider:model" e.g. "openrouter:z-ai/z1-mini", "claude-code:default". Key construction is centralized via ProviderHealthTracker.buildKey().</description>
+      <construction>ProviderHealthTracker.buildKey(entry.provider, entry.model)</construction>
+    </provider-key-format>
+
+    <budget-check>
+      <description>Before attempting a provider, check ICostTracker.checkLimit() if costTracker is provided. Wrapped in try/catch with fail-closed policy.</description>
+      <known-providers-constant>Module-level KNOWN_PROVIDERS Set: anthropic, openai, openrouter, google, local, claude-code, opencode, z-ai, zen-mcp</known-providers-constant>
+      <safe-cast>Uses KNOWN_PROVIDERS.has() to validate provider string before casting to Provider type -- avoids unsafe as-cast</safe-cast>
+      <skip-on-exceeded>If limit.allowed is false, skip provider and log warning with percentUsed</skip-on-exceeded>
+      <fail-closed>If checkLimit() throws, log warning and skip the provider. For unknown provider strings not in the Provider type, still attempt the check but catch type errors gracefully.</fail-closed>
+    </budget-check>
+
+    <error-types>
+      <error code="EMPTY_PROVIDER_CHAIN" retryable="false" severity="critical">
+        <message>providerChain is empty -- configure at least one provider entry for this role.</message>
+        <trigger>entries.length === 0</trigger>
+      </error>
+      <error code="NO_AVAILABLE_PROVIDER" retryable="false" severity="critical">
+        <message>All {count} providers exhausted. Tried: {providers}</message>
+        <context>Structured errors array with per-provider error details (sanitized)</context>
+        <retryable-rationale>The chain itself does not retry. Callers (engine) should retry the entire chain resolution with backoff if all providers are temporarily circuit-open.</retryable-rationale>
+        <trigger>All entries skipped or failed</trigger>
+      </error>
+    </error-types>
+  </technical-context>
+
+  <implementation-context>
+    <primary-packages>
+      <package>@tamma/providers</package>
+    </primary-packages>
+
+    <key-files>
+      <file action="CREATE">packages/providers/src/provider-chain.ts</file>
+      <file action="CREATE">packages/providers/src/provider-chain.test.ts</file>
+    </key-files>
+
+    <imports>
+      <import from="./agent-types.js">IAgentProvider</import>
+      <import from="@tamma/shared">AgentType</import>
+      <import from="@tamma/shared/src/types/agent-config.js">ProviderChainEntry</import>
+      <import from="@tamma/cost-monitor">ICostTracker, Provider</import>
+      <import from="@tamma/shared/contracts">ILogger</import>
+      <import from="./agent-provider-factory.js">IAgentProviderFactory</import>
+      <import from="./types.js">IProviderHealthTracker</import>
+      <import from="./provider-health.js">ProviderHealthTracker (for buildKey() static method only)</import>
+      <import from="@tamma/shared/src/telemetry/index.js">DiagnosticsQueue</import>
+      <import from="./errors.js">createProviderError, isProviderError</import>
+      <import from="./instrumented-agent-provider.js">InstrumentedAgentProvider</import>
+    </imports>
+
+    <upstream-dependencies>
+      <dependency story="9-2" package="@tamma/shared">DiagnosticsQueue from packages/shared/src/telemetry/</dependency>
+      <dependency story="9-2" package="@tamma/providers">InstrumentedAgentProvider</dependency>
+      <dependency story="9-3" package="@tamma/providers">IProviderHealthTracker (interface from types.ts), ProviderHealthTracker (concrete class, for buildKey() static method), errors.ts (createProviderError, isProviderError)</dependency>
+      <dependency story="9-4" package="@tamma/providers">IAgentProviderFactory (interface from agent-provider-factory.ts)</dependency>
+      <dependency story="9-1" package="@tamma/shared">ProviderChainEntry, AgentType</dependency>
+      <dependency story="existing" package="@tamma/cost-monitor">ICostTracker, Provider, LimitContext, LimitCheckResult</dependency>
+    </upstream-dependencies>
+
+    <downstream-consumers>
+      <consumer story="9-8">RoleBasedAgentResolver -- depends on IProviderChain interface, creates ProviderChain per agent role</consumer>
+      <consumer story="9-9">Engine integration -- uses resolver which uses IProviderChain</consumer>
+    </downstream-consumers>
+  </implementation-context>
+
+  <dependencies>
+    <upstream>Story 9-2: Provider Diagnostics (DiagnosticsQueue, InstrumentedAgentProvider)</upstream>
+    <upstream>Story 9-3: Provider Health Tracker (IProviderHealthTracker interface from types.ts, ProviderHealthTracker concrete for buildKey(), errors.ts)</upstream>
+    <upstream>Story 9-4: Agent Provider Factory (IAgentProviderFactory interface)</upstream>
+    <upstream>Story 9-1: Configuration Schema (ProviderChainEntry)</upstream>
+    <upstream>@tamma/cost-monitor (ICostTracker, Provider)</upstream>
+    <downstream>Story 9-8: Role-Based Agent Resolver (depends on IProviderChain interface)</downstream>
+    <downstream>Story 9-9: Engine Integration</downstream>
+  </dependencies>
+
+  <acceptance-criteria>
+    <criteria id="1">Returns first healthy provider from the ordered chain</criteria>
+    <criteria id="2">Skips unhealthy (circuit-open) providers, returns the next healthy one</criteria>
+    <criteria id="3">Throws NO_AVAILABLE_PROVIDER with provider names (not raw error messages) when all providers fail; detailed errors in structured context</criteria>
+    <criteria id="4">Throws EMPTY_PROVIDER_CHAIN error (retryable: false, severity: 'critical') when entries array is empty</criteria>
+    <criteria id="5">Skips providers that exceed budget (costTracker.checkLimit().allowed === false)</criteria>
+    <criteria id="6">Returned provider is wrapped with InstrumentedAgentProvider (records usage)</criteria>
+    <criteria id="7">Calls provider.dispose() when isAvailable() returns false</criteria>
+    <criteria id="8">Calls provider.dispose() on error; dispose errors are logged, not silently swallowed</criteria>
+    <criteria id="9">Unknown provider string does not crash budget check</criteria>
+    <criteria id="10">Does NOT call recordSuccess() after isAvailable()</criteria>
+    <criteria id="11">Uses isProviderError() type guard for recordFailure() calls</criteria>
+    <criteria id="12">Constructor uses ProviderChainOptions object (not positional params)</criteria>
+    <criteria id="13">Entries are defensively copied and frozen in constructor</criteria>
+    <criteria id="14">Uses IProviderHealthTracker interface (not concrete ProviderHealthTracker class)</criteria>
+    <criteria id="15">Uses IAgentProviderFactory interface (not concrete AgentProviderFactory class)</criteria>
+    <criteria id="16">ProviderChain implements IProviderChain interface</criteria>
+    <criteria id="17">Uses ProviderHealthTracker.buildKey() for centralized key construction</criteria>
+    <criteria id="18">Budget check uses fail-closed policy: if checkLimit() throws, skip the provider</criteria>
+    <criteria id="19">Module-level KNOWN_PROVIDERS constant (not re-created per iteration)</criteria>
+    <criteria id="20">Inner provider is disposed if InstrumentedAgentProvider constructor throws</criteria>
+  </acceptance-criteria>
+
+  <testing-requirements>
+    <unit-tests>
+      <test id="1">Returns first healthy provider from chain</test>
+      <test id="2">Skips unhealthy provider, returns second</test>
+      <test id="3">All fail -- throws NO_AVAILABLE_PROVIDER with provider names (not raw error messages in message string)</test>
+      <test id="4">NO_AVAILABLE_PROVIDER error has structured context.errors array with per-provider details</test>
+      <test id="5">Empty chain -- throws EMPTY_PROVIDER_CHAIN error (retryable: false, severity: 'critical')</test>
+      <test id="6">Budget exceeded -- skips provider</test>
+      <test id="7">Budget check throws -- skips provider (fail-closed policy)</test>
+      <test id="8">Returned provider is InstrumentedAgentProvider (records usage)</test>
+      <test id="9">provider.dispose() called when isAvailable() returns false</test>
+      <test id="10">provider.dispose() called on error; dispose errors are logged</test>
+      <test id="11">Unknown provider string does not crash budget check</test>
+      <test id="12">Does NOT call health.recordSuccess() after isAvailable()</test>
+      <test id="13">Uses isProviderError() type guard -- ProviderError passed to recordFailure()</test>
+      <test id="14">Uses isProviderError() type guard -- plain Error causes recordFailure() without error arg</test>
+      <test id="15">Constructor uses ProviderChainOptions object</test>
+      <test id="16">Entries are defensively copied and frozen</test>
+      <test id="17">Uses ProviderHealthTracker.buildKey() for key construction</test>
+      <test id="18">InstrumentedAgentProvider constructor throw disposes inner provider</test>
+    </unit-tests>
+    <testing-approach>All dependencies (factory, health, diagnostics, costTracker, logger) are mocked. Health mock implements IProviderHealthTracker interface. Factory mock implements IAgentProviderFactory interface. Tests verify interaction patterns and error handling without real provider instances.</testing-approach>
+  </testing-requirements>
+
+  <risks-and-mitigations>
+    <risk>
+      <description>Resource leak if provider.dispose() throws during error cleanup</description>
+      <mitigation>Dispose errors are caught and logged (not silently swallowed): this.logger?.warn('Failed to dispose provider', { key, error })</mitigation>
+    </risk>
+    <risk>
+      <description>Budget check may block valid providers if costTracker is misconfigured or throws</description>
+      <mitigation>costTracker is optional; budget check uses fail-closed policy (if checkLimit() throws, skip provider and log warning); unknown provider strings skip budget check gracefully</mitigation>
+    </risk>
+    <risk>
+      <description>All providers may be circuit-open simultaneously during widespread outage</description>
+      <mitigation>Circuit breaker has half-open recovery; NO_AVAILABLE_PROVIDER error includes all provider names for debugging. Callers (engine) should retry chain resolution with backoff.</mitigation>
+    </risk>
+    <risk>
+      <description>Resource leak if InstrumentedAgentProvider constructor throws</description>
+      <mitigation>Inner provider is disposed in catch block when wrapping fails</mitigation>
+    </risk>
+  </risks-and-mitigations>
+
+  <task-breakdown>
+    <task id="1" title="Implement ProviderChain core iteration with health checks">
+      <scope>IProviderChain interface, ProviderChainOptions interface, class skeleton, constructor with defensive copy/freeze, getProvider() loop with IProviderHealthTracker.isHealthy() check using buildKey(), IAgentProviderFactory.create(), isAvailable() check, empty chain guard, NO_AVAILABLE_PROVIDER final throw with sanitized errors</scope>
+    </task>
+    <task id="2" title="Add budget checking via ICostTracker">
+      <scope>Module-level KNOWN_PROVIDERS constant, costTracker.checkLimit() integration with fail-closed try/catch, safe provider string validation, skip-on-exceeded logic</scope>
+    </task>
+    <task id="3" title="Add instrumentation wrapping and error handling">
+      <scope>InstrumentedAgentProvider wrapping (with dispose on constructor throw), isProviderError() type guard usage, recordFailure() calls, error collection array, logged dispose errors</scope>
+    </task>
+    <task id="4" title="Handle edge cases, disposal, and comprehensive tests">
+      <scope>provider.dispose() on isAvailable()===false, dispose on error with logging, empty chain test, unknown provider budget test, all-fail test, budget check throw test, defensive copy test, InstrumentedAgentProvider constructor throw test, full test suite</scope>
+    </task>
+  </task-breakdown>
+</story-context>

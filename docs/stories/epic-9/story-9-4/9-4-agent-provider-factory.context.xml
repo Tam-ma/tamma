@@ -1,0 +1,221 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-4</storyId>
+    <title>Agent Provider Factory</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-4/9-4-agent-provider-factory.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>orchestrator or provider chain consumer</asA>
+    <iWant>to create an IAgentProvider by name string, where LLM providers are transparently wrapped into the agent interface</iWant>
+    <soThat>callers always receive IAgentProvider without needing to check or handle two different interfaces (IAgentProvider vs IAIProvider)</soThat>
+    <tasks>
+      <task id="1" title="Implement AgentProviderFactory with provider registration and apiKeyRef resolution">
+        - [ ] Create `packages/providers/src/agent-provider-factory.ts`
+        - [ ] Define `IAgentProviderFactory` interface with `create()`, `register()`, `dispose()` methods
+        - [ ] Define `BUILTIN_PROVIDER_NAMES` constant object with the four built-in provider name strings
+        - [ ] Define `PROVIDER_NAME_PATTERN` regex `/^[a-z0-9][a-z0-9_-]{0,63}$/` and `FORBIDDEN_NAMES` set
+        - [ ] Define `API_KEY_REF_PATTERN` regex `/^[A-Za-z0-9_]+$/` for validating apiKeyRef format
+        - [ ] Implement `resolveApiKey(entry: ProviderChainEntry): string` helper:
+          - Returns `''` if `entry.apiKeyRef` is undefined (some providers don't need keys)
+          - Validates apiKeyRef format (alphanumeric + underscore only)
+          - Looks up `process.env[entry.apiKeyRef]`
+          - Throws if env var is missing: `Environment variable "${entry.apiKeyRef}" is not set for provider "${entry.provider}"`
+        - [ ] Define `AgentProviderFactory` class implementing `IAgentProviderFactory` with private `creators` map
+        - [ ] Add `private locked = false` flag and private `lock(): void` method
+        - [ ] Implement `register(name, creator)` method with provider name validation and lock checks
+        - [ ] Implement `create(entry: ProviderChainEntry): Promise&lt;IAgentProvider&gt;` method:
+          - Looks up creator by `entry.provider`, throws `Unknown provider: {name}` if not found
+          - Calls `resolveApiKey(entry)` to get the API key from environment
+          - Calls `initialize()` if the provider supports it, with spread order `{ ...entry.config, apiKey: resolvedKey, model: entry.model }`
+          - Wraps initialize() errors: `Provider "${entry.provider}" failed to initialize: ${sanitizedMessage}`
+          - Detects LLM providers by checking `'sendMessageSync' in provider` (duck-typing, see code comments)
+          - Wraps LLM providers via `wrapAsAgent(provider, entry.model ?? 'default')`
+          - Returns agent providers directly as `IAgentProvider`
+        - [ ] Implement `dispose(): Promise&lt;void&gt;` that clears the creators map
+        - [ ] Accept optional `logger?: ILogger` in constructor for INFO-level logging
+        - [ ] Register built-in providers in constructor using `BUILTIN_PROVIDER_NAMES` constants
+        - [ ] Call `this.lock()` after registering built-ins
+        - [ ] Add thread-safety comment: not safe for sharing across worker threads
+      </task>
+      <task id="2" title="Implement wrapAsAgent() LLM-to-Agent adapter">
+        - [ ] Export `wrapAsAgent(llm: IAIProvider, model: string): IAgentProvider` function
+        - [ ] Add limitations documentation comment: no tool-use loops, file tracking, exit code semantics
+        - [ ] Implement `executeTask()`: build a `MessageRequest` from `config.prompt` with `messages: [{ role: 'user', content: config.prompt }]`
+        - [ ] Implement `executeTask()`: use `config.model ?? model` for the request model (task-level override support)
+        - [ ] Implement `executeTask()`: call `llm.sendMessageSync(request)` to get `MessageResponse`
+        - [ ] Implement `executeTask()`: map `response.content` to `AgentTaskResult.output`
+        - [ ] Implement `executeTask()`: map `response.finishReason === 'error'` to `success: false`
+        - [ ] Implement `executeTask()`: on `sendMessageSync()` error, use safe casting: `err instanceof Error ? err.message : String(err)`
+        - [ ] Implement `executeTask()`: set `costUsd: 0` (actual cost computed by cost-monitor)
+        - [ ] Implement `executeTask()`: track `durationMs` using `Date.now()` delta
+        - [ ] Implement `isAvailable()`: always return `true` with trade-off documentation comment
+        - [ ] Implement `dispose()`: delegate to `llm.dispose()`
+      </task>
+      <task id="3" title="Wire built-in provider registrations, exports, and tests">
+        - [ ] Register `'claude-code'` creator using `BUILTIN_PROVIDER_NAMES.CLAUDE_CODE`
+        - [ ] Register `'opencode'` creator using `BUILTIN_PROVIDER_NAMES.OPENCODE`
+        - [ ] Register `'openrouter'` creator using `BUILTIN_PROVIDER_NAMES.OPENROUTER`
+        - [ ] Register `'zen-mcp'` creator using `BUILTIN_PROVIDER_NAMES.ZEN_MCP`
+        - [ ] Export `AgentProviderFactory`, `IAgentProviderFactory`, `wrapAsAgent`, `resolveApiKey`, `BUILTIN_PROVIDER_NAMES` from `packages/providers/src/index.ts`
+        - [ ] Create `packages/providers/src/agent-provider-factory.test.ts` with all verification tests
+        - [ ] Test fixtures use `apiKeyRef: 'TEST_API_KEY'` with `process.env.TEST_API_KEY = 'test-key'` setup
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">`create({ provider: 'claude-code' })` returns an `IAgentProvider` that is a `ClaudeAgentProvider` instance</criterion>
+    <criterion id="2">`create({ provider: 'openrouter', model: 'z-ai/z1-mini', apiKeyRef: 'TEST_KEY' })` with `process.env.TEST_KEY` set returns an `IAgentProvider` wrapped via `wrapAsAgent()`</criterion>
+    <criterion id="3">`create({ provider: 'zen-mcp' })` returns an `IAgentProvider` wrapped via `wrapAsAgent()`</criterion>
+    <criterion id="4">`create({ provider: 'foo' })` throws `Error('Unknown provider: foo')`</criterion>
+    <criterion id="5">`resolveApiKey()` resolves `entry.apiKeyRef` from `process.env`, returns `''` if undefined, throws if env var missing or format invalid</criterion>
+    <criterion id="6">`initialize()` is called with correct spread order: `{ ...entry.config, apiKey: resolvedKey, model: entry.model }` (explicit fields override user config)</criterion>
+    <criterion id="7">`initialize()` errors are wrapped: `Provider "${name}" failed to initialize: ${sanitizedMessage}`</criterion>
+    <criterion id="8">`wrapAsAgent().executeTask()` calls `sendMessageSync()` and maps response fields correctly; uses `config.model ?? model` for task-level overrides</criterion>
+    <criterion id="9">`wrapAsAgent().executeTask()` on `sendMessageSync()` error returns `{ success: false, error: message }` using safe error casting</criterion>
+    <criterion id="10">`wrapAsAgent().isAvailable()` always returns `true`</criterion>
+    <criterion id="11">Mock `OpenCodeProvider.initialize()` throwing propagates wrapped error to caller</criterion>
+    <criterion id="12">`ClaudeAgentProvider.initialize()` is a no-op that ignores apiKey from chain entry</criterion>
+    <criterion id="13">Factory return type is always `IAgentProvider` -- callers never receive `IAIProvider`</criterion>
+    <criterion id="14">`IAgentProviderFactory` interface is exported for dependency inversion (ProviderChain depends on interface)</criterion>
+    <criterion id="15">`register()` validates provider names and rejects `__proto__`/`constructor`/`prototype`</criterion>
+    <criterion id="16">After lock, `register()` cannot override existing providers but can add new ones</criterion>
+    <criterion id="17">`factory.dispose()` clears the creators map</criterion>
+    <criterion id="18">`BUILTIN_PROVIDER_NAMES` constant is exported with all four provider names</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-4/9-4-agent-provider-factory.md">Story specification with full AgentProviderFactory, IAgentProviderFactory interface, resolveApiKey(), and wrapAsAgent() code</doc>
+      <doc path="docs/stories/epic-9/story-9-1/9-1-configuration-schema.md">ProviderChainEntry type definition with apiKeyRef (NOT apiKey) used by factory.create()</doc>
+      <doc path="docs/stories/epic-9/story-9-5/9-5-provider-chain.md">ProviderChain consumer of IAgentProviderFactory interface (downstream dependency)</doc>
+      <doc path="docs/architecture.md">Technical architecture, naming conventions, error handling patterns</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode requirements</doc>
+    </docs>
+    <code>
+      <file path="packages/providers/src/agent-provider-factory.ts" action="create">AgentProviderFactory class, IAgentProviderFactory interface, resolveApiKey() helper, wrapAsAgent() function, BUILTIN_PROVIDER_NAMES constant</file>
+      <file path="packages/providers/src/agent-provider-factory.test.ts" action="create">Unit tests for factory creation, apiKeyRef resolution, wrapping, name validation, locking, dispose, and error cases</file>
+      <file path="packages/providers/src/index.ts" action="modify">Add exports for AgentProviderFactory, IAgentProviderFactory, wrapAsAgent, resolveApiKey, BUILTIN_PROVIDER_NAMES</file>
+      <file path="packages/providers/src/agent-types.ts" action="reference">IAgentProvider, AgentTaskConfig, AgentProgressCallback interfaces</file>
+      <file path="packages/providers/src/types.ts" action="reference">IAIProvider, MessageRequest, MessageResponse, ProviderConfig interfaces</file>
+      <file path="packages/providers/src/claude-agent-provider.ts" action="reference">ClaudeAgentProvider -- native IAgentProvider (no wrapping needed)</file>
+      <file path="packages/providers/src/opencode-provider.ts" action="reference">OpenCodeProvider -- native IAgentProvider with eager SDK init</file>
+      <file path="packages/providers/src/openrouter-provider.ts" action="reference">OpenRouterProvider -- IAIProvider that needs wrapAsAgent()</file>
+      <file path="packages/providers/src/zen-mcp-provider.ts" action="reference">ZenMCPProvider -- IAIProvider that needs wrapAsAgent()</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">AgentTaskResult type from shared package</dependency>
+      <dependency name="@tamma/shared/src/types/agent-config" type="internal">ProviderChainEntry type with apiKeyRef field from configuration schema (Story 9-1)</dependency>
+      <dependency name="@tamma/shared/contracts" type="internal">ILogger interface for optional structured logging</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="return-type">Factory.create() return type is `Promise&lt;IAgentProvider&gt;` only -- never IAIProvider or a union</constraint>
+    <constraint type="interface">IAgentProviderFactory interface must be exported for dependency inversion; ProviderChain depends on the interface</constraint>
+    <constraint type="apiKeyRef">ProviderChainEntry uses `apiKeyRef` (env var name), NOT `apiKey` (raw key). Factory resolves via `process.env[apiKeyRef]`</constraint>
+    <constraint type="name-validation">Provider names must match `/^[a-z0-9][a-z0-9_-]{0,63}$/` and reject `__proto__`, `constructor`, `prototype`</constraint>
+    <constraint type="lock">Built-in providers locked after construction; register() cannot override but can add new names</constraint>
+    <constraint type="spread-order">initialize() config uses `{ ...entry.config, apiKey, model }` so explicit fields always win</constraint>
+    <constraint type="error-safety">Use `err instanceof Error ? err.message : String(err)` -- never `(err as Error).message`</constraint>
+    <constraint type="init-sanitize">initialize() errors are wrapped: `Provider "${name}" failed to initialize: ${msg}` to avoid leaking sensitive content</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; classes use PascalCase; functions use camelCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="imports">Use .js extensions in import paths for ESM compatibility</constraint>
+    <constraint type="async">Use async/await -- never .then()/.catch() chains</constraint>
+    <constraint type="no-mutation">wrapAsAgent() returns a new object implementing IAgentProvider; does not mutate the IAIProvider</constraint>
+    <constraint type="error-handling">Unknown provider names throw synchronously; initialize() errors are wrapped and re-thrown for ProviderChain to handle</constraint>
+    <constraint type="security">No API keys in logs, error messages, or test fixtures; apiKeyRef format validated</constraint>
+    <constraint type="claude-agent-init">ClaudeAgentProvider.initialize() must remain a no-op -- the Claude CLI manages its own authentication</constraint>
+    <constraint type="opencode-init">OpenCodeProvider.initialize() eagerly creates an SDK client; failures are wrapped and re-thrown by the factory</constraint>
+    <constraint type="thread-safety">AgentProviderFactory is NOT thread-safe; instantiate once per process, do not share across worker threads</constraint>
+    <constraint type="model-override">wrapAsAgent() uses `config.model ?? model` to support task-level model overrides</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="IAgentProviderFactory" source="packages/providers/src/agent-provider-factory.ts">
+      <description>Factory interface with create(entry), register(name, creator), dispose(). ProviderChain depends on this, not the concrete class.</description>
+    </interface>
+    <interface name="IAgentProvider" source="packages/providers/src/agent-types.ts">
+      <description>Agent provider contract with executeTask(config, onProgress?), isAvailable(), and dispose()</description>
+    </interface>
+    <interface name="IAIProvider" source="packages/providers/src/types.ts">
+      <description>LLM provider contract with initialize(), sendMessage(), sendMessageSync(), getCapabilities(), getModels(), dispose()</description>
+    </interface>
+    <interface name="AgentTaskConfig" source="packages/providers/src/agent-types.ts">
+      <description>Task configuration with prompt, cwd, model?, maxBudgetUsd?, allowedTools?, permissionMode?, outputFormat?, sessionId?</description>
+    </interface>
+    <interface name="AgentTaskResult" source="packages/shared/src/types/index.ts">
+      <description>Task result with success, output, costUsd, durationMs, error?</description>
+    </interface>
+    <interface name="MessageRequest" source="packages/providers/src/types.ts">
+      <description>LLM request with messages[], model?, maxTokens?, temperature?, topP?, stream?, tools?, metadata?</description>
+    </interface>
+    <interface name="MessageResponse" source="packages/providers/src/types.ts">
+      <description>LLM response with id, content, model, usage (TokenUsage), finishReason, tool_calls?, metadata?</description>
+    </interface>
+    <interface name="ProviderChainEntry" source="packages/shared/src/types/agent-config.ts">
+      <description>Chain entry with provider (string), model?, apiKeyRef? (env var name — resolved at runtime via process.env), config? (Record&lt;string, unknown&gt;). NOTE: uses apiKeyRef, NOT apiKey.</description>
+    </interface>
+    <interface name="ProviderConfig" source="packages/providers/src/types.ts">
+      <description>Provider initialization config with apiKey, baseUrl?, timeout?, maxRetries?, retryDelay?, model?, metadata?</description>
+    </interface>
+    <interface name="ILogger" source="packages/shared/contracts">
+      <description>Logger interface with info(), warn(), error(), debug() methods for structured logging</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock all external dependencies; no real API calls or CLI spawning in unit tests</standard>
+      <standard>Test fixtures use apiKeyRef with process.env setup, NOT raw apiKey values</standard>
+    </standards>
+    <locations>
+      <location path="packages/providers/src/agent-provider-factory.test.ts">Unit tests for AgentProviderFactory, resolveApiKey(), wrapAsAgent(), name validation, locking, and dispose</location>
+    </locations>
+    <ideas>
+      <idea>Test create({ provider: 'claude-code' }) returns IAgentProvider with executeTask method</idea>
+      <idea>Test create({ provider: 'opencode' }) returns IAgentProvider with executeTask method</idea>
+      <idea>Test create({ provider: 'openrouter', model: 'z-ai/z1-mini', apiKeyRef: 'TEST_KEY' }) with process.env.TEST_KEY set returns wrapped IAgentProvider</idea>
+      <idea>Test create({ provider: 'zen-mcp' }) returns wrapped IAgentProvider</idea>
+      <idea>Test create({ provider: 'unknown' }) throws 'Unknown provider: unknown'</idea>
+      <idea>Test resolveApiKey() returns '' when apiKeyRef is undefined</idea>
+      <idea>Test resolveApiKey() returns process.env value when apiKeyRef is set</idea>
+      <idea>Test resolveApiKey() throws when env var is missing</idea>
+      <idea>Test resolveApiKey() throws on invalid apiKeyRef format (hyphens, spaces, etc.)</idea>
+      <idea>Test register() rejects invalid provider names (empty string, uppercase, __proto__, constructor, prototype)</idea>
+      <idea>Test register() after lock cannot override existing provider but can add new ones</idea>
+      <idea>Test initialize() called on openrouter provider with correct config spread order</idea>
+      <idea>Test initialize() called on zen-mcp provider with correct config</idea>
+      <idea>Test initialize() error is wrapped with provider name</idea>
+      <idea>Test ClaudeAgentProvider.initialize() is called but is a no-op (ignores apiKey)</idea>
+      <idea>Test OpenCodeProvider.initialize() throwing error propagates as wrapped error to create() caller</idea>
+      <idea>Test wrapAsAgent().executeTask() builds correct MessageRequest from prompt</idea>
+      <idea>Test wrapAsAgent().executeTask() uses config.model when provided (task-level override)</idea>
+      <idea>Test wrapAsAgent().executeTask() falls back to closure model when config.model is undefined</idea>
+      <idea>Test wrapAsAgent().executeTask() maps successful response (finishReason: 'stop') to success: true</idea>
+      <idea>Test wrapAsAgent().executeTask() maps error response (finishReason: 'error') to success: false</idea>
+      <idea>Test wrapAsAgent().executeTask() catches sendMessageSync error with safe casting (instanceof check)</idea>
+      <idea>Test wrapAsAgent().executeTask() handles non-Error thrown values via String(err)</idea>
+      <idea>Test wrapAsAgent().executeTask() sets costUsd to 0</idea>
+      <idea>Test wrapAsAgent().executeTask() tracks durationMs correctly</idea>
+      <idea>Test wrapAsAgent().isAvailable() always returns true</idea>
+      <idea>Test wrapAsAgent().dispose() delegates to llm.dispose()</idea>
+      <idea>Test register() adds custom provider that can be created</idea>
+      <idea>Test factory.dispose() clears creators map (subsequent create() throws)</idea>
+      <idea>Test BUILTIN_PROVIDER_NAMES has correct values for all four providers</idea>
+      <idea>Test IAgentProviderFactory interface is satisfied by AgentProviderFactory</idea>
+    </ideas>
+  </tests>
+</story-context>

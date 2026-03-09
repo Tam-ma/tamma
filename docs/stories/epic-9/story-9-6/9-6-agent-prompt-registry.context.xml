@@ -1,0 +1,180 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-6</storyId>
+    <title>Agent Prompt Registry</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-6/9-6-agent-prompt-registry.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>a registry that resolves agent role prompt templates with a multi-level fallback chain and variable interpolation</iWant>
+    <soThat>each agent role gets the correct system prompt preamble based on configuration, provider overrides, and built-in defaults -- and the engine can render dynamic content into those templates</soThat>
+    <tasks>
+      <task id="1" title="Define built-in role prompt templates and constants">
+        - [ ] Create `packages/providers/src/agent-prompt-registry.ts`
+        - [ ] Define `BUILTIN_TEMPLATES` as `Object.freeze(Partial&lt;Record&lt;AgentType, string&gt;&gt;)` with templates for all 9 roles: architect, implementer, reviewer, tester, analyst, scrum_master, researcher, planner, documenter
+        - [ ] Define `GENERIC_FALLBACK` constant for roles with no built-in template
+        - [ ] Define `MAX_TEMPLATE_LENGTH = 1_000_000` (1MB) and `MAX_VAR_VALUE_LENGTH = 100_000` (100KB) size limit constants
+        - [ ] Define `FORBIDDEN_KEYS` set with `__proto__`, `constructor`, `prototype`
+        - [ ] Define `IAgentPromptRegistry` interface with `render()`, `resolveTemplate()`, `registerBuiltin()` methods
+        - [ ] Define `AgentPromptRegistryOptions` interface with `config`, optional `logger`, optional `immutableRoles`
+        - [ ] Templates use `{{variable}}` placeholder syntax (not template literals)
+        - [ ] Extract prompt preambles from `packages/orchestrator/src/engine.ts` generatePlan() and implementCode()
+        - [ ] Write unit tests verifying built-in templates exist for all 9 expected roles
+      </task>
+      <task id="2" title="Implement template resolution chain (6 levels) with security guards">
+        - [ ] Implement `AgentPromptRegistry` class implementing `IAgentPromptRegistry` with constructor accepting `AgentPromptRegistryOptions`
+        - [ ] Copy `BUILTIN_TEMPLATES` into `Object.create(null)` prototype-free instance field `builtinTemplates` for mutability
+        - [ ] Implement `resolveTemplate(role: AgentType, providerName: string): string` with 6-level chain:
+          1. `roles[role].providerPrompts?.[providerName]` (guarded with `Object.hasOwn()`)
+          2. `roles[role].systemPrompt`
+          3. `defaults.providerPrompts?.[providerName]` (guarded with `Object.hasOwn()`)
+          4. `defaults.systemPrompt`
+          5. `builtinTemplates[role]`
+          6. `GENERIC_FALLBACK`
+        - [ ] Validate `providerName` against `FORBIDDEN_KEYS` in `resolveTemplate()`
+        - [ ] Guard against undefined `roles`, missing `providerPrompts` map, and missing keys at every step
+        - [ ] Implement `registerBuiltin(role: string, template: string): void` with:
+          - Prototype pollution guard (reject `FORBIDDEN_KEYS`)
+          - Immutable roles protection (reject roles in `immutableRoles` set)
+          - Audit trail logging (WARN on override, INFO on new)
+        - [ ] Write unit tests for each of the 6 resolution levels, null-safety, security guards, and edge cases
+      </task>
+      <task id="3" title="Implement render() with {{variable}} interpolation and size limits">
+        - [ ] Implement `render(role: AgentType, providerName: string, vars: Record&lt;string, string&gt;): string`
+        - [ ] `render()` calls `resolveTemplate()` then `interpolate()`
+        - [ ] Implement private `interpolate(template: string, vars: Record&lt;string, string&gt;): string`
+        - [ ] Use `split('{{key}}').join(value)` -- NOT regex -- for safety on untrusted template content
+        - [ ] Skip variables whose values exceed `MAX_VAR_VALUE_LENGTH` (100KB) with warning log
+        - [ ] Truncate rendered templates exceeding `MAX_TEMPLATE_LENGTH` (1MB) with warning log
+        - [ ] Unreferenced `{{placeholders}}` are left unchanged (safe default -- not removed, not throwing)
+        - [ ] Document iterative expansion behavior: variables applied in Object.entries() order, indirect expansion is possible
+        - [ ] Write unit tests: basic interpolation, multiple vars, empty vars, unreplaced placeholders, special regex chars in values, size limits, empty-string template override
+        - [ ] Create test file `packages/providers/src/agent-prompt-registry.test.ts`
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">Class is named `AgentPromptRegistry` implementing `IAgentPromptRegistry` interface (NOT `PromptRegistry` -- that name is taken by `packages/mcp-client/src/registry.ts` for MCP prompt management)</criterion>
+    <criterion id="2">`IAgentPromptRegistry` interface is exported with `render()`, `resolveTemplate()`, `registerBuiltin()` methods (pattern matches IProviderHealthTracker (9-3), IAgentProviderFactory (9-4), IProviderChain (9-5))</criterion>
+    <criterion id="3">`resolveTemplate()` implements the full 6-level resolution chain: per-provider-per-role -> per-role -> per-provider-default -> global default -> builtin -> generic</criterion>
+    <criterion id="4">`render()` replaces `{{variable}}` placeholders with provided values using split+join (not regex)</criterion>
+    <criterion id="5">`render()` with empty vars leaves `{{placeholders}}` unchanged (safe default)</criterion>
+    <criterion id="6">Unmatched `{{placeholders}}` in templates are left as-is in the rendered output (not removed, not throwing)</criterion>
+    <criterion id="7">`BUILTIN_TEMPLATES` is frozen via `Object.freeze()` and contains prompt preambles for all 9 `AgentType` roles: architect, implementer, reviewer, tester, analyst, scrum_master, researcher, planner, documenter</criterion>
+    <criterion id="8">Null-safety: handles undefined `roles`, missing `providerPrompts` map, and missing keys without throwing</criterion>
+    <criterion id="9">`registerBuiltin()` allows overriding default templates for testing or plugin use</criterion>
+    <criterion id="10">`registerBuiltin()` rejects forbidden keys (`__proto__`, `constructor`, `prototype`) with thrown error (prototype pollution guard)</criterion>
+    <criterion id="11">`registerBuiltin()` rejects overriding immutable roles (configured via `immutableRoles` in options)</criterion>
+    <criterion id="12">`registerBuiltin()` logs WARN when overriding an existing template, INFO when adding a new one</criterion>
+    <criterion id="13">`builtinTemplates` uses `Object.create(null)` as prototype-free backing store</criterion>
+    <criterion id="14">`resolveTemplate()` validates `providerName` against forbidden keys and uses `Object.hasOwn()` for `providerPrompts` property access</criterion>
+    <criterion id="15">Empty string `''` is treated as a valid template at any resolution level (not skipped)</criterion>
+    <criterion id="16">Constructor accepts `AgentPromptRegistryOptions` object (with `config`, optional `logger`, optional `immutableRoles`) -- not bare `AgentsConfig`</criterion>
+    <criterion id="17">`MAX_TEMPLATE_LENGTH` (1MB) and `MAX_VAR_VALUE_LENGTH` (100KB) size limits are enforced with warning logs</criterion>
+    <criterion id="18">Works correctly with minimal config (`{ defaults: { providerChain: [] } }` with no roles, no systemPrompt, no providerPrompts)</criterion>
+    <criterion id="19">Test file covers all 6 resolution levels, fallback to generic, variable interpolation, empty vars, registerBuiltin(), security guards, size limits, and edge cases</criterion>
+    <criterion id="20">`pnpm --filter @tamma/providers run typecheck` passes</criterion>
+    <criterion id="21">`pnpm vitest run packages/providers/src/agent-prompt-registry` passes</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-6/9-6-agent-prompt-registry.md">Story specification with full class design and code</doc>
+      <doc path="docs/stories/epic-9/story-9-1/9-1-configuration-schema.md">AgentsConfig, AgentRoleConfig types (defines providerPrompts, systemPrompt fields)</doc>
+      <doc path="docs/stories/epic-9/story-9-8/9-8-role-based-agent-resolver.md">Consumer of AgentPromptRegistry -- RoleBasedAgentResolver</doc>
+      <doc path="docs/architecture.md">Technical architecture, naming conventions, TypeScript strict mode</doc>
+      <doc path="CLAUDE.md">Project coding standards</doc>
+    </docs>
+    <code>
+      <file path="packages/providers/src/agent-prompt-registry.ts" action="create">IAgentPromptRegistry interface, AgentPromptRegistryOptions, AgentPromptRegistry class with BUILTIN_TEMPLATES (frozen, 9 roles), GENERIC_FALLBACK, MAX_TEMPLATE_LENGTH, MAX_VAR_VALUE_LENGTH, FORBIDDEN_KEYS, resolveTemplate(), render(), registerBuiltin() with security guards</file>
+      <file path="packages/providers/src/agent-prompt-registry.test.ts" action="create">Unit tests for all 6 resolution levels, interpolation, null-safety, registerBuiltin(), security guards, size limits, prototype pollution, immutable roles, empty-string semantics</file>
+      <file path="packages/shared/src/types/agent-config.ts" action="reference">AgentsConfig interface (defaults.systemPrompt, defaults.providerPrompts, roles[role].systemPrompt, roles[role].providerPrompts)</file>
+      <file path="packages/shared/src/types/knowledge.ts" action="reference">AgentType union type used as key for BUILTIN_TEMPLATES and resolveTemplate() role parameter</file>
+      <file path="packages/mcp-client/src/registry.ts" action="reference">Existing PromptRegistry class (MCP prompt management) -- name collision to avoid</file>
+      <file path="packages/orchestrator/src/engine.ts" action="reference">Existing prompt strings in generatePlan() and implementCode() -- source for BUILTIN_TEMPLATES extraction</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">AgentType from knowledge.ts, AgentsConfig from agent-config.ts, ILogger from contracts</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="naming">Class MUST be named `AgentPromptRegistry` implementing `IAgentPromptRegistry` to avoid collision with `PromptRegistry` in `packages/mcp-client/src/registry.ts`</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; classes use PascalCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="imports">Use `import type` for type-only imports; use `.js` extensions in import paths for ESM</constraint>
+    <constraint type="security">Use split+join for interpolation, NOT regex, to prevent ReDoS on untrusted template content</constraint>
+    <constraint type="security">Reject forbidden keys (`__proto__`, `constructor`, `prototype`) in `registerBuiltin()` and `resolveTemplate()` to prevent prototype pollution</constraint>
+    <constraint type="security">Use `Object.hasOwn()` for `providerPrompts` property access to guard against prototype pollution</constraint>
+    <constraint type="security">Enforce `MAX_VAR_VALUE_LENGTH` (100KB) and `MAX_TEMPLATE_LENGTH` (1MB) size limits</constraint>
+    <constraint type="security">Protect immutable security-critical role templates (e.g., `reviewer`) via `immutableRoles` option</constraint>
+    <constraint type="immutability">`BUILTIN_TEMPLATES` is frozen via `Object.freeze()` -- constructor copies into `Object.create(null)` prototype-free instance field</constraint>
+    <constraint type="safety">Unreplaced `{{placeholders}}` are left as-is -- render() must not throw on missing vars</constraint>
+    <constraint type="interface">Export `IAgentPromptRegistry` interface matching pattern from IProviderHealthTracker (9-3), IAgentProviderFactory (9-4), IProviderChain (9-5)</constraint>
+    <constraint type="constructor">Constructor accepts `AgentPromptRegistryOptions` object (not bare `AgentsConfig`) for extensibility with logger and immutableRoles</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AgentType" source="packages/shared/src/types/knowledge.ts">
+      <description>Union type of agent roles: 'scrum_master' | 'architect' | 'researcher' | 'analyst' | 'planner' | 'implementer' | 'reviewer' | 'tester' | 'documenter'</description>
+    </interface>
+    <interface name="AgentsConfig" source="packages/shared/src/types/agent-config.ts">
+      <description>Multi-agent configuration: defaults (AgentRoleConfig, required), roles? (partial per-role overrides), phaseRoleMap?</description>
+    </interface>
+    <interface name="AgentRoleConfig" source="packages/shared/src/types/agent-config.ts">
+      <description>Per-role config: providerChain (required), allowedTools?, maxBudgetUsd?, permissionMode?, systemPrompt?, providerPrompts? (Record&lt;string, string&gt; keyed by provider name)</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/providers/src/agent-prompt-registry.test.ts">Unit tests for AgentPromptRegistry</location>
+    </locations>
+    <ideas>
+      <idea>Test level 1: per-provider-per-role prompt takes priority when roles[role].providerPrompts[providerName] is set</idea>
+      <idea>Test level 2: per-role systemPrompt is used when providerPrompts has no entry for the provider</idea>
+      <idea>Test level 3: defaults.providerPrompts[providerName] is used when role has no prompt config</idea>
+      <idea>Test level 4: defaults.systemPrompt is used when defaults.providerPrompts has no entry</idea>
+      <idea>Test level 5: builtinTemplates[role] is used when no config-level prompt exists</idea>
+      <idea>Test level 6: GENERIC_FALLBACK is returned when role has no built-in template and no config</idea>
+      <idea>Test render() replaces {{context}} and {{issueNumber}} with provided values</idea>
+      <idea>Test render() with multiple variables in one template</idea>
+      <idea>Test render() with empty vars object leaves {{placeholders}} unchanged</idea>
+      <idea>Test render() handles values containing regex special characters (e.g., $, ^, .)</idea>
+      <idea>Test render() handles values containing {{otherPlaceholder}} -- iterative expansion behavior is documented (B WILL be expanded within A's value if processed after A)</idea>
+      <idea>Test registerBuiltin() overrides a default template</idea>
+      <idea>Test registerBuiltin() adds a template for a role not in BUILTIN_TEMPLATES</idea>
+      <idea>Test registerBuiltin() rejects forbidden keys (__proto__, constructor, prototype) with thrown error</idea>
+      <idea>Test registerBuiltin() rejects overriding immutable roles with thrown error</idea>
+      <idea>Test registerBuiltin() logs WARN when overriding existing template, INFO when adding new</idea>
+      <idea>Test null-safety: config.roles is undefined</idea>
+      <idea>Test null-safety: config.roles[role] exists but has no providerPrompts</idea>
+      <idea>Test null-safety: config.defaults.providerPrompts is undefined</idea>
+      <idea>Test BUILTIN_TEMPLATES includes entries for all 9 AgentType roles: architect, implementer, reviewer, tester, analyst, scrum_master, researcher, planner, documenter</idea>
+      <idea>Test that each built-in template is a non-empty string</idea>
+      <idea>Test empty string '' is treated as a valid template override at every resolution level</idea>
+      <idea>Test resolveTemplate() rejects forbidden provider names (__proto__, constructor, prototype)</idea>
+      <idea>Test Object.hasOwn() guards on providerPrompts property access</idea>
+      <idea>Test interpolate() skips variables whose values exceed MAX_VAR_VALUE_LENGTH (100KB) with warning</idea>
+      <idea>Test rendered templates exceeding MAX_TEMPLATE_LENGTH (1MB) are truncated with warning</idea>
+      <idea>Test with minimal config: { defaults: { providerChain: [] } } with no roles, no systemPrompt, no providerPrompts -- falls through to built-in or generic</idea>
+      <idea>Test IAgentPromptRegistry interface is exported and AgentPromptRegistry implements it</idea>
+      <idea>Test constructor accepts AgentPromptRegistryOptions (not bare AgentsConfig)</idea>
+    </ideas>
+  </tests>
+</story-context>

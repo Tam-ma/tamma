@@ -1,0 +1,366 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="9-3-provider-health-tracker">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>3</storyId>
+    <title>Provider Health Tracker</title>
+    <status>drafted</status>
+    <priority>P0</priority>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-3/9-3-provider-health-tracker.md</sourceStoryPath>
+  </metadata>
+
+  <user-story>
+    <role>orchestrator engine</role>
+    <action>want a circuit breaker per provider+model that tracks failures and marks unhealthy providers</action>
+    <benefit>so that the fallback chain skips unhealthy providers and failure data feeds into diagnostics</benefit>
+  </user-story>
+
+  <acceptance-criteria>
+    <criterion id="1">Shared error factory (createProviderError, isProviderError) extracted to packages/providers/src/errors.ts</criterion>
+    <criterion id="2">openrouter-provider.ts and zen-mcp-provider.ts use the shared error factory instead of local copies</criterion>
+    <criterion id="3">ProviderHealthTracker implements IProviderHealthTracker interface with circuit breaker and configurable thresholds</criterion>
+    <criterion id="4">Sliding window failure tracking prunes old timestamps outside the window</criterion>
+    <criterion id="5">Half-open state allows exactly ONE probe request; concurrent callers are blocked (thundering herd prevention)</criterion>
+    <criterion id="6">Successful half-open probe fully closes circuit and resets failures</criterion>
+    <criterion id="7">Failed half-open probe immediately re-opens circuit</criterion>
+    <criterion id="8">recordFailure() accepts both plain Error and ProviderError (via type guard); non-retryable ProviderErrors are NOT counted toward circuit breaker</criterion>
+    <criterion id="9">getStatus() returns JSON-serializable Record (not Map) with correct health/failure/circuit-open state for all tracked keys</criterion>
+    <criterion id="10">Circuit breaker state is in-memory only. Process restart resets all state. This is an intentional design decision.</criterion>
+    <criterion id="11">All existing provider tests continue to pass after error factory extraction (run full suite, not just new test files)</criterion>
+    <criterion id="12">Constructor validates all numeric inputs (failureThreshold >= 1 integer, failureWindowMs >= 1000, circuitOpenDurationMs >= 1000, all finite)</criterion>
+    <criterion id="13">Half-open probe timeout prevents permanently stuck half-open state (auto-resets to open after halfOpenProbeTimeoutMs)</criterion>
+    <criterion id="14">maxTrackedKeys limit prevents unbounded memory growth (default: 1000)</criterion>
+    <criterion id="15">failureTimestamps array is capped to failureThreshold * 2 to prevent O(N^2) degradation</criterion>
+    <criterion id="16">recordFailure() short-circuits when circuit is already open (not half-open) -- no-op</criterion>
+    <criterion id="17">reset(key) and clear() methods enable operational recovery and testing</criterion>
+    <criterion id="18">Static buildKey(provider, model?) helper centralizes key format ("provider:model" or "provider:default")</criterion>
+    <criterion id="19">Key validation rejects keys longer than 256 chars or with invalid characters</criterion>
+    <criterion id="20">Optional onCircuitChange callback fires on state transitions for diagnostics integration</criterion>
+    <criterion id="21">IProviderHealthTracker interface defined so ProviderChain (Story 9-5) depends on the interface, not the concrete class</criterion>
+  </acceptance-criteria>
+
+  <technical-context>
+    <core-components>
+      <component name="errors.ts" path="packages/providers/src/errors.ts">
+        <description>Shared error factory extracted from duplicated code in openrouter-provider.ts and zen-mcp-provider.ts</description>
+        <functions>
+          <function name="createProviderError" returns="ProviderError">
+            <parameter name="code" type="string"/>
+            <parameter name="message" type="string"/>
+            <parameter name="retryable" type="boolean"/>
+            <parameter name="severity" type="'low' | 'medium' | 'high' | 'critical'" default="'medium'"/>
+            <parameter name="context" type="Record&lt;string, unknown&gt;" optional="true"/>
+            <parameter name="retryAfter" type="number" optional="true"/>
+          </function>
+          <function name="isProviderError" returns="boolean">
+            <description>Type guard: distinguishes ProviderError from plain Error by checking code (string), retryable (boolean), AND severity properties. The severity check reduces false positives from Node.js system errors that may coincidentally have code and retryable.</description>
+            <parameter name="err" type="unknown"/>
+          </function>
+        </functions>
+      </component>
+
+      <component name="IProviderHealthTracker" path="packages/providers/src/types.ts">
+        <description>Interface for the health tracker. Story 9-5's ProviderChain depends on this interface, not the concrete class.</description>
+        <methods>
+          <method name="isHealthy" returns="boolean">
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="recordFailure" returns="void">
+            <parameter name="key" type="string"/>
+            <parameter name="error" type="Error" optional="true"/>
+          </method>
+          <method name="recordSuccess" returns="void">
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="getStatus" returns="Record&lt;string, HealthStatusEntry&gt;"/>
+          <method name="reset" returns="void">
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="clear" returns="void"/>
+        </methods>
+      </component>
+
+      <component name="ProviderHealthTracker" path="packages/providers/src/provider-health.ts">
+        <description>Circuit breaker per provider+model key. Implements IProviderHealthTracker. Tracks failures in a sliding window, opens circuit when threshold is breached, supports half-open probing with thundering herd prevention and probe timeout, enforces maxTrackedKeys limit, validates keys, and fires onCircuitChange callbacks.</description>
+        <interface>IProviderHealthTracker</interface>
+        <methods>
+          <method name="constructor" returns="void">
+            <parameter name="options" type="{ failureThreshold?: number; failureWindowMs?: number; circuitOpenDurationMs?: number; halfOpenProbeTimeoutMs?: number; maxTrackedKeys?: number; onCircuitChange?: (key: string, state: 'open' | 'half-open' | 'closed') =&gt; void }"/>
+            <validation>failureThreshold must be positive integer >= 1; failureWindowMs must be >= 1000; circuitOpenDurationMs must be >= 1000; halfOpenProbeTimeoutMs must be >= 1000; maxTrackedKeys must be positive integer >= 1; all must be finite numbers</validation>
+          </method>
+          <method name="static buildKey" returns="string">
+            <description>Returns "provider:model" or "provider:default". Centralizes key format for use by ProviderChain (Story 9-5).</description>
+            <parameter name="provider" type="string"/>
+            <parameter name="model" type="string" optional="true"/>
+          </method>
+          <method name="isHealthy" returns="boolean">
+            <description>Returns true if key is healthy or if half-open probe is permitted. Key format: "provider:model". Validates key. Auto-resets stuck half-open probes after halfOpenProbeTimeoutMs.</description>
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="recordFailure" returns="void">
+            <description>Records a failure. Non-retryable ProviderErrors are NOT counted (config/caller problems, not health issues). If circuit already open (not half-open), short-circuits (no-op). Enforces maxTrackedKeys limit. Caps failureTimestamps to failureThreshold * 2. If in half-open state, immediately re-opens circuit. Otherwise adds to sliding window and checks threshold. Fires onCircuitChange on transitions.</description>
+            <parameter name="key" type="string"/>
+            <parameter name="error" type="Error | ProviderError" optional="true"/>
+          </method>
+          <method name="recordSuccess" returns="void">
+            <description>Records success. If half-open, fully closes circuit and resets failures. Fires onCircuitChange('closed') on transition.</description>
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="getStatus" returns="Record&lt;string, HealthStatusEntry&gt;">
+            <description>Returns JSON-serializable Record (not Map) with health status for all tracked provider+model keys within the current window.</description>
+          </method>
+          <method name="reset" returns="void">
+            <description>Deletes health state for a single key. Useful for operational recovery.</description>
+            <parameter name="key" type="string"/>
+          </method>
+          <method name="clear" returns="void">
+            <description>Clears all health state. Useful for operational recovery and testing.</description>
+          </method>
+        </methods>
+      </component>
+    </core-components>
+
+    <key-interfaces>
+      <interface name="HealthEntry" visibility="private">
+        <description>Internal state per provider+model key</description>
+        <fields>
+          <field name="failureTimestamps" type="number[]">Sliding window of failure epoch timestamps (capped to failureThreshold * 2)</field>
+          <field name="circuitOpen" type="boolean">Whether circuit is currently open</field>
+          <field name="circuitOpenUntil" type="number">Epoch ms when circuit should transition to half-open</field>
+          <field name="halfOpenInProgress" type="boolean">Prevents thundering herd in half-open state</field>
+          <field name="halfOpenStartedAt" type="number">Epoch ms when half-open probe started. Used for probe timeout detection.</field>
+        </fields>
+      </interface>
+
+      <interface name="IProviderHealthTracker" source="packages/providers/src/types.ts">
+        <description>Interface for the health tracker. ProviderChain (Story 9-5) depends on this, not the concrete class.</description>
+        <methods>isHealthy, recordFailure, recordSuccess, getStatus, reset, clear</methods>
+      </interface>
+
+      <interface name="HealthStatusEntry" source="packages/providers/src/types.ts">
+        <description>JSON-serializable status entry returned by getStatus()</description>
+        <fields>
+          <field name="healthy" type="boolean"/>
+          <field name="failures" type="number"/>
+          <field name="circuitOpen" type="boolean"/>
+        </fields>
+      </interface>
+
+      <interface name="ProviderError" source="packages/providers/src/types.ts">
+        <description>Existing error interface extended from Error</description>
+        <fields>
+          <field name="code" type="string"/>
+          <field name="retryable" type="boolean"/>
+          <field name="retryAfter" type="number" optional="true"/>
+          <field name="context" type="Record&lt;string, unknown&gt;" optional="true"/>
+          <field name="severity" type="'low' | 'medium' | 'high' | 'critical'"/>
+        </fields>
+      </interface>
+    </key-interfaces>
+
+    <defaults>
+      <default name="failureThreshold" value="5">Number of failures within window to trip circuit (must be >= 1, integer)</default>
+      <default name="failureWindowMs" value="60000">Sliding window duration in milliseconds (60s, must be >= 1000)</default>
+      <default name="circuitOpenDurationMs" value="300000">How long circuit stays open before half-open transition (300s / 5min, must be >= 1000)</default>
+      <default name="halfOpenProbeTimeoutMs" value="30000">How long before a stuck half-open probe auto-resets to open (30s, must be >= 1000)</default>
+      <default name="maxTrackedKeys" value="1000">Maximum number of provider+model keys tracked simultaneously (must be >= 1, integer)</default>
+    </defaults>
+
+    <existing-code-references>
+      <reference path="packages/providers/src/openrouter-provider.ts">
+        <description>Contains local createProviderError() function (lines 21-32) and mapHttpError() that uses it. Must import from errors.ts after extraction.</description>
+      </reference>
+      <reference path="packages/providers/src/zen-mcp-provider.ts">
+        <description>Contains local createProviderError() function (lines 13-28) with slightly different return type annotation. Must import from errors.ts after extraction.</description>
+      </reference>
+      <reference path="packages/providers/src/types.ts">
+        <description>Defines ProviderError interface (line 296) and PROVIDER_ERROR_CODES constant (line 414). Both used by the error factory. Will also host IProviderHealthTracker and HealthStatusEntry interfaces.</description>
+      </reference>
+      <reference path="packages/providers/src/index.ts">
+        <description>Barrel exports. Must be updated to export createProviderError, isProviderError, ProviderHealthTracker, IProviderHealthTracker, and HealthStatusEntry.</description>
+      </reference>
+    </existing-code-references>
+
+    <implementation-strategy>
+      <phase name="Task 1: Extract Shared Error Factory">
+        <description>Create errors.ts with createProviderError() (with optional context/retryAfter params) and isProviderError() (with 'severity' in err check) extracted from duplicated provider code</description>
+        <components>
+          <component>Create packages/providers/src/errors.ts</component>
+          <component>Export createProviderError (with optional context and retryAfter parameters) and isProviderError (with severity check)</component>
+          <component>Write unit tests for both functions</component>
+        </components>
+      </phase>
+
+      <phase name="Task 2: Update Existing Providers">
+        <description>Replace local createProviderError copies with imports from errors.ts</description>
+        <components>
+          <component>Update openrouter-provider.ts to import from ./errors.js</component>
+          <component>Update zen-mcp-provider.ts to import from ./errors.js</component>
+          <component>Delete local createProviderError functions</component>
+          <component>Verify ALL existing provider tests pass (full suite, not just modified files)</component>
+        </components>
+      </phase>
+
+      <phase name="Task 3: Implement ProviderHealthTracker">
+        <description>Build the circuit breaker class implementing IProviderHealthTracker with sliding window, half-open probing with timeout, thundering herd prevention, constructor validation, key validation, maxTrackedKeys, failureTimestamps cap, non-retryable error skip, already-open short-circuit, onCircuitChange callback, reset/clear methods, and static buildKey helper</description>
+        <components>
+          <component>Add IProviderHealthTracker and HealthStatusEntry interfaces to packages/providers/src/types.ts</component>
+          <component>Create packages/providers/src/provider-health.ts implementing IProviderHealthTracker</component>
+          <component>Implement isHealthy(), recordFailure(), recordSuccess() with all enhancements</component>
+          <component>Implement static buildKey(), reset(), clear()</component>
+          <component>Sliding window failure tracking with timestamp pruning and capping</component>
+          <component>Half-open state with single-probe guard and probe timeout</component>
+          <component>Constructor validation, key validation, maxTrackedKeys limit</component>
+          <component>onCircuitChange callback on state transitions</component>
+          <component>Write comprehensive unit tests</component>
+        </components>
+      </phase>
+
+      <phase name="Task 4: Implement getStatus() Reporting and Finalize Exports">
+        <description>Add getStatus() method returning Record (not Map), update barrel exports, write final tests, validate full suite</description>
+        <components>
+          <component>Implement getStatus() returning Record&lt;string, HealthStatusEntry&gt;</component>
+          <component>Update index.ts to export new modules and interfaces</component>
+          <component>Write getStatus() unit tests</component>
+          <component>Validate full test suite passes (all provider tests, not just new files)</component>
+        </components>
+      </phase>
+    </implementation-strategy>
+
+    <integration-points>
+      <integration name="Provider Chain (Story 9-5)">
+        <description>ProviderChain depends on IProviderHealthTracker interface (not concrete class). Calls isHealthy() before attempting a provider and recordFailure()/recordSuccess() after each attempt. Uses ProviderHealthTracker.buildKey() to construct keys.</description>
+      </integration>
+      <integration name="Provider Diagnostics (Story 9-2)">
+        <description>Failure data from the health tracker feeds into diagnostics reporting. onCircuitChange callback enables diagnostics integration without coupling to DiagnosticsQueue.</description>
+      </integration>
+      <integration name="Agent Resolver (Story 9-8)">
+        <description>RoleBasedAgentResolver uses health status to skip unhealthy providers in chain resolution</description>
+      </integration>
+    </integration-points>
+
+    <testing-strategy>
+      <unit-tests>
+        <test-suite name="errors.ts">
+          <test>createProviderError returns ProviderError with correct code, message, retryable, severity</test>
+          <test>createProviderError defaults severity to 'medium' when not specified</test>
+          <test>createProviderError accepts optional context and retryAfter parameters</test>
+          <test>isProviderError returns true for ProviderError instances (checks code, retryable, AND severity)</test>
+          <test>isProviderError returns false for plain Error instances</test>
+          <test>isProviderError returns false for non-Error values (null, undefined, string, number)</test>
+          <test>isProviderError returns false for Error with code and retryable but missing severity (Node.js system error false positive prevention)</test>
+        </test-suite>
+        <test-suite name="ProviderHealthTracker">
+          <test>5 failures within 60s opens circuit</test>
+          <test>Failures outside window do not count (sliding window prunes old timestamps)</test>
+          <test>Circuit closes after 300s (half-open transition)</test>
+          <test>Half-open allows exactly ONE probe (halfOpenInProgress blocks concurrent probes)</test>
+          <test>Half-open probe success fully closes circuit and resets failures</test>
+          <test>Half-open probe failure immediately re-opens circuit</test>
+          <test>Half-open probe timeout auto-resets to open after halfOpenProbeTimeoutMs (prevents stuck half-open)</test>
+          <test>recordFailure() accepts both plain Error and ProviderError</test>
+          <test>recordFailure() with non-retryable ProviderError does NOT count toward circuit breaker</test>
+          <test>recordFailure() short-circuits when circuit already open (not half-open) -- no-op</test>
+          <test>recordFailure() caps failureTimestamps array to failureThreshold * 2</test>
+          <test>recordFailure() respects maxTrackedKeys limit (rejects new keys at capacity)</test>
+          <test>recordSuccess() resets all failure timestamps</test>
+          <test>getStatus() returns Record (not Map) with correct counts within window</test>
+          <test>reset(key) deletes single key; clear() deletes all keys</test>
+          <test>static buildKey('provider', 'model') returns 'provider:model'; buildKey('provider') returns 'provider:default'</test>
+          <test>Constructor throws on invalid failureThreshold (0, -1, 1.5, Infinity, NaN)</test>
+          <test>Constructor throws on invalid failureWindowMs (&lt; 1000, Infinity, NaN)</test>
+          <test>Constructor throws on invalid circuitOpenDurationMs (&lt; 1000, Infinity, NaN)</test>
+          <test>Key validation throws on keys &gt; 256 chars or with invalid characters</test>
+          <test>onCircuitChange callback fires on open, half-open, and closed transitions</test>
+          <test>Unknown keys are reported as healthy by isHealthy()</test>
+          <test>Custom threshold/window/duration options are honored</test>
+        </test-suite>
+      </unit-tests>
+      <regression-tests>
+        <test>All existing openrouter-provider tests pass after error factory extraction</test>
+        <test>All existing zen-mcp-provider tests pass after error factory extraction</test>
+        <test>Run ALL provider tests after errors.ts extraction (pnpm test --filter @tamma/providers), not just new test files</test>
+      </regression-tests>
+    </testing-strategy>
+
+    <configuration>
+      <section name="circuit_breaker_defaults">
+        <setting name="failureThreshold" default="5" description="Failures within window to trip circuit (must be >= 1, positive integer)"/>
+        <setting name="failureWindowMs" default="60000" description="Sliding window size in ms (must be >= 1000)"/>
+        <setting name="circuitOpenDurationMs" default="300000" description="Time circuit stays open before half-open (must be >= 1000)"/>
+        <setting name="halfOpenProbeTimeoutMs" default="30000" description="Auto-reset stuck half-open probes after this duration (must be >= 1000)"/>
+        <setting name="maxTrackedKeys" default="1000" description="Maximum tracked provider+model keys to prevent unbounded memory growth (must be >= 1, positive integer)"/>
+      </section>
+    </configuration>
+
+    <design-decisions>
+      <decision id="1">
+        <title>In-memory only state (intentional)</title>
+        <rationale>Circuit breaker state is in-memory only. Process restart resets all state. This is an intentional design decision. Provider outages are typically transient. Persisting circuit state adds complexity without significant benefit.</rationale>
+      </decision>
+      <decision id="2">
+        <title>Single-probe half-open guard with timeout</title>
+        <rationale>Prevents thundering herd when circuit transitions from open to half-open. Only one caller gets through; all others are blocked until the probe completes. halfOpenProbeTimeoutMs (default 30s) auto-resets to open state if the probe caller crashes or forgets to call recordSuccess/recordFailure, preventing permanently stuck half-open state.</rationale>
+      </decision>
+      <decision id="3">
+        <title>Key format: "provider:model" with buildKey() helper</title>
+        <rationale>Granular per-model tracking allows the same provider with different models to have independent health states (e.g., "openrouter:z-ai/z1-mini" vs "openrouter:anthropic/claude-opus-4"). Static buildKey() centralizes key construction for consistency across ProviderChain (Story 9-5) and other consumers.</rationale>
+      </decision>
+      <decision id="4">
+        <title>IProviderHealthTracker interface for dependency inversion</title>
+        <rationale>ProviderChain (Story 9-5) depends on the IProviderHealthTracker interface, not the concrete ProviderHealthTracker class. This follows the interface-based design pattern from the architecture and enables testing with mock implementations.</rationale>
+      </decision>
+      <decision id="5">
+        <title>Non-retryable errors excluded from circuit breaker</title>
+        <rationale>ProviderError instances with retryable === false indicate configuration or caller problems (e.g., invalid API key, unsupported model), not provider health issues. Counting them would incorrectly trip the circuit breaker for problems that won't be resolved by trying a different provider instance.</rationale>
+      </decision>
+      <decision id="6">
+        <title>getStatus() returns Record, not Map</title>
+        <rationale>Record&lt;string, HealthStatusEntry&gt; is JSON-serializable, making it compatible with API responses, logging, and diagnostics without conversion. Map requires explicit serialization.</rationale>
+      </decision>
+    </design-decisions>
+  </technical-context>
+
+  <task-breakdown>
+    <task id="1" file="9-3-provider-health-tracker-task-1.md">
+      <title>Extract Shared Error Factory</title>
+      <description>Create errors.ts with createProviderError() (with optional context/retryAfter params) and isProviderError() (with severity check), write unit tests</description>
+    </task>
+    <task id="2" file="9-3-provider-health-tracker-task-2.md">
+      <title>Update Existing Providers to Use Shared Error Factory</title>
+      <description>Replace local createProviderError in openrouter-provider.ts and zen-mcp-provider.ts with imports from errors.ts. Run ALL provider tests.</description>
+    </task>
+    <task id="3" file="9-3-provider-health-tracker-task-3.md">
+      <title>Implement ProviderHealthTracker with Circuit Breaker</title>
+      <description>Add IProviderHealthTracker interface to types.ts. Build ProviderHealthTracker class implementing the interface with all enhancements: constructor validation, key validation, maxTrackedKeys, failureTimestamps cap, non-retryable error skip, already-open short-circuit, half-open probe timeout, onCircuitChange callback, reset/clear, static buildKey.</description>
+    </task>
+    <task id="4" file="9-3-provider-health-tracker-task-4.md">
+      <title>Implement getStatus() Reporting (Record, not Map) and Finalize Exports</title>
+      <description>Add getStatus() method returning Record&lt;string, HealthStatusEntry&gt;, update barrel exports including IProviderHealthTracker and HealthStatusEntry, write final tests, validate full provider test suite</description>
+    </task>
+  </task-breakdown>
+
+  <dependencies>
+    <dependency type="internal" direction="none">
+      <description>Story 9-3 has no upstream dependencies. It is in parallel Group 1 (no deps).</description>
+    </dependency>
+    <dependency type="downstream">
+      <story>9-5 (Provider Chain)</story>
+      <description>ProviderChain depends on IProviderHealthTracker interface (not concrete class) to skip unhealthy providers. Uses ProviderHealthTracker.buildKey() for key construction.</description>
+    </dependency>
+  </dependencies>
+
+  <references>
+    <reference type="story" url="docs/stories/epic-9/story-9-3/9-3-provider-health-tracker.md">Story 9-3 specification</reference>
+    <reference type="epic" url="docs/stories/epic-9/README.md">Epic 9 README with dependency order</reference>
+    <reference type="overview" url="docs/stories/epic-9/story-9-0/9-0-overview.md">Epic 9 overview and architecture</reference>
+    <reference type="source" url="packages/providers/src/openrouter-provider.ts">OpenRouter provider with local createProviderError</reference>
+    <reference type="source" url="packages/providers/src/zen-mcp-provider.ts">Zen MCP provider with local createProviderError</reference>
+    <reference type="source" url="packages/providers/src/types.ts">ProviderError interface and PROVIDER_ERROR_CODES</reference>
+    <reference type="downstream" url="docs/stories/epic-9/story-9-5/9-5-provider-chain.md">Story 9-5 ProviderChain (depends on IProviderHealthTracker interface)</reference>
+    <reference type="process" url="BEFORE_YOU_CODE.md">Mandatory process: Before You Code</reference>
+    <reference type="knowledge-base" url=".dev/README.md">Knowledge Base: Search spikes, bugs, findings, decisions</reference>
+  </references>
+</story-context>

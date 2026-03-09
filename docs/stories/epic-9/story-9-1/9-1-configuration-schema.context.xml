@@ -1,0 +1,154 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-1</storyId>
+    <title>Multi-Agent Configuration Schema</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-1/9-1-configuration-schema.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>to configure provider chains per agent role, map workflow phases to roles, and set per-role prompts/tools/budgets</iWant>
+    <soThat>I can run multi-agent workflows with different AI providers per role while maintaining backward compatibility with the existing single-agent config</soThat>
+    <tasks>
+      <task id="1" title="Define agent configuration types">
+        - [ ] Create `packages/shared/src/types/agent-config.ts`
+        - [ ] Define `WorkflowPhase` union type with 8 phases
+        - [ ] Define `DEFAULT_PHASE_ROLE_MAP` constant mapping phases to `AgentType`
+        - [ ] Define `ProviderChainEntry` interface (provider, model, apiKey, config)
+        - [ ] Define `AgentRoleConfig` interface (providerChain, allowedTools, maxBudgetUsd, permissionMode, systemPrompt, providerPrompts)
+        - [ ] Define `AgentsConfig` interface (defaults, roles, phaseRoleMap)
+        - [ ] Define `SecurityConfig` interface (sanitizeContent, validateUrls, gateActions, maxFetchSizeBytes, blockedCommandPatterns)
+        - [ ] Import `AgentType` from `./knowledge.js`
+      </task>
+      <task id="2" title="Extend TammaConfig with new optional fields">
+        - [ ] Add `agents?: AgentsConfig` to `TammaConfig` in `packages/shared/src/types/index.ts`
+        - [ ] Add `security?: SecurityConfig` to `TammaConfig`
+        - [ ] Keep existing `agent: AgentConfig` as required field (backward compatibility)
+        - [ ] Add import for `AgentsConfig` and `SecurityConfig` from `./agent-config.js`
+      </task>
+      <task id="3" title="Fix mergeConfig() to propagate optional fields">
+        - [ ] Update `mergeConfig()` in `packages/cli/src/config.ts` to propagate `agents`
+        - [ ] Propagate `security` field through merge
+        - [ ] Propagate `aiProviders` field through merge
+        - [ ] Propagate `defaultProvider` field through merge
+        - [ ] Propagate `elsa` field through merge
+        - [ ] Propagate `server` field through merge
+        - [ ] Verify merge precedence: env > CLI > config file > defaults
+      </task>
+      <task id="4" title="Implement normalizeAgentsConfig() with legacy provider mapping">
+        - [ ] Define `LEGACY_PROVIDER_MAP` constant mapping `AIProviderType` to provider chain names
+        - [ ] Map `'anthropic'` to `'claude-code'`
+        - [ ] Map `'openai'` to `'openrouter'`
+        - [ ] Map `'local'` to `'openrouter'`
+        - [ ] Implement `normalizeAgentsConfig(config: TammaConfig): AgentsConfig`
+        - [ ] Return `config.agents` directly if already set
+        - [ ] Fall back to deriving `AgentsConfig` from legacy `config.agent` field
+        - [ ] Export function from `packages/cli/src/config.ts`
+      </task>
+      <task id="5" title="Add environment variable support for security config">
+        - [ ] Add `TAMMA_SANITIZE_CONTENT` env var support (boolean)
+        - [ ] Add `TAMMA_VALIDATE_URLS` env var support (boolean)
+        - [ ] Add `TAMMA_GATE_ACTIONS` env var support (boolean)
+        - [ ] Add `TAMMA_MAX_FETCH_SIZE_BYTES` env var support (integer)
+        - [ ] Add `TAMMA_AGENT_PROVIDER` env var support (maps to `agent.provider`)
+        - [ ] Update `loadEnvConfig()` in `packages/cli/src/config.ts`
+        - [ ] Re-export new types from `packages/shared/src/index.ts`
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">New types file `packages/shared/src/types/agent-config.ts` compiles under strict TypeScript with WorkflowPhase, DEFAULT_PHASE_ROLE_MAP, ProviderChainEntry, AgentRoleConfig, AgentsConfig, and SecurityConfig</criterion>
+    <criterion id="2">`TammaConfig` in `packages/shared/src/types/index.ts` has `agents?: AgentsConfig` and `security?: SecurityConfig` while keeping `agent: AgentConfig` required</criterion>
+    <criterion id="3">`mergeConfig()` in `packages/cli/src/config.ts` preserves all optional top-level fields (agents, security, aiProviders, defaultProvider, elsa, server) through config layering</criterion>
+    <criterion id="4">`normalizeAgentsConfig()` returns `config.agents` when present; otherwise derives AgentsConfig from legacy `config.agent` using LEGACY_PROVIDER_MAP</criterion>
+    <criterion id="5">`normalizeAgentsConfig()` maps `provider: 'anthropic'` to chain entry `{ provider: 'claude-code' }` and `provider: 'openai'` to `{ provider: 'openrouter' }`</criterion>
+    <criterion id="6">Environment variables `TAMMA_SANITIZE_CONTENT`, `TAMMA_VALIDATE_URLS`, `TAMMA_GATE_ACTIONS`, `TAMMA_MAX_FETCH_SIZE_BYTES` populate `SecurityConfig`</criterion>
+    <criterion id="7">Environment variable `TAMMA_AGENT_PROVIDER` sets `agent.provider` for legacy config path</criterion>
+    <criterion id="8">All new types are re-exported from `packages/shared/src/index.ts`</criterion>
+    <criterion id="9">`pnpm --filter @tamma/shared run typecheck` passes</criterion>
+    <criterion id="10">`pnpm vitest run packages/shared/src/types/agent-config` passes with unit tests covering type exports, DEFAULT_PHASE_ROLE_MAP, normalizeAgentsConfig, and env var parsing</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-1/9-1-configuration-schema.md">Story specification with full type definitions and code snippets</doc>
+      <doc path="docs/architecture.md">Technical architecture (TammaConfig, event sourcing, naming conventions)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, naming conventions</doc>
+    </docs>
+    <code>
+      <file path="packages/shared/src/types/index.ts" action="modify">TammaConfig interface -- add agents? and security? fields</file>
+      <file path="packages/shared/src/types/knowledge.ts" action="reference">AgentType union type used by AgentsConfig roles</file>
+      <file path="packages/cli/src/config.ts" action="modify">mergeConfig(), loadEnvConfig(), add normalizeAgentsConfig()</file>
+      <file path="packages/shared/src/index.ts" action="modify">Barrel re-exports for new types</file>
+      <file path="packages/shared/src/types/agent-config.ts" action="create">New types file: WorkflowPhase, ProviderChainEntry, AgentRoleConfig, AgentsConfig, SecurityConfig</file>
+      <file path="packages/shared/src/types/agent-config.test.ts" action="create">Unit tests for new types and normalizeAgentsConfig()</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">Shared types package (workspace dependency)</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="backward-compatibility">`agent: AgentConfig` must remain required in TammaConfig; existing configs with only `agent` must continue to work</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; interfaces use I-prefix; types use PascalCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="imports">Import AgentType from './knowledge.js' (not re-declare); use .js extensions in import paths for ESM</constraint>
+    <constraint type="security">No API keys or secrets in default config values or test fixtures</constraint>
+    <constraint type="immutability">normalizeAgentsConfig() must not mutate the input config object</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="AgentType" source="packages/shared/src/types/knowledge.ts">
+      <description>Union type of agent roles: 'scrum_master' | 'architect' | 'researcher' | 'analyst' | 'planner' | 'implementer' | 'reviewer' | 'tester' | 'documenter'</description>
+    </interface>
+    <interface name="TammaConfig" source="packages/shared/src/types/index.ts">
+      <description>Root configuration interface with mode, logLevel, github, agent, engine, and optional fields</description>
+    </interface>
+    <interface name="AgentConfig" source="packages/shared/src/types/index.ts">
+      <description>Legacy single-agent config with model, provider?, maxBudgetUsd, allowedTools, permissionMode</description>
+    </interface>
+    <interface name="AIProviderType" source="packages/shared/src/types/index.ts">
+      <description>Legacy provider type union: 'anthropic' | 'openai' | 'local'</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/shared/src/types/agent-config.test.ts">Unit tests for type exports and DEFAULT_PHASE_ROLE_MAP</location>
+      <location path="packages/cli/src/config.test.ts">Unit tests for mergeConfig(), normalizeAgentsConfig(), loadEnvConfig() changes (extend existing)</location>
+    </locations>
+    <ideas>
+      <idea>Verify all 8 WorkflowPhase values are present in DEFAULT_PHASE_ROLE_MAP</idea>
+      <idea>Verify DEFAULT_PHASE_ROLE_MAP values are valid AgentType values</idea>
+      <idea>Test normalizeAgentsConfig() with only legacy `agent` field returns correct provider chain</idea>
+      <idea>Test normalizeAgentsConfig() with `agents` field returns it directly without modification</idea>
+      <idea>Test LEGACY_PROVIDER_MAP maps 'anthropic' -> 'claude-code', 'openai' -> 'openrouter', 'local' -> 'openrouter'</idea>
+      <idea>Test mergeConfig() preserves agents/security when only base has them</idea>
+      <idea>Test mergeConfig() overrides agents/security when override provides them</idea>
+      <idea>Test mergeConfig() does not inject undefined fields when neither base nor override has optional fields</idea>
+      <idea>Test loadEnvConfig() with TAMMA_SANITIZE_CONTENT=true sets securityConfig.sanitizeContent=true</idea>
+      <idea>Test loadEnvConfig() with TAMMA_SANITIZE_CONTENT=false sets securityConfig.sanitizeContent=false</idea>
+      <idea>Test loadEnvConfig() ignores invalid TAMMA_SANITIZE_CONTENT values (e.g., 'yes')</idea>
+      <idea>Test loadEnvConfig() with TAMMA_MAX_FETCH_SIZE_BYTES=1048576 parses to number</idea>
+      <idea>Test loadEnvConfig() ignores non-numeric TAMMA_MAX_FETCH_SIZE_BYTES</idea>
+      <idea>Test loadEnvConfig() with TAMMA_AGENT_PROVIDER=anthropic sets agent.provider</idea>
+      <idea>Test loadEnvConfig() ignores invalid TAMMA_AGENT_PROVIDER values</idea>
+      <idea>Test full config layering: defaults -> file config with agents -> env security overrides</idea>
+      <idea>Test example JSON config from story spec parses correctly as Partial&lt;TammaConfig&gt;</idea>
+    </ideas>
+  </tests>
+</story-context>

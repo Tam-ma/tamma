@@ -1,0 +1,186 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-9</storyId>
+    <title>Engine Integration</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-9/9-9-engine-integration.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>the TammaEngine to use IRoleBasedAgentResolver (interface) for phase-aware agent selection instead of a single hardcoded agent</iWant>
+    <soThat>different AI providers and configurations can be used for planning vs implementation phases while maintaining backward compatibility with existing single-agent setups</soThat>
+    <tasks>
+      <task id="1" title="Make EngineContext.agent optional and add agentResolver">
+        - [ ] Update `EngineContext` interface: make `agent` optional (`agent?: IAgentProvider`)
+        - [ ] Add `agentResolver?: IRoleBasedAgentResolver` field to `EngineContext` (import type from `@tamma/providers`)
+        - [ ] Update private field declaration: `private readonly agent: IAgentProvider | undefined`
+        - [ ] Add private field: `private readonly agentResolver: IRoleBasedAgentResolver | undefined`
+        - [ ] Add private field: `private readonly engineId = randomUUID()` (import from `node:crypto`)
+        - [ ] Add constructor validation: throw `EngineError('Either agent or agentResolver must be provided in EngineContext')` if neither is provided
+        - [ ] Add constructor WARN log when both `agent` and `agentResolver` are provided: "Both agent and agentResolver provided; resolver takes precedence for phase resolution"
+        - [ ] Assign `this.agent = ctx.agent` and `this.agentResolver = ctx.agentResolver` in constructor
+      </task>
+      <task id="2" title="Update initialize() and dispose() guards">
+        - [ ] Guard `initialize()`: only call `this.agent.isAvailable()` when `this.agent` exists
+        - [ ] In `initialize()`: add warning when resolver mode is used: `this.logger.warn('Using resolver mode — ensure content sanitizer is configured in resolver options')`
+        - [ ] Update `initialize()` log: use `this.config.agent?.model ?? 'resolver-mode'` for model field
+        - [ ] Guard `dispose()`: only call `this.agent.dispose()` when `this.agent` exists
+        - [ ] In `dispose()`: call `await this.agentResolver?.dispose()` to clear cached chains
+        - [ ] Ensure `this.platform.dispose()` is always called in `dispose()`
+      </task>
+      <task id="3" title="Implement getAgentForPhase() and getEngineTaskOverrides()">
+        - [ ] Add `private async getAgentForPhase(phase: WorkflowPhase): Promise&lt;IAgentProvider&gt;` method
+        - [ ] When `this.agentResolver` exists, wrap call in try/catch: catch errors, log with `this.logger.error()`, and re-throw as `EngineError`
+        - [ ] When no resolver, replace `this.agent!` non-null assertion with runtime guard: throw `EngineError('No agent available: neither agentResolver nor agent is configured')` if `this.agent` is falsy
+        - [ ] Add `private getEngineTaskOverrides(): Partial&lt;AgentTaskConfig&gt;` method
+        - [ ] Return empty object when `this.config.agent` is undefined
+        - [ ] Return `{ model, maxBudgetUsd, allowedTools, permissionMode }` from `this.config.agent` when present
+        - [ ] Note: `projectId` uses `config.github.owner/repo` (platform-specific); future work should use `this.platform.getProjectId()`
+      </task>
+      <task id="4" title="Update generatePlan() and implementCode() for resolver mode">
+        - [ ] In `generatePlan()`: replace `this.agent.executeTask(...)` with resolver-aware pattern
+        - [ ] Get agent via `await this.getAgentForPhase('PLAN_GENERATION')`
+        - [ ] Pass engine overrides through resolver clamping: `this.agentResolver?.getTaskConfig('architect', this.getEngineTaskOverrides()) ?? {}`
+        - [ ] Use explicit field allowlisting on resolver config: only pick `allowedTools`, `maxBudgetUsd`, `permissionMode` (no arbitrary fields)
+        - [ ] Merge task config: `{ ...safeResolverConfig, prompt, cwd }` — engine always sets prompt and cwd
+        - [ ] Wrap agent usage in try/finally with `await agent.dispose()` in finally block
+        - [ ] Call `agent.executeTask(taskConfig, onProgress)`
+        - [ ] In `implementCode()`: same pattern with `'CODE_GENERATION'` phase and `'implementer'` role
+        - [ ] Pass engine overrides through resolver clamping: `this.agentResolver?.getTaskConfig('implementer', this.getEngineTaskOverrides()) ?? {}`
+        - [ ] Wrap agent usage in try/finally with `await agent.dispose()` in finally block
+        - [ ] Preserve all existing prompt construction, JSON parsing, cost tracking, and event recording
+      </task>
+      <task id="5" title="Add backward compatibility tests">
+        - [ ] Verify existing tests still pass with single `agent` (no `agentResolver`)
+        - [ ] Test constructor throws with message `'Either agent or agentResolver must be provided in EngineContext'` when neither provided
+        - [ ] Test constructor logs WARN when both `agent` and `agentResolver` provided
+        - [ ] Test `initialize()` with `agentResolver` only: does not call `isAvailable()`
+        - [ ] Test `initialize()` with both: still validates single agent's availability
+        - [ ] Test `dispose()` with `agentResolver` only: does not call `agent.dispose()`, does not throw
+        - [ ] Test `dispose()` calls `agentResolver.dispose()` to clear cached chains
+        - [ ] Test `generatePlan()` uses `PLAN_GENERATION` phase, gets architect role from resolver
+        - [ ] Test `generatePlan()` disposes agent after use (try/finally)
+        - [ ] Test `implementCode()` uses `CODE_GENERATION` phase, gets implementer role from resolver
+        - [ ] Test `implementCode()` disposes agent after use (try/finally)
+        - [ ] Test task config merge: engine overrides passed through resolver's `getTaskConfig(role, overrides)` for clamping
+        - [ ] Test task config uses explicit field allowlisting (only `allowedTools`, `maxBudgetUsd`, `permissionMode`)
+        - [ ] Test `config.agent?.model ?? 'resolver-mode'` logged correctly in both modes
+        - [ ] Test resolver error in `getAgentForPhase()` is caught, logged, and re-thrown as `EngineError`
+        - [ ] Test fallback path throws descriptive `EngineError` instead of non-null assertion
+        - [ ] Test events emitted during resolver mode include resolved agent/provider identity (not just 'unknown')
+        - [ ] Test task config merge with `permissionMode: 'default'` (not just bypassPermissions)
+        - [ ] Test mocks satisfy `IRoleBasedAgentResolver` interface directly (no `as unknown as RoleBasedAgentResolver` casts)
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">`EngineContext.agent` is optional (`agent?: IAgentProvider`) and `agentResolver?: IRoleBasedAgentResolver` is added (interface, not concrete class)</criterion>
+    <criterion id="2">Constructor throws `EngineError('Either agent or agentResolver must be provided in EngineContext')` when neither is provided</criterion>
+    <criterion id="3">`initialize()` skips `agent.isAvailable()` in resolver mode, logs `'resolver-mode'` for model, and warns about sanitizer configuration</criterion>
+    <criterion id="4">`dispose()` only calls `agent.dispose()` when agent exists; calls `agentResolver.dispose()` when resolver exists; does not throw in resolver-only mode</criterion>
+    <criterion id="5">`getAgentForPhase(phase)` resolves agent via `agentResolver.getAgentForPhase()` when resolver exists, with try/catch error handling; falls back with runtime guard (no non-null assertion)</criterion>
+    <criterion id="6">`generatePlan()` uses `PLAN_GENERATION` phase, merges resolver config with engine overrides via clamping, uses field allowlisting, and disposes agent after use</criterion>
+    <criterion id="7">`implementCode()` uses `CODE_GENERATION` phase, merges resolver config with engine overrides via clamping, uses field allowlisting, and disposes agent after use</criterion>
+    <criterion id="8">Task config merge: engine overrides passed through resolver's `getTaskConfig(role, overrides)` for clamping; only `allowedTools`, `maxBudgetUsd`, `permissionMode` picked from result; prompt/cwd always engine-controlled</criterion>
+    <criterion id="9">Existing tests pass unchanged (backward compatibility with single agent)</criterion>
+    <criterion id="10">New tests cover resolver-only mode: initialize, dispose, generatePlan, implementCode, config merge, provider disposal, error handling, both-modes precedence, event audit identity, permissionMode variants</criterion>
+    <criterion id="11">When both `agent` and `agentResolver` provided: resolver takes precedence for `getAgentForPhase()`; WARN logged; single agent still validated in `initialize()`</criterion>
+    <criterion id="12">`engineId` generated via `crypto.randomUUID()` from `node:crypto` (not timestamp-based)</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-9/9-9-engine-integration.md">Story specification with design, code snippets, and verification criteria</doc>
+      <doc path="docs/architecture.md">Technical architecture (event sourcing, naming conventions, error handling)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, import order, async/await rules</doc>
+    </docs>
+    <code>
+      <file path="packages/orchestrator/src/engine.ts" action="modify">EngineContext interface (line 33), constructor (line 89), initialize (line 101), dispose (line 114), generatePlan (line 406), implementCode (line 646) -- add resolver support</file>
+      <file path="packages/orchestrator/src/engine.test.ts" action="modify">Add test suites for resolver-only mode: constructor validation, initialize guard, dispose guard, phase-aware resolution, config merge</file>
+      <file path="packages/providers/src/role-based-agent-resolver.ts" action="reference">RoleBasedAgentResolver class implementing IRoleBasedAgentResolver interface (Story 9-8 dependency) -- provides getAgentForPhase(), getTaskConfig(), and dispose()</file>
+      <file path="packages/shared/src/types/agent-config.ts" action="reference">WorkflowPhase type (Story 9-1 dependency) -- used by getAgentForPhase()</file>
+      <file path="packages/shared/src/types/index.ts" action="reference">TammaConfig, AgentConfig types</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/providers" type="internal">IRoleBasedAgentResolver (interface), IAgentProvider</dependency>
+      <dependency name="@tamma/shared" type="internal">WorkflowPhase, TammaConfig, EngineState, EngineError</dependency>
+      <dependency name="@tamma/platforms" type="internal">IGitPlatform</dependency>
+      <dependency name="vitest" type="devDependency">Test runner</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="backward-compatibility">Existing single-agent EngineContext (with `agent` field, no `agentResolver`) must work without any changes to calling code</constraint>
+    <constraint type="backward-compatibility">All existing engine.test.ts tests must pass without modification</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; interfaces use I-prefix; types use PascalCase; constants use SCREAMING_SNAKE_CASE</constraint>
+    <constraint type="async">Always use async/await, never .then()/.catch()</constraint>
+    <constraint type="immutability">Task config merge must not mutate input objects -- always create new objects via spread</constraint>
+    <constraint type="no-pooling">Providers are NOT pooled; each getAgentForPhase() call creates a fresh provider (subprocess-based providers are stateful); providers MUST be disposed after each phase usage via try/finally</constraint>
+    <constraint type="dependency">Story 9-8 (RoleBasedAgentResolver) must be completed before this story</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="EngineContext" source="packages/orchestrator/src/engine.ts">
+      <description>Dependencies injected into TammaEngine at construction time. Contains config, platform, agent (now optional), agentResolver (new, typed as IRoleBasedAgentResolver interface), logger, eventStore, onStateChange, approvalHandler</description>
+    </interface>
+    <interface name="IAgentProvider" source="packages/providers/src/types.ts">
+      <description>Agent provider interface with executeTask(), isAvailable(), dispose()</description>
+    </interface>
+    <interface name="IRoleBasedAgentResolver" source="packages/providers/src/types.ts">
+      <description>Interface for resolving agent providers per workflow phase using configured role-provider mappings. Methods: getAgentForPhase(phase, context), getTaskConfig(role, taskOverrides?), dispose(). Engine uses this interface (not the concrete RoleBasedAgentResolver class) for dependency inversion.</description>
+    </interface>
+    <interface name="WorkflowPhase" source="packages/shared/src/types/agent-config.ts">
+      <description>Union type: 'ISSUE_SELECTION' | 'CONTEXT_ANALYSIS' | 'PLAN_GENERATION' | 'CODE_GENERATION' | 'PR_CREATION' | 'CODE_REVIEW' | 'TEST_EXECUTION' | 'STATUS_MONITORING'</description>
+    </interface>
+    <interface name="TammaConfig" source="packages/shared/src/types/index.ts">
+      <description>Root configuration interface. Has required `agent: AgentConfig` and optional `agents?: AgentsConfig`</description>
+    </interface>
+  </interfaces>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/orchestrator/src/engine.test.ts">Extend existing test file with new describe blocks for resolver mode</location>
+    </locations>
+    <ideas>
+      <idea>Test constructor with only `agent` -- should work as before</idea>
+      <idea>Test constructor with only `agentResolver` -- should work</idea>
+      <idea>Test constructor with both `agent` and `agentResolver` -- should work (resolver takes precedence for phase resolution), WARN logged</idea>
+      <idea>Test constructor with neither `agent` nor `agentResolver` -- should throw EngineError with message 'Either agent or agentResolver must be provided in EngineContext'</idea>
+      <idea>Test initialize() in resolver-only mode does not call isAvailable()</idea>
+      <idea>Test initialize() in resolver-only mode logs 'resolver-mode' as model</idea>
+      <idea>Test initialize() in single-agent mode still calls isAvailable() and logs actual model name</idea>
+      <idea>Test dispose() in resolver-only mode does not throw and does not call agent.dispose()</idea>
+      <idea>Test dispose() in resolver-only mode still calls platform.dispose()</idea>
+      <idea>Test generatePlan() in resolver mode calls getAgentForPhase('PLAN_GENERATION')</idea>
+      <idea>Test generatePlan() resolver mode calls getTaskConfig('architect') for resolver defaults</idea>
+      <idea>Test implementCode() in resolver mode calls getAgentForPhase('CODE_GENERATION')</idea>
+      <idea>Test implementCode() resolver mode calls getTaskConfig('implementer') for resolver defaults</idea>
+      <idea>Test task config merge: resolver provides allowedTools, engine overrides model, prompt always set by engine</idea>
+      <idea>Test task config merge: when no resolver config, engine overrides from config.agent are used alone</idea>
+      <idea>Test getEngineTaskOverrides() returns empty object when config.agent is undefined</idea>
+      <idea>Test full pipeline with resolver: processOneIssue() works end-to-end using resolver agents</idea>
+      <idea>Test resolver error in getAgentForPhase() is caught, logged, and re-thrown as EngineError</idea>
+      <idea>Test fallback path throws descriptive EngineError instead of non-null assertion crash</idea>
+      <idea>Test events emitted during resolver mode include resolved agent/provider identity (not just 'unknown')</idea>
+      <idea>Test task config merge with permissionMode: 'default' (not just bypassPermissions)</idea>
+      <idea>Test dispose() calls agentResolver.dispose() to clear cached chains</idea>
+      <idea>Test generatePlan() and implementCode() dispose agent after use (try/finally)</idea>
+      <idea>Test mock satisfies IRoleBasedAgentResolver interface directly (no `as unknown as RoleBasedAgentResolver` cast)</idea>
+      <idea>Test both-modes: when both agent and agentResolver provided, resolver takes precedence, WARN logged, single agent still validated</idea>
+    </ideas>
+  </tests>
+</story-context>

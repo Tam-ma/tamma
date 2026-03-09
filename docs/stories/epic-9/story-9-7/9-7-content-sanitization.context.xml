@@ -1,0 +1,265 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<story-context id="bmad/bmm/workflows/4-implementation/story-context" v="1.0">
+  <metadata>
+    <epicId>9</epicId>
+    <storyId>9-7</storyId>
+    <title>Content Sanitization</title>
+    <status>drafted</status>
+    <generatedAt>2026-03-08</generatedAt>
+    <generator>BMAD Story Context Workflow</generator>
+    <sourceStoryPath>docs/stories/epic-9/story-9-7/9-7-content-sanitization.md</sourceStoryPath>
+  </metadata>
+
+  <story>
+    <asA>platform operator or developer</asA>
+    <iWant>security primitives for sanitizing external content before it reaches LLM prompts, validating URLs against private networks, gating dangerous commands, and applying secure fetch with size limits</iWant>
+    <soThat>I can protect the autonomous development pipeline from prompt injection, SSRF attacks, and malicious content flowing through AI provider interactions</soThat>
+    <tasks>
+      <task id="1" title="Implement IContentSanitizer interface and ContentSanitizer class">
+        - [ ] Create `packages/shared/src/security/content-sanitizer.ts`
+        - [ ] Define `IContentSanitizer` interface with `sanitize()` and `sanitizeOutput()` methods
+        - [ ] Define `ContentSanitizerOptions` interface (enabled?, extraInjectionPatterns?, logger?)
+        - [ ] Implement `ContentSanitizer` class implementing `IContentSanitizer` with constructor accepting `ContentSanitizerOptions`
+        - [ ] Implement private `stripHtml()` using quote-aware state machine (NOT regex, NOT simple indexOf)
+        - [ ] Implement private `stripHtmlPreserveCode()` preserving ``` code blocks
+        - [ ] Implement private `removeZeroWidthChars()` covering 20+ invisible Unicode code points including bidi overrides (CVE-2021-42574)
+        - [ ] Implement private `detectPromptInjection()` with 5 pattern categories + NFKD normalization
+        - [ ] When `options.enabled === false`, still remove null bytes but skip HTML stripping and injection detection
+        - [ ] Never throw -- return warnings for suspicious content
+        - [ ] Create unit tests in `packages/shared/src/security/content-sanitizer.test.ts`
+      </task>
+      <task id="2" title="Implement URL validator with numeric octet parsing and IPv6 support">
+        - [ ] Create `packages/shared/src/security/url-validator.ts`
+        - [ ] Define module-scope `BLOCKED_HOSTS` Set (including `metadata.google.internal`, `host.docker.internal`)
+        - [ ] Implement `isPrivateHost()` using numeric octet parsing (NOT regex) for RFC 1918 ranges
+        - [ ] Block 0.0.0.0/8, 10.0.0.0/8, 172.16.0.0/12, 192.168.0.0/16, 127.0.0.0/8, 169.254.0.0/16
+        - [ ] Handle bracketed IPv6: `[::1]`, `[::ffff:x.x.x.x]` (IPv6-mapped IPv4 with recursive check)
+        - [ ] Block IPv6 private ranges: fc00::/7 (unique local), fe80::/10 (link-local)
+        - [ ] Non-IPv4 hostnames (e.g. evil.com) pass through (not blocked)
+        - [ ] Implement `validateUrl()` checking protocol allowlist and private host detection
+        - [ ] Truncate URL in error messages to max 200 chars (prevent information leakage)
+        - [ ] Allowed protocols: http:, https:, ws:, wss:
+        - [ ] Create unit tests in `packages/shared/src/security/url-validator.test.ts`
+      </task>
+      <task id="3" title="Implement action gating with shell metacharacter normalization">
+        - [ ] Create `packages/shared/src/security/action-gating.ts`
+        - [ ] Define `DEFAULT_BLOCKED_COMMANDS` constant (dangerous shell commands + shell metacharacters)
+        - [ ] Define `ActionGateOptions` interface (extraPatterns?, replaceDefaults?)
+        - [ ] Implement `evaluateAction()` with case-insensitive substring matching (NOT regex — no ReDoS risk)
+        - [ ] Normalize whitespace before matching (`trim().toLowerCase().replace(/\s+/g, ' ')`)
+        - [ ] Include shell metacharacter bypass-prevention patterns (`| sh`, `| bash`, `| eval`, `base64 -d |`, `$(`, backtick)
+        - [ ] Security: reason messages must NOT reveal which pattern matched ("Command blocked by security policy")
+        - [ ] Clarification: blockedCommandPatterns are case-insensitive substrings, not regex (Story 9-1 alignment note)
+        - [ ] Create unit tests in `packages/shared/src/security/action-gating.test.ts`
+      </task>
+      <task id="4" title="Implement secure fetch with streaming body read and manual redirect handling">
+        - [ ] Create `packages/shared/src/security/secure-fetch.ts`
+        - [ ] Implement `secureFetch()` combining URL validation + streaming size limit + manual redirect re-validation
+        - [ ] Validate URL before fetch, reject private hosts
+        - [ ] Use `redirect: 'manual'` and re-validate Location header on 301/302/307/308 (max 5 redirect hops)
+        - [ ] Read body via `response.body` ReadableStream with running byte counter; abort via AbortController on size exceed
+        - [ ] Do NOT use `response.text()` or `response.arrayBuffer()` — stream only
+        - [ ] Check Content-Type allowlist (`['text/', 'application/json', 'application/xml']`) before reading body
+        - [ ] Reject non-text responses before reading body
+        - [ ] Create unit tests in `packages/shared/src/security/secure-fetch.test.ts`
+      </task>
+      <task id="5" title="Implement SecureAgentProvider decorator with IContentSanitizer">
+        - [ ] Create `packages/providers/src/secure-agent-provider.ts`
+        - [ ] Implement `SecureAgentProvider` class implementing `IAgentProvider`
+        - [ ] Constructor accepts inner `IAgentProvider`, `IContentSanitizer` (interface, not concrete class), optional `ILogger`
+        - [ ] `executeTask()` sanitizes `config.prompt` pre-call, sanitizes `taskResult.output` and `taskResult.error` post-call
+        - [ ] Sanitized fields: config.prompt (input), taskResult.output (output), taskResult.error (output)
+        - [ ] NOT sanitized (by design): config.cwd, config.allowedTools, config.permissionMode
+        - [ ] `isAvailable()` and `dispose()` delegate to inner provider
+        - [ ] Create barrel export `packages/shared/src/security/index.ts` (exports `IContentSanitizer`)
+        - [ ] Modify `packages/shared/src/index.ts` to export security barrel
+        - [ ] Create unit tests in `packages/providers/src/secure-agent-provider.test.ts`
+      </task>
+    </tasks>
+  </story>
+
+  <acceptanceCriteria>
+    <criterion id="1">HTML stripped from input content using quote-aware state machine (handles quoted `>` in attributes correctly)</criterion>
+    <criterion id="2">Zero-width and invisible character removal covers at minimum 20+ Unicode code points including bidi overrides (CVE-2021-42574) and soft hyphens</criterion>
+    <criterion id="3">Prompt injection patterns detected across 5 categories (instruction override, role hijacking, system prompt extraction, delimiter injection, encoding evasion) and returned as warnings (never throws)</criterion>
+    <criterion id="4">`detectPromptInjection` applies Unicode NFKD normalization before pattern matching</criterion>
+    <criterion id="5">Private IPs rejected via numeric octet parsing: 0.x.x.x, 10.x.x.x, 172.16-31.x.x, 192.168.x.x, 127.x.x.x, 169.254.x.x</criterion>
+    <criterion id="6">`isPrivateHost()` handles IPv6-mapped IPv4 (`[::ffff:127.0.0.1]`), bracketed IPv6, and IPv6 private ranges (fc00::/7, fe80::/10)</criterion>
+    <criterion id="7">`isPrivateHost()` does NOT use regex -- uses integer comparison on parsed octets</criterion>
+    <criterion id="8">`BLOCKED_HOSTS` at module scope includes cloud metadata hostnames (`metadata.google.internal`, `host.docker.internal`)</criterion>
+    <criterion id="9">Non-IPv4 hostnames (e.g. `evil.com`) pass through to DNS (not blocked by isPrivateHost)</criterion>
+    <criterion id="10">`IContentSanitizer` interface exported; `ContentSanitizer` implements it and accepts `ContentSanitizerOptions`</criterion>
+    <criterion id="11">When `SecurityConfig.sanitizeContent === false` (options.enabled === false), null bytes still removed but HTML stripping and injection detection skipped</criterion>
+    <criterion id="12">`SecureAgentProvider` accepts `IContentSanitizer` (interface, not concrete class) and wraps any `IAgentProvider`</criterion>
+    <criterion id="13">`SecureAgentProvider` sanitizes `taskResult.error` in addition to `taskResult.output`</criterion>
+    <criterion id="14">`SecureAgentProvider` delegates `isAvailable()` and `dispose()` to inner provider</criterion>
+    <criterion id="15">`secureFetch()` uses `redirect: 'manual'`, re-validates Location header (max 5 hops), streams body via ReadableStream with byte counter</criterion>
+    <criterion id="16">`secureFetch()` checks Content-Type allowlist before reading body; rejects non-text responses</criterion>
+    <criterion id="17">`evaluateAction()` uses case-insensitive substring matching (not regex) with `ActionGateOptions` (extraPatterns extends defaults, replaceDefaults replaces them)</criterion>
+    <criterion id="18">`evaluateAction()` normalizes whitespace and blocks shell metacharacter bypass patterns</criterion>
+    <criterion id="19">`evaluateAction()` reason does not reveal which pattern matched (says "Command blocked by security policy")</criterion>
+    <criterion id="20">`validateUrl()` truncates URL in error messages to max 200 chars</criterion>
+    <criterion id="21">All new security exports (including `IContentSanitizer`) available from `@tamma/shared` via barrel</criterion>
+    <criterion id="22">`pnpm --filter @tamma/shared run typecheck` passes</criterion>
+    <criterion id="23">All unit tests pass with 80%+ line coverage</criterion>
+  </acceptanceCriteria>
+
+  <artifacts>
+    <docs>
+      <doc path="docs/stories/epic-9/story-9-7/9-7-content-sanitization.md">Story specification with full type definitions and code snippets</doc>
+      <doc path="docs/stories/epic-9/README.md">Epic 9 overview with dependency graph showing Story 7 in parallel Group 1</doc>
+      <doc path="docs/architecture.md">Technical architecture (security requirements, naming conventions)</doc>
+      <doc path="CLAUDE.md">Project coding standards, TypeScript strict mode, naming conventions</doc>
+    </docs>
+    <code>
+      <file path="packages/shared/src/security/content-sanitizer.ts" action="create">IContentSanitizer interface, ContentSanitizerOptions, ContentSanitizer class with sanitize(), sanitizeOutput(), quote-aware stripHtml, 20+ invisible char removal, 5-category prompt injection detection with NFKD normalization</file>
+      <file path="packages/shared/src/security/url-validator.ts" action="create">validateUrl() and isPrivateHost() with numeric octet parsing, IPv6-mapped IPv4 handling, bracketed IPv6, module-scope BLOCKED_HOSTS with cloud metadata hostnames, URL truncation in error messages</file>
+      <file path="packages/shared/src/security/action-gating.ts" action="create">evaluateAction() with ActionGateOptions, DEFAULT_BLOCKED_COMMANDS with shell metacharacter patterns, whitespace normalization, non-revealing reason messages</file>
+      <file path="packages/shared/src/security/secure-fetch.ts" action="create">secureFetch() with URL validation, streaming body read via ReadableStream with byte counter, manual redirect handling (max 5 hops), Content-Type allowlist</file>
+      <file path="packages/shared/src/security/index.ts" action="create">Barrel export for all security modules (includes IContentSanitizer interface export)</file>
+      <file path="packages/shared/src/index.ts" action="modify">Add export for security barrel</file>
+      <file path="packages/providers/src/secure-agent-provider.ts" action="create">SecureAgentProvider decorator wrapping IAgentProvider, accepts IContentSanitizer interface, sanitizes prompt + output + error</file>
+      <file path="packages/shared/src/security/content-sanitizer.test.ts" action="create">Unit tests for ContentSanitizer</file>
+      <file path="packages/shared/src/security/url-validator.test.ts" action="create">Unit tests for URL validator</file>
+      <file path="packages/shared/src/security/action-gating.test.ts" action="create">Unit tests for action gating</file>
+      <file path="packages/shared/src/security/secure-fetch.test.ts" action="create">Unit tests for secure fetch</file>
+      <file path="packages/providers/src/secure-agent-provider.test.ts" action="create">Unit tests for SecureAgentProvider decorator</file>
+    </code>
+    <dependencies>
+      <dependency name="@tamma/shared" type="internal">Shared types and security utilities (workspace dependency)</dependency>
+      <dependency name="@tamma/providers" type="internal">Provider package containing IAgentProvider interface</dependency>
+      <dependency name="vitest" type="devDependency">Test runner for unit tests</dependency>
+    </dependencies>
+  </artifacts>
+
+  <constraints>
+    <constraint type="no-regex-ip">isPrivateHost() must use numeric octet parsing with parseInt/integer comparison, NOT regex for RFC 1918 range detection</constraint>
+    <constraint type="no-regex-html">stripHtml() must use quote-aware state machine for tag removal (NOT regex, NOT simple indexOf that fails on quoted > in attributes)</constraint>
+    <constraint type="class-not-functions">ContentSanitizer must be a class implementing IContentSanitizer interface (not free functions) because it holds configuration state (ContentSanitizerOptions) and SecureAgentProvider holds an instance</constraint>
+    <constraint type="dip-interface">SecureAgentProvider and Story 9-8 RoleBasedAgentResolver must accept IContentSanitizer (interface), not ContentSanitizer (concrete class)</constraint>
+    <constraint type="substring-not-regex">blockedCommandPatterns in evaluateAction() use case-insensitive substring matching, NOT regex (no ReDoS risk). Story 9-1 to be updated to align.</constraint>
+    <constraint type="never-throws">ContentSanitizer.sanitize() and sanitizeOutput() never throw -- return warnings array for suspicious content</constraint>
+    <constraint type="typescript">All code must compile under TypeScript strict mode (strict: true, noImplicitAny, noImplicitReturns)</constraint>
+    <constraint type="naming">Files use kebab-case; classes use PascalCase; constants use SCREAMING_SNAKE_CASE; private methods use _ prefix convention or TypeScript private keyword</constraint>
+    <constraint type="imports">Use .js extensions in import paths for ESM; use import type where applicable</constraint>
+    <constraint type="immutability">SecureAgentProvider must create new config/result objects, never mutate input</constraint>
+    <constraint type="migration">New url-validator.ts generalizes mcp-client/src/security/validator.ts but migration is tracked separately (not done in this story)</constraint>
+  </constraints>
+
+  <interfaces>
+    <interface name="IAgentProvider" source="packages/providers/src/agent-types.ts">
+      <description>Agent provider interface with executeTask(config, onProgress?), isAvailable(), dispose()</description>
+      <methods>
+        <method name="executeTask" signature="(config: AgentTaskConfig, onProgress?: AgentProgressCallback) => Promise&lt;AgentTaskResult&gt;" />
+        <method name="isAvailable" signature="() => Promise&lt;boolean&gt;" />
+        <method name="dispose" signature="() => Promise&lt;void&gt;" />
+      </methods>
+    </interface>
+    <interface name="AgentTaskConfig" source="packages/providers/src/agent-types.ts">
+      <description>Task config with prompt, cwd, model?, maxBudgetUsd?, allowedTools?, permissionMode?, outputFormat?, sessionId?</description>
+    </interface>
+    <interface name="AgentTaskResult" source="packages/shared/src/types/index.ts">
+      <description>Task result with success, output, costUsd, durationMs, error?</description>
+    </interface>
+    <interface name="ILogger" source="packages/shared/src/contracts/index.ts">
+      <description>Logger interface used throughout the platform with warn(), error(), info(), debug() methods</description>
+    </interface>
+  </interfaces>
+
+  <codeReferences>
+    <reference path="packages/mcp-client/src/security/validator.ts" relevance="high">
+      <description>Existing validateTransportUrl() and inline isPrivateIP logic that the new url-validator.ts generalizes. Contains blockedHosts Set, protocol allowlist, and regex-based private IP detection (172.16-31 range). The new implementation replaces regex with numeric octet parsing.</description>
+      <migrationNote>After this story, mcp-client should be updated to import from @tamma/shared/security instead of using local validator.ts. This migration is tracked separately.</migrationNote>
+    </reference>
+    <reference path="packages/providers/src/agent-types.ts" relevance="high">
+      <description>IAgentProvider interface that SecureAgentProvider wraps. Also defines AgentTaskConfig (with prompt field to sanitize) and AgentProgressCallback.</description>
+    </reference>
+    <reference path="packages/shared/src/index.ts" relevance="medium">
+      <description>Barrel export file for @tamma/shared package. Must be modified to add security barrel export.</description>
+    </reference>
+    <reference path="packages/shared/src/types/index.ts" relevance="medium">
+      <description>Contains AgentTaskResult interface (success, output, costUsd, durationMs, error?) used by SecureAgentProvider return type.</description>
+    </reference>
+  </codeReferences>
+
+  <tests>
+    <standards>
+      <standard>Vitest 3.x as test runner</standard>
+      <standard>Colocated test files (*.test.ts alongside source)</standard>
+      <standard>80% line coverage, 75% branch coverage, 85% function coverage</standard>
+      <standard>TDD: write tests before or alongside implementation</standard>
+      <standard>Mock external dependencies; no real API calls in unit tests</standard>
+    </standards>
+    <locations>
+      <location path="packages/shared/src/security/content-sanitizer.test.ts">Unit tests for ContentSanitizer class</location>
+      <location path="packages/shared/src/security/url-validator.test.ts">Unit tests for validateUrl() and isPrivateHost()</location>
+      <location path="packages/shared/src/security/action-gating.test.ts">Unit tests for evaluateAction() and DEFAULT_BLOCKED_COMMANDS</location>
+      <location path="packages/shared/src/security/secure-fetch.test.ts">Unit tests for secureFetch()</location>
+      <location path="packages/providers/src/secure-agent-provider.test.ts">Unit tests for SecureAgentProvider decorator</location>
+    </locations>
+    <ideas>
+      <idea>Test stripHtml removes &lt;script&gt;, &lt;img&gt;, &lt;div&gt; tags from input</idea>
+      <idea>Test stripHtml handles nested tags and self-closing tags</idea>
+      <idea>Test stripHtml handles malformed HTML (unclosed tags)</idea>
+      <idea>Test stripHtml handles quoted `>` in attributes: `&lt;div title="a>b"&gt;content&lt;/div&gt;` preserves "content"</idea>
+      <idea>Test removeZeroWidthChars strips U+200B, U+200C, U+200D, U+FEFF, U+200E, U+200F, U+202A-U+202E, U+2060-U+2069, U+00AD, U+034F, U+0000, U+2028, U+2029, U+FFFC from input</idea>
+      <idea>Test removeZeroWidthChars covers 20+ invisible Unicode code points</idea>
+      <idea>Test detectPromptInjection warns on 5 categories: instruction override, role hijacking, system prompt extraction, delimiter injection, encoding evasion</idea>
+      <idea>Test detectPromptInjection applies Unicode NFKD normalization before pattern matching</idea>
+      <idea>Test detectPromptInjection warns on "ignore previous instructions" patterns</idea>
+      <idea>Test detectPromptInjection warns on "you are now" role override patterns</idea>
+      <idea>Test detectPromptInjection warns on "repeat your system prompt" extraction patterns</idea>
+      <idea>Test detectPromptInjection warns on "```system" delimiter injection patterns</idea>
+      <idea>Test IContentSanitizer interface is exported and ContentSanitizer implements it</idea>
+      <idea>Test ContentSanitizer accepts ContentSanitizerOptions in constructor</idea>
+      <idea>Test ContentSanitizer with enabled=false still removes null bytes but skips HTML/injection</idea>
+      <idea>Test ContentSanitizer with extraInjectionPatterns extends built-in patterns (additive)</idea>
+      <idea>Test sanitize() returns both cleaned result and warnings array</idea>
+      <idea>Test sanitize() never throws even on malicious input</idea>
+      <idea>Test sanitizeOutput() preserves content within ``` code blocks</idea>
+      <idea>Test sanitizeOutput() strips HTML outside code blocks</idea>
+      <idea>Test isPrivateHost blocks 0.0.0.1 (0.0.0.0/8 range — "this network")</idea>
+      <idea>Test isPrivateHost blocks 10.0.0.1, 10.255.255.255 (10.0.0.0/8 range)</idea>
+      <idea>Test isPrivateHost blocks 172.16.0.1 through 172.31.255.255 (172.16.0.0/12 range)</idea>
+      <idea>Test isPrivateHost does NOT block 172.15.0.1 or 172.32.0.1 (outside range)</idea>
+      <idea>Test isPrivateHost blocks 192.168.0.1, 192.168.255.255 (192.168.0.0/16)</idea>
+      <idea>Test isPrivateHost blocks 127.0.0.1, 127.255.255.255 (127.0.0.0/8 loopback)</idea>
+      <idea>Test isPrivateHost blocks 169.254.0.1, 169.254.255.255 (link-local)</idea>
+      <idea>Test isPrivateHost blocks literals: 0.0.0.0, [::], [::1], localhost</idea>
+      <idea>Test isPrivateHost blocks IPv6-mapped IPv4: [::ffff:127.0.0.1] recursively checks 127.0.0.1</idea>
+      <idea>Test isPrivateHost blocks bracketed IPv6 private: [fc00::1], [fd00::1], [fe80::1]</idea>
+      <idea>Test isPrivateHost blocks cloud metadata: metadata.google.internal, host.docker.internal</idea>
+      <idea>Test isPrivateHost does NOT block evil.com, google.com (non-IPv4 hostnames pass through)</idea>
+      <idea>Test isPrivateHost does NOT block 8.8.8.8, 1.1.1.1 (public IPs)</idea>
+      <idea>Test isPrivateHost rejects invalid octets (256, -1, abc)</idea>
+      <idea>Test BLOCKED_HOSTS is at module scope (verify no per-call Set allocation)</idea>
+      <idea>Test validateUrl rejects file:, ftp:, javascript: protocols</idea>
+      <idea>Test validateUrl accepts http:, https:, ws:, wss: protocols</idea>
+      <idea>Test validateUrl rejects URLs with private hosts</idea>
+      <idea>Test validateUrl truncates URL in error messages to max 200 chars</idea>
+      <idea>Test validateUrl returns { valid: false, warnings } for invalid URLs</idea>
+      <idea>Test evaluateAction blocks commands in DEFAULT_BLOCKED_COMMANDS (substring matching, not regex)</idea>
+      <idea>Test evaluateAction allows safe commands not in blocked list</idea>
+      <idea>Test evaluateAction normalizes whitespace before matching</idea>
+      <idea>Test evaluateAction blocks shell metacharacter bypass: `| sh`, `| bash`, `$(`, backtick</idea>
+      <idea>Test evaluateAction with ActionGateOptions.extraPatterns extends defaults</idea>
+      <idea>Test evaluateAction with ActionGateOptions.replaceDefaults=true replaces defaults entirely</idea>
+      <idea>Test evaluateAction reason says "Command blocked by security policy" (does not reveal pattern)</idea>
+      <idea>Test secureFetch rejects private host URLs before making request</idea>
+      <idea>Test secureFetch enforces max response body size via streaming ReadableStream with byte counter</idea>
+      <idea>Test secureFetch re-validates URL on redirect (redirect: 'manual', max 5 hops)</idea>
+      <idea>Test secureFetch blocks redirect-to-private-IP</idea>
+      <idea>Test secureFetch checks Content-Type allowlist before reading body</idea>
+      <idea>Test secureFetch rejects non-text responses</idea>
+      <idea>Test SecureAgentProvider accepts IContentSanitizer interface (not concrete class)</idea>
+      <idea>Test SecureAgentProvider sanitizes config.prompt before calling inner.executeTask()</idea>
+      <idea>Test SecureAgentProvider sanitizes output in returned AgentTaskResult</idea>
+      <idea>Test SecureAgentProvider sanitizes taskResult.error in addition to taskResult.output</idea>
+      <idea>Test SecureAgentProvider passes sanitization warnings to logger</idea>
+      <idea>Test SecureAgentProvider delegates isAvailable() to inner provider</idea>
+      <idea>Test SecureAgentProvider delegates dispose() to inner provider</idea>
+      <idea>Test SecureAgentProvider creates new config object (does not mutate original)</idea>
+      <idea>Test SecureAgentProvider works without logger (optional parameter)</idea>
+    </ideas>
+  </tests>
+</story-context>
