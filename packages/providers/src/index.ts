@@ -43,3 +43,13 @@ export type { InstrumentedAgentContext } from './instrumented-agent-provider.js'
 export { mapProviderName } from './provider-name-mapping.js';
 
 export { createDiagnosticsProcessor } from './diagnostics-processor.js';
+
+export { ProviderChain } from './provider-chain.js';
+export type { IProviderChain, ProviderChainOptions, ProviderChainContext } from './provider-chain.js';
+
+export { RoleBasedAgentResolver } from './role-based-agent-resolver.js';
+export type {
+  IRoleBasedAgentResolver,
+  RoleBasedAgentResolverOptions,
+  RoleBasedAgentResolverLogger,
+} from './role-based-agent-resolver.js';
