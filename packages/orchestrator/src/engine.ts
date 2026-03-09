@@ -1,4 +1,5 @@
 import * as readline from 'node:readline';
+import { randomUUID } from 'node:crypto';
 import type { ILogger } from '@tamma/shared/contracts';
 import type {
   TammaConfig,
@@ -7,10 +8,11 @@ import type {
   AgentTaskResult,
   PullRequestInfo,
   IEventStore,
+  WorkflowPhase,
 } from '@tamma/shared';
 import { EngineState, EngineEventType, sleep, slugify, extractIssueReferences } from '@tamma/shared';
 import { WorkflowError, EngineError } from '@tamma/shared';
-import type { IAgentProvider } from '@tamma/providers';
+import type { IAgentProvider, AgentTaskConfig, IRoleBasedAgentResolver } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
 /** Statistics tracked by the engine across its lifetime. */
 export interface EngineStats {
@@ -33,11 +35,12 @@ export type ApprovalHandler = (plan: DevelopmentPlan) => Promise<'approve' | 're
 export interface EngineContext {
   config: TammaConfig;
   platform: IGitPlatform;
-  agent: IAgentProvider;
+  agent?: IAgentProvider;
   logger: ILogger;
   eventStore?: IEventStore;
   onStateChange?: OnStateChangeCallback;
   approvalHandler?: ApprovalHandler;
+  agentResolver?: IRoleBasedAgentResolver;
 }
 
 /**
@@ -80,16 +83,30 @@ export class TammaEngine {
 
   private readonly config: TammaConfig;
   private readonly platform: IGitPlatform;
-  private readonly agent: IAgentProvider;
+  private readonly agent: IAgentProvider | undefined;
+  private readonly agentResolver: IRoleBasedAgentResolver | undefined;
+  private readonly engineId = randomUUID();
   private readonly logger: ILogger;
   private readonly eventStore: IEventStore | undefined;
   private readonly onStateChange: OnStateChangeCallback | undefined;
   private readonly approvalHandler: ApprovalHandler | undefined;
 
   constructor(ctx: EngineContext) {
+    if (!ctx.agent && !ctx.agentResolver) {
+      throw new EngineError('Either agent or agentResolver must be provided in EngineContext');
+    }
+    if (ctx.agent && ctx.agentResolver) {
+      ctx.logger.warn('Both agent and agentResolver provided; resolver takes precedence for phase resolution');
+    }
+
     this.config = ctx.config;
     this.platform = ctx.platform;
-    this.agent = ctx.agent;
+    if (ctx.agent !== undefined) {
+      this.agent = ctx.agent;
+    }
+    if (ctx.agentResolver !== undefined) {
+      this.agentResolver = ctx.agentResolver;
+    }
     this.logger = ctx.logger;
     this.eventStore = ctx.eventStore;
     this.onStateChange = ctx.onStateChange;
@@ -99,13 +116,15 @@ export class TammaEngine {
 
   /** Verify the agent provider is reachable. Must be called before {@link run}. */
   async initialize(): Promise<void> {
-    const available = await this.agent.isAvailable();
-    if (!available) {
-      throw new EngineError('Agent provider is not available. Check ANTHROPIC_API_KEY.');
+    if (this.agent) {
+      const available = await this.agent.isAvailable();
+      if (!available) {
+        throw new EngineError('Agent provider is not available. Check ANTHROPIC_API_KEY.');
+      }
     }
     this.logger.info('TammaEngine initialized', {
       mode: this.config.mode,
-      model: this.config.agent.model,
+      model: this.config.agent?.model ?? 'resolver-mode',
       approvalMode: this.config.engine.approvalMode,
     });
   }
@@ -118,7 +137,10 @@ export class TammaEngine {
         // Swallow errors — dispose should not throw from an in-flight pipeline
       });
     }
-    await this.agent.dispose();
+    if (this.agent) {
+      await this.agent.dispose();
+    }
+    await this.agentResolver?.dispose();
     await this.platform.dispose();
     this.logger.info('TammaEngine disposed');
   }
@@ -396,6 +418,61 @@ export class TammaEngine {
   }
 
   /**
+   * Resolve an agent provider for the given workflow phase.
+   *
+   * When an agentResolver is configured, delegates to it. Otherwise, returns
+   * the single injected agent (with a runtime guard to avoid non-null assertions).
+   *
+   * IMPORTANT: Providers returned from the resolver are NOT pooled. Callers must
+   * dispose them after use via try/finally.
+   */
+  private async getAgentForPhase(phase: WorkflowPhase): Promise<IAgentProvider> {
+    if (this.agentResolver) {
+      const projectId = `${this.config.github.owner}/${this.config.github.repo}`;
+      try {
+        return await this.agentResolver.getAgentForPhase(phase, {
+          projectId,
+          engineId: this.engineId,
+        });
+      } catch (err: unknown) {
+        throw new EngineError(
+          `Failed to resolve agent for phase "${phase}": ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    }
+
+    if (!this.agent) {
+      throw new EngineError('No agent available for phase resolution');
+    }
+    return this.agent;
+  }
+
+  /**
+   * Extract engine-level task config overrides from `this.config.agent` (if present).
+   * Returns an empty object when no agent config is available.
+   */
+  private getEngineTaskOverrides(): Partial<AgentTaskConfig> {
+    const agentCfg = this.config.agent;
+    if (!agentCfg) {
+      return {};
+    }
+    const overrides: Partial<AgentTaskConfig> = {};
+    if (agentCfg.model !== undefined) {
+      overrides.model = agentCfg.model;
+    }
+    if (agentCfg.maxBudgetUsd !== undefined) {
+      overrides.maxBudgetUsd = agentCfg.maxBudgetUsd;
+    }
+    if (agentCfg.allowedTools !== undefined) {
+      overrides.allowedTools = agentCfg.allowedTools;
+    }
+    if (agentCfg.permissionMode !== undefined) {
+      overrides.permissionMode = agentCfg.permissionMode;
+    }
+    return overrides;
+  }
+
+  /**
    * Use the agent provider to produce a structured {@link DevelopmentPlan} from
    * the issue context. The plan JSON is validated for required fields before
    * being returned.
@@ -427,62 +504,82 @@ Consider multiple implementation options where appropriate and choose the best o
 
 Return ONLY valid JSON matching the schema.`;
 
-    const result = await this.agent.executeTask(
-      {
-        prompt: planPrompt,
-        cwd: this.config.engine.workingDirectory,
-        model: this.config.agent.model,
-        maxBudgetUsd: this.config.agent.maxBudgetUsd,
-        permissionMode: this.config.agent.permissionMode,
-        outputFormat: {
-          type: 'json_schema',
-          schema: {
-            type: 'object',
-            properties: {
-              issueNumber: { type: 'number' },
-              summary: { type: 'string' },
-              approach: { type: 'string' },
-              fileChanges: {
-                type: 'array',
-                items: {
-                  type: 'object',
-                  properties: {
-                    filePath: { type: 'string' },
-                    action: {
-                      type: 'string',
-                      enum: ['create', 'modify', 'delete'],
-                    },
-                    description: { type: 'string' },
+    const agent = await this.getAgentForPhase('PLAN_GENERATION');
+
+    // Build task config: resolver config (allowlisted) + engine-owned fields
+    const resolverConfig = this.agentResolver?.getTaskConfig('architect', this.getEngineTaskOverrides()) ?? {};
+
+    // Field allowlisting: only pick allowedTools, maxBudgetUsd, permissionMode from resolver result
+    const taskConfig: AgentTaskConfig = {
+      // Engine always sets prompt and cwd
+      prompt: planPrompt,
+      cwd: this.config.engine.workingDirectory,
+      // Resolver-provided (allowlisted) fields, falling back to direct config
+      ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : {}),
+      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : { maxBudgetUsd: this.config.agent.maxBudgetUsd }),
+      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : { permissionMode: this.config.agent.permissionMode }),
+      // Model from resolver or direct config
+      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : { model: this.config.agent.model }),
+      outputFormat: {
+        type: 'json_schema',
+        schema: {
+          type: 'object',
+          properties: {
+            issueNumber: { type: 'number' },
+            summary: { type: 'string' },
+            approach: { type: 'string' },
+            fileChanges: {
+              type: 'array',
+              items: {
+                type: 'object',
+                properties: {
+                  filePath: { type: 'string' },
+                  action: {
+                    type: 'string',
+                    enum: ['create', 'modify', 'delete'],
                   },
-                  required: ['filePath', 'action', 'description'],
+                  description: { type: 'string' },
                 },
+                required: ['filePath', 'action', 'description'],
               },
-              testingStrategy: { type: 'string' },
-              estimatedComplexity: {
-                type: 'string',
-                enum: ['low', 'medium', 'high'],
-              },
-              risks: { type: 'array', items: { type: 'string' } },
             },
-            required: [
-              'issueNumber',
-              'summary',
-              'approach',
-              'fileChanges',
-              'testingStrategy',
-              'estimatedComplexity',
-              'risks',
-            ],
+            testingStrategy: { type: 'string' },
+            estimatedComplexity: {
+              type: 'string',
+              enum: ['low', 'medium', 'high'],
+            },
+            risks: { type: 'array', items: { type: 'string' } },
           },
+          required: [
+            'issueNumber',
+            'summary',
+            'approach',
+            'fileChanges',
+            'testingStrategy',
+            'estimatedComplexity',
+            'risks',
+          ],
         },
       },
-      (event) => {
-        this.logger.debug('Plan generation progress', {
-          type: event.type,
-          message: event.message,
-        });
-      },
-    );
+    };
+
+    let result: AgentTaskResult;
+    try {
+      result = await agent.executeTask(
+        taskConfig,
+        (event) => {
+          this.logger.debug('Plan generation progress', {
+            type: event.type,
+            message: event.message,
+          });
+        },
+      );
+    } finally {
+      // Providers from resolver are NOT pooled — dispose after each phase
+      if (this.agentResolver) {
+        await agent.dispose();
+      }
+    }
 
     if (!result.success) {
       throw new WorkflowError(
@@ -680,23 +777,42 @@ Follow existing project conventions and patterns.`;
 
     this.recordEvent(EngineEventType.IMPLEMENTATION_STARTED, issue.number, { branch });
 
-    const result = await this.agent.executeTask(
-      {
-        prompt: implPrompt,
-        cwd: this.config.engine.workingDirectory,
-        model: this.config.agent.model,
-        maxBudgetUsd: this.config.agent.maxBudgetUsd,
-        allowedTools: this.config.agent.allowedTools,
-        permissionMode: this.config.agent.permissionMode,
-      },
-      (event) => {
-        this.logger.debug('Implementation progress', {
-          type: event.type,
-          message: event.message,
-          costSoFar: event.costSoFar,
-        });
-      },
-    );
+    const agent = await this.getAgentForPhase('CODE_GENERATION');
+
+    // Build task config: resolver config (allowlisted) + engine-owned fields
+    const resolverConfig = this.agentResolver?.getTaskConfig('implementer', this.getEngineTaskOverrides()) ?? {};
+
+    // Field allowlisting: only pick allowedTools, maxBudgetUsd, permissionMode from resolver result
+    const taskConfig: AgentTaskConfig = {
+      // Engine always sets prompt and cwd
+      prompt: implPrompt,
+      cwd: this.config.engine.workingDirectory,
+      // Resolver-provided (allowlisted) fields, falling back to direct config
+      ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : { allowedTools: this.config.agent.allowedTools }),
+      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : { maxBudgetUsd: this.config.agent.maxBudgetUsd }),
+      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : { permissionMode: this.config.agent.permissionMode }),
+      // Model from resolver or direct config
+      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : { model: this.config.agent.model }),
+    };
+
+    let result: AgentTaskResult;
+    try {
+      result = await agent.executeTask(
+        taskConfig,
+        (event) => {
+          this.logger.debug('Implementation progress', {
+            type: event.type,
+            message: event.message,
+            costSoFar: event.costSoFar,
+          });
+        },
+      );
+    } finally {
+      // Providers from resolver are NOT pooled — dispose after each phase
+      if (this.agentResolver) {
+        await agent.dispose();
+      }
+    }
 
     if (result.success) {
       this.totalCostUsd += result.costUsd;
