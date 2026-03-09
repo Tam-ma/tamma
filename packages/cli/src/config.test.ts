@@ -380,3 +380,475 @@ describe('loadConfig with Docker secret files', () => {
     expect(config.github.token).toBe('ghp_from_docker_secret');
   });
 });
+
+// --- mergeConfig fix: agents and security propagation ---
+
+describe('mergeConfig - agents and security propagation', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should preserve agents from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      agents: {
+        defaults: {
+          providerChain: [{ provider: 'openrouter', model: 'z-ai/z1-mini' }],
+          maxBudgetUsd: 1.0,
+        },
+        roles: {
+          architect: {
+            providerChain: [{ provider: 'openrouter', model: 'anthropic/claude-opus-4' }],
+            maxBudgetUsd: 2.0,
+          },
+        },
+      },
+    }));
+
+    const config = loadConfig({});
+    expect(config.agents).toBeDefined();
+    expect(config.agents?.defaults.providerChain[0]?.provider).toBe('openrouter');
+    expect(config.agents?.roles?.architect?.maxBudgetUsd).toBe(2.0);
+  });
+
+  it('should preserve security from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      security: {
+        sanitizeContent: true,
+        validateUrls: true,
+      },
+    }));
+
+    const config = loadConfig({});
+    expect(config.security).toBeDefined();
+    expect(config.security?.sanitizeContent).toBe(true);
+    expect(config.security?.validateUrls).toBe(true);
+  });
+
+  it('should shallow-merge security from file and env', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      security: {
+        sanitizeContent: false,
+        validateUrls: true,
+      },
+    }));
+
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'true';
+
+    const config = loadConfig({});
+    // env overrides file for sanitizeContent
+    expect(config.security?.sanitizeContent).toBe(true);
+    // file value preserved for validateUrls
+    expect(config.security?.validateUrls).toBe(true);
+  });
+
+  it('should not inject agents or security when neither base nor override has them', () => {
+    const config = loadConfig({});
+    expect(config.agents).toBeUndefined();
+    expect(config.security).toBeUndefined();
+  });
+
+  it('should preserve aiProviders from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      aiProviders: [{ type: 'anthropic', model: 'claude-sonnet-4-5' }],
+    }));
+
+    const config = loadConfig({});
+    expect(config.aiProviders).toBeDefined();
+    expect(config.aiProviders).toHaveLength(1);
+    expect(config.aiProviders?.[0]?.type).toBe('anthropic');
+  });
+
+  it('should preserve defaultProvider from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      defaultProvider: 'openai',
+    }));
+
+    const config = loadConfig({});
+    expect(config.defaultProvider).toBe('openai');
+  });
+
+  it('should preserve elsa from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      elsa: { enabled: true, serverUrl: 'http://localhost:3000', apiKey: 'test' },
+    }));
+
+    const config = loadConfig({});
+    expect(config.elsa).toBeDefined();
+    expect(config.elsa?.enabled).toBe(true);
+  });
+
+  it('should preserve server from config file', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      server: { port: 8080, host: '0.0.0.0', jwtSecret: 'secret', corsOrigins: ['*'], enableAuth: true },
+    }));
+
+    const config = loadConfig({});
+    expect(config.server).toBeDefined();
+    expect(config.server?.port).toBe(8080);
+  });
+
+  it('should shallow-merge agents from file and env override', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      agents: {
+        defaults: {
+          providerChain: [{ provider: 'openrouter' }],
+        },
+        roles: {
+          architect: { providerChain: [{ provider: 'claude-code' }] },
+        },
+      },
+    }));
+
+    const config = loadConfig({});
+    // agents should be preserved from file config
+    expect(config.agents?.defaults.providerChain[0]?.provider).toBe('openrouter');
+    expect(config.agents?.roles?.architect?.providerChain?.[0]?.provider).toBe('claude-code');
+  });
+});
+
+// --- Security env var tests ---
+
+describe('loadConfig - TAMMA_SANITIZE_CONTENT env var', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should set security.sanitizeContent to true when TAMMA_SANITIZE_CONTENT=true', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'true';
+    const config = loadConfig({});
+    expect(config.security?.sanitizeContent).toBe(true);
+  });
+
+  it('should set security.sanitizeContent to false when TAMMA_SANITIZE_CONTENT=false', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'false';
+    const config = loadConfig({});
+    expect(config.security?.sanitizeContent).toBe(false);
+  });
+
+  it('should ignore TAMMA_SANITIZE_CONTENT=yes (invalid value)', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'yes';
+    const config = loadConfig({});
+    expect(config.security).toBeUndefined();
+  });
+
+  it('should ignore TAMMA_SANITIZE_CONTENT=1 (invalid value)', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = '1';
+    const config = loadConfig({});
+    expect(config.security).toBeUndefined();
+  });
+
+  it('should ignore TAMMA_SANITIZE_CONTENT=TRUE (case-sensitive)', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'TRUE';
+    const config = loadConfig({});
+    expect(config.security).toBeUndefined();
+  });
+
+  it('should leave security undefined when TAMMA_SANITIZE_CONTENT is not set', () => {
+    const config = loadConfig({});
+    expect(config.security).toBeUndefined();
+  });
+});
+
+describe('loadConfig - TAMMA_VALIDATE_URLS env var', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should set security.validateUrls to true when TAMMA_VALIDATE_URLS=true', () => {
+    process.env['TAMMA_VALIDATE_URLS'] = 'true';
+    const config = loadConfig({});
+    expect(config.security?.validateUrls).toBe(true);
+  });
+
+  it('should set security.validateUrls to false when TAMMA_VALIDATE_URLS=false', () => {
+    process.env['TAMMA_VALIDATE_URLS'] = 'false';
+    const config = loadConfig({});
+    expect(config.security?.validateUrls).toBe(false);
+  });
+});
+
+describe('loadConfig - TAMMA_GATE_ACTIONS env var', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should set security.gateActions to true when TAMMA_GATE_ACTIONS=true', () => {
+    process.env['TAMMA_GATE_ACTIONS'] = 'true';
+    const config = loadConfig({});
+    expect(config.security?.gateActions).toBe(true);
+  });
+
+  it('should set security.gateActions to false when TAMMA_GATE_ACTIONS=false', () => {
+    process.env['TAMMA_GATE_ACTIONS'] = 'false';
+    const config = loadConfig({});
+    expect(config.security?.gateActions).toBe(false);
+  });
+});
+
+describe('loadConfig - TAMMA_MAX_FETCH_SIZE_BYTES env var', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should set security.maxFetchSizeBytes to 1048576 when TAMMA_MAX_FETCH_SIZE_BYTES=1048576', () => {
+    process.env['TAMMA_MAX_FETCH_SIZE_BYTES'] = '1048576';
+    const config = loadConfig({});
+    expect(config.security?.maxFetchSizeBytes).toBe(1048576);
+  });
+
+  it('should ignore non-numeric TAMMA_MAX_FETCH_SIZE_BYTES (abc)', () => {
+    process.env['TAMMA_MAX_FETCH_SIZE_BYTES'] = 'abc';
+    const config = loadConfig({});
+    expect(config.security).toBeUndefined();
+  });
+
+  it('should accept zero as valid value for TAMMA_MAX_FETCH_SIZE_BYTES', () => {
+    process.env['TAMMA_MAX_FETCH_SIZE_BYTES'] = '0';
+    const config = loadConfig({});
+    expect(config.security?.maxFetchSizeBytes).toBe(0);
+  });
+
+  it('should accept large values for TAMMA_MAX_FETCH_SIZE_BYTES', () => {
+    process.env['TAMMA_MAX_FETCH_SIZE_BYTES'] = '1073741824';
+    const config = loadConfig({});
+    expect(config.security?.maxFetchSizeBytes).toBe(1073741824);
+  });
+});
+
+describe('loadConfig - multiple security env vars at once', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should populate all security fields when all env vars are set', () => {
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'true';
+    process.env['TAMMA_VALIDATE_URLS'] = 'false';
+    process.env['TAMMA_GATE_ACTIONS'] = 'true';
+    process.env['TAMMA_MAX_FETCH_SIZE_BYTES'] = '5242880';
+
+    const config = loadConfig({});
+    expect(config.security?.sanitizeContent).toBe(true);
+    expect(config.security?.validateUrls).toBe(false);
+    expect(config.security?.gateActions).toBe(true);
+    expect(config.security?.maxFetchSizeBytes).toBe(5242880);
+  });
+});
+
+// --- Agent provider env var tests ---
+
+describe('loadConfig - TAMMA_AGENT_PROVIDER env var', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should set agent.provider to anthropic when TAMMA_AGENT_PROVIDER=anthropic', () => {
+    process.env['TAMMA_AGENT_PROVIDER'] = 'anthropic';
+    const config = loadConfig({});
+    expect(config.agent.provider).toBe('anthropic');
+  });
+
+  it('should set agent.provider to openai when TAMMA_AGENT_PROVIDER=openai', () => {
+    process.env['TAMMA_AGENT_PROVIDER'] = 'openai';
+    const config = loadConfig({});
+    expect(config.agent.provider).toBe('openai');
+  });
+
+  it('should set agent.provider to local when TAMMA_AGENT_PROVIDER=local', () => {
+    process.env['TAMMA_AGENT_PROVIDER'] = 'local';
+    const config = loadConfig({});
+    expect(config.agent.provider).toBe('local');
+  });
+
+  it('should ignore TAMMA_AGENT_PROVIDER=gemini (invalid value)', () => {
+    process.env['TAMMA_AGENT_PROVIDER'] = 'gemini';
+    const config = loadConfig({});
+    expect(config.agent.provider).toBeUndefined();
+  });
+
+  it('should ignore TAMMA_AGENT_PROVIDER=Anthropic (case-sensitive)', () => {
+    process.env['TAMMA_AGENT_PROVIDER'] = 'Anthropic';
+    const config = loadConfig({});
+    expect(config.agent.provider).toBeUndefined();
+  });
+
+  it('should not change agent.provider when TAMMA_AGENT_PROVIDER is not set', () => {
+    const config = loadConfig({});
+    expect(config.agent.provider).toBeUndefined();
+  });
+});
+
+// --- Full stack integration ---
+
+describe('loadConfig - full stack integration', () => {
+  beforeEach(() => {
+    vi.mocked(fs.existsSync).mockReturnValue(false);
+    for (const key of Object.keys(process.env)) {
+      if (key.startsWith('TAMMA_')) {
+        delete process.env[key];
+      }
+    }
+    delete process.env['GITHUB_TOKEN'];
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('should merge file config with agents and env security overrides into final config', () => {
+    vi.mocked(fs.existsSync).mockReturnValue(true);
+    vi.mocked(fs.readFileSync).mockReturnValue(JSON.stringify({
+      github: { token: 't', owner: 'o', repo: 'r' },
+      agents: {
+        defaults: {
+          providerChain: [
+            { provider: 'openrouter', model: 'z-ai/z1-mini' },
+            { provider: 'opencode' },
+          ],
+          maxBudgetUsd: 1.0,
+        },
+        roles: {
+          architect: {
+            providerChain: [{ provider: 'openrouter', model: 'anthropic/claude-opus-4' }],
+            maxBudgetUsd: 2.0,
+          },
+        },
+      },
+      security: {
+        validateUrls: true,
+      },
+    }));
+
+    // Env overrides sanitizeContent
+    process.env['TAMMA_SANITIZE_CONTENT'] = 'true';
+    process.env['TAMMA_AGENT_PROVIDER'] = 'openai';
+
+    const config = loadConfig({});
+
+    // agents from file preserved
+    expect(config.agents?.defaults.providerChain).toHaveLength(2);
+    expect(config.agents?.defaults.providerChain[0]?.provider).toBe('openrouter');
+    expect(config.agents?.roles?.architect?.maxBudgetUsd).toBe(2.0);
+
+    // security merged: file + env
+    expect(config.security?.validateUrls).toBe(true);
+    expect(config.security?.sanitizeContent).toBe(true);
+
+    // agent.provider from env
+    expect(config.agent.provider).toBe('openai');
+  });
+});
+
+// --- generateEnvExample - new env vars ---
+
+describe('generateEnvExample - new env vars', () => {
+  it('should include TAMMA_AGENT_PROVIDER', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('TAMMA_AGENT_PROVIDER');
+  });
+
+  it('should include TAMMA_SANITIZE_CONTENT', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('TAMMA_SANITIZE_CONTENT');
+  });
+
+  it('should include TAMMA_VALIDATE_URLS', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('TAMMA_VALIDATE_URLS');
+  });
+
+  it('should include TAMMA_GATE_ACTIONS', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('TAMMA_GATE_ACTIONS');
+  });
+
+  it('should include TAMMA_MAX_FETCH_SIZE_BYTES', () => {
+    const output = generateEnvExample();
+    expect(output).toContain('TAMMA_MAX_FETCH_SIZE_BYTES');
+  });
+});

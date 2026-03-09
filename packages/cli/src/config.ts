@@ -1,7 +1,7 @@
 import { readFileSync } from 'node:fs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { TammaConfig, GitHubConfig, AgentConfig, EngineConfig } from '@tamma/shared';
+import type { TammaConfig, GitHubConfig, AgentConfig, EngineConfig, SecurityConfig } from '@tamma/shared';
 
 // Re-export normalizeAgentsConfig from @tamma/shared for CLI import convenience
 export { normalizeAgentsConfig } from '@tamma/shared';
@@ -157,6 +157,41 @@ function loadEnvConfig(): Partial<TammaConfig> {
     config.logLevel = logLevel;
   }
 
+  // Security config from env
+  const sanitize = env['TAMMA_SANITIZE_CONTENT'];
+  const validateUrls = env['TAMMA_VALIDATE_URLS'];
+  const gateActions = env['TAMMA_GATE_ACTIONS'];
+  const maxFetchSize = env['TAMMA_MAX_FETCH_SIZE_BYTES'];
+
+  const securityOverrides: Partial<SecurityConfig> = {};
+  if (sanitize === 'true' || sanitize === 'false') {
+    securityOverrides.sanitizeContent = sanitize === 'true';
+  }
+  if (validateUrls === 'true' || validateUrls === 'false') {
+    securityOverrides.validateUrls = validateUrls === 'true';
+  }
+  if (gateActions === 'true' || gateActions === 'false') {
+    securityOverrides.gateActions = gateActions === 'true';
+  }
+  if (maxFetchSize !== undefined) {
+    const parsed = parseInt(maxFetchSize, 10);
+    if (!Number.isNaN(parsed)) {
+      securityOverrides.maxFetchSizeBytes = parsed;
+    }
+  }
+  if (Object.keys(securityOverrides).length > 0) {
+    config.security = securityOverrides as SecurityConfig;
+  }
+
+  // Agent provider from env (maps to legacy agent.provider field)
+  const agentProvider = env['TAMMA_AGENT_PROVIDER'];
+  if (agentProvider === 'anthropic' || agentProvider === 'openai' || agentProvider === 'local') {
+    if (!config.agent) {
+      config.agent = {} as AgentConfig;
+    }
+    (config.agent as Partial<AgentConfig>).provider = agentProvider;
+  }
+
   return config;
 }
 
@@ -191,13 +226,47 @@ export function loadConfig(cliOptions: CLIOptions): TammaConfig {
 }
 
 function mergeConfig(base: TammaConfig, override: Partial<TammaConfig>): TammaConfig {
-  return {
+  const result: TammaConfig = {
     mode: override.mode ?? base.mode,
     logLevel: override.logLevel ?? base.logLevel,
     github: { ...base.github, ...override.github },
     agent: { ...base.agent, ...override.agent },
     engine: { ...base.engine, ...override.engine },
   };
+
+  // Preserve optional top-level fields with shallow merge.
+  // Without this, agents/security/etc. from config file or env are silently dropped.
+  // Note: We use conditional assignment to respect exactOptionalPropertyTypes.
+  // With that flag enabled, we cannot assign `undefined` to optional properties.
+  if (base.agents !== undefined || override.agents !== undefined) {
+    result.agents = { ...base.agents, ...override.agents } as NonNullable<TammaConfig['agents']>;
+  }
+
+  if (base.security !== undefined || override.security !== undefined) {
+    result.security = { ...base.security, ...override.security } as NonNullable<TammaConfig['security']>;
+  }
+
+  const mergedAiProviders = override.aiProviders ?? base.aiProviders;
+  if (mergedAiProviders !== undefined) {
+    result.aiProviders = mergedAiProviders;
+  }
+
+  const mergedDefaultProvider = override.defaultProvider ?? base.defaultProvider;
+  if (mergedDefaultProvider !== undefined) {
+    result.defaultProvider = mergedDefaultProvider;
+  }
+
+  const mergedElsa = override.elsa ?? base.elsa;
+  if (mergedElsa !== undefined) {
+    result.elsa = mergedElsa;
+  }
+
+  const mergedServer = override.server ?? base.server;
+  if (mergedServer !== undefined) {
+    result.server = mergedServer;
+  }
+
+  return result;
 }
 
 /**
@@ -339,6 +408,13 @@ TAMMA_EXCLUDE_LABELS=wontfix
 TAMMA_MODEL=claude-sonnet-4-5
 TAMMA_MAX_BUDGET_USD=1.00
 TAMMA_PERMISSION_MODE=default
+# TAMMA_AGENT_PROVIDER=anthropic
+
+# Security
+# TAMMA_SANITIZE_CONTENT=true
+# TAMMA_VALIDATE_URLS=true
+# TAMMA_GATE_ACTIONS=false
+# TAMMA_MAX_FETCH_SIZE_BYTES=10485760
 
 # Engine
 TAMMA_POLL_INTERVAL_MS=300000
