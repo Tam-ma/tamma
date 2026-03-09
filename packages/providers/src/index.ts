@@ -36,3 +36,6 @@ export type {
 } from './agent-prompt-registry.js';
 
 export { SecureAgentProvider } from './secure-agent-provider.js';
+
+export { InstrumentedAgentProvider } from './instrumented-agent-provider.js';
+export type { InstrumentedAgentContext } from './instrumented-agent-provider.js';
