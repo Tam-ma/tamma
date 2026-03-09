@@ -3,6 +3,9 @@ import * as fs from 'node:fs';
 import * as path from 'node:path';
 import type { TammaConfig, GitHubConfig, AgentConfig, EngineConfig } from '@tamma/shared';
 
+// Re-export normalizeAgentsConfig from @tamma/shared for CLI import convenience
+export { normalizeAgentsConfig } from '@tamma/shared';
+
 /**
  * Read a secret from a Docker secret file (via `<ENV_VAR>_FILE`) or fall back
  * to the plain environment variable. This allows containers to consume secrets
