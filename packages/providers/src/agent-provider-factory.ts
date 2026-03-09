@@ -277,7 +277,7 @@ export class AgentProviderFactory implements IAgentProviderFactory {
         await (provider as IAIProvider).initialize({
           ...entry.config,
           apiKey: resolvedKey,
-          model: entry.model,
+          ...(entry.model !== undefined ? { model: entry.model } : {}),
         } as ProviderConfig);
         this.logger?.info('Provider initialized successfully', { provider: entry.provider });
       } catch (err) {

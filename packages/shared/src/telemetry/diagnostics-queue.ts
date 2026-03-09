@@ -121,18 +121,23 @@ export class DiagnosticsQueue implements IDiagnosticsQueue {
 
     // splice(0) atomically removes all elements, preserving FIFO order
     const batch = this.queue.splice(0);
-    this.drainPromise = this.processor(batch)
-      .catch((err: unknown) => {
-        this.logger?.warn('Diagnostics processor drain failed', {
-          error: err instanceof Error ? err.message : String(err),
-          batchSize: batch.length,
-        });
-      })
-      .finally(() => {
-        this.drainPromise = null;
-      });
 
-    await this.drainPromise;
+    // Use async/await (project rule: NEVER .then()/.catch()) with a
+    // manually-resolved promise so concurrent callers can await drainPromise.
+    let resolve!: () => void;
+    this.drainPromise = new Promise<void>((r) => { resolve = r; });
+
+    try {
+      await this.processor(batch);
+    } catch (err: unknown) {
+      this.logger?.warn('Diagnostics processor drain failed', {
+        error: err instanceof Error ? err.message : String(err),
+        batchSize: batch.length,
+      });
+    } finally {
+      this.drainPromise = null;
+      resolve();
+    }
   }
 
   /**

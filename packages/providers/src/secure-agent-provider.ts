@@ -64,10 +64,10 @@ export class SecureAgentProvider implements IAgentProvider {
     // Post: sanitize output
     const { result: sanitizedOutput } = this._sanitizer.sanitizeOutput(taskResult.output);
 
-    // Post: sanitize error if present (non-nullish)
-    const sanitizedError = taskResult.error !== undefined && taskResult.error !== null
+    // Post: sanitize error if present (non-empty string only)
+    const sanitizedError = typeof taskResult.error === 'string' && taskResult.error.length > 0
       ? this._sanitizer.sanitizeOutput(taskResult.error).result
-      : taskResult.error;
+      : undefined;
 
     // Create new result object (never mutate the inner result)
     const result: AgentTaskResult = {

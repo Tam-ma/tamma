@@ -645,10 +645,11 @@ describe('ContentSanitizer', () => {
     it('should handle output with unclosed code block', () => {
       const input = 'text\n```\nunclosed code block with <html>';
       const result = sanitizer.sanitizeOutput(input);
-      // Odd number of ``` delimiters means last segment is treated as "inside" code block
-      // Split on ``` gives ['text\n', '\nunclosed code block with <html>']
-      // segments[0] is outside (i=0, i%2=0), segments[1] is inside (i=1, i%2=1)
-      expect(result.result).toContain('<html>');
+      // Unclosed fence: last segment is treated as outside code block (HTML stripped)
+      // This prevents attackers from using an unclosed fence to smuggle HTML
+      expect(result.result).not.toContain('<html>');
+      // The opening fence delimiter is preserved
+      expect(result.result).toContain('```');
     });
   });
 

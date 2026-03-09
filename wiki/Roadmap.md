@@ -6,18 +6,21 @@
 
 | Epic | Name | Duration | Stories | MVP Priority | Status |
 |------|------|----------|---------|--------------|--------|
-| **Epic 1** | Foundation & Core Infrastructure | Weeks 0-2 | 13 | Critical | 🚧 In Progress |
-| **Epic 1.5** | Deployment, Packaging & Operations | Weeks 2-3 | 6 | Critical | ⏳ Pending |
-| **Epic 2** | Autonomous Development Loop | Weeks 2-4 | 12 | Critical | ⏳ Pending |
-| **Epic 3** | Quality Gates & Intelligence | Weeks 4-6 | 8 | Critical | ⏳ Pending |
-| **Epic 4** | Event Sourcing & Audit Trail | Weeks 6-8 | 6 | Critical | ⏳ Pending |
-| **Epic 5** | Observability & Production Readiness | Weeks 8-10 | 7 | Critical | ⏳ Pending |
+| **Epic 1** | Foundation & Core Infrastructure | Weeks 0-2 | 13 | Critical | Completed |
+| **Epic 1.5** | Deployment, Packaging & Operations | Weeks 2-3 | 6 | Critical | Pending |
+| **Epic 2** | Autonomous Development Loop | Weeks 2-4 | 12 | Critical | Pending |
+| **Epic 3** | Quality Gates & Intelligence | Weeks 4-6 | 8 | Critical | Pending |
+| **Epic 4** | Event Sourcing & Audit Trail | Weeks 6-8 | 6 | Critical | Pending |
+| **Epic 5** | Observability & Production Readiness | Weeks 8-10 | 7 | Critical | Pending |
+| **Epic 9** | Config-Driven Multi-Agent Management | Concurrent | 11 | Critical | Completed |
 
 ---
 
 ## Epic 1: Foundation & Core Infrastructure (Weeks 0-2)
 
 **Goal:** Establish the foundational abstractions for AI providers and Git platforms.
+
+**Status: Completed**
 
 ### Milestones
 
@@ -40,7 +43,51 @@
 12. **Story 1-11:** Additional Git Platform Implementations (7 tasks)
 13. **Story 1-12:** Initial Marketing Website (8 tasks)
 
-[→ Detailed Epic 1 Breakdown](Epic-1-Foundation)
+[Detailed Epic 1 Breakdown](Epic-1-Foundation)
+
+---
+
+## Epic 9: Config-Driven Multi-Agent Management (Concurrent)
+
+**Goal:** Replace hardcoded single-agent setup with a config-driven multi-agent system where each role gets an ordered provider chain, circuit breaker health tracking, diagnostics, content sanitization, and role-based resolution.
+
+**Status: Completed**
+
+### Key Deliverables
+
+- Configuration schema for multi-agent provider chains (`@tamma/shared`)
+- Provider diagnostics and instrumented agent provider decorator (`@tamma/providers`)
+- Circuit breaker health tracker per provider+model (`@tamma/providers`)
+- Agent provider factory with built-in and custom provider registration (`@tamma/providers`)
+- Provider chain with fallback, budget checks, and health gating (`@tamma/providers`)
+- Prompt template registry with 6-level resolution chain (`@tamma/providers`)
+- Content sanitization (HTML stripping, zero-width char removal, injection detection) (`@tamma/shared`)
+- URL validator with numeric octet parsing and SSRF protection (`@tamma/shared`)
+- Action gating for autonomous command execution (`@tamma/shared`)
+- Secure fetch wrapper with redirect re-validation (`@tamma/shared`)
+- Role-based agent resolver integrating all subsystems (`@tamma/providers`)
+- Diagnostics queue (synchronous emit, timer-based batch drain) (`@tamma/shared`)
+- MCP tool interceptor chain with built-in sanitization and URL validation interceptors (`@tamma/mcp-client`)
+- Engine integration wiring resolver into the autonomous loop (`@tamma/orchestrator`)
+- CLI configuration wiring for multi-agent config loading (`@tamma/cli`)
+
+### Stories (11 total)
+
+| Story | Title | Priority |
+|-------|-------|----------|
+| 9-1 | Configuration Schema | P0 |
+| 9-2 | Provider Diagnostics | P0 |
+| 9-3 | Provider Health Tracker | P0 |
+| 9-4 | Agent Provider Factory | P0 |
+| 9-5 | Provider Chain | P0 |
+| 9-6 | Agent Prompt Registry | P1 |
+| 9-7 | Content Sanitization | P1 |
+| 9-8 | Role-Based Agent Resolver | P0 |
+| 9-9 | Engine Integration | P0 |
+| 9-10 | CLI Wiring | P0 |
+| 9-11 | Diagnostics Queue & MCP Interceptors | P0 |
+
+[Detailed Epic 9 Breakdown](Epic-9-Agent-Management)
 
 ---
 
@@ -151,13 +198,14 @@
 ## Timeline Visualization
 
 ```
-Weeks 0-2:  Epic 1 ████████████████░░░░░░░░░░░░░░░░░░░░
-Weeks 2-3:  Epic 1.5 ░░░░░░░░░░░░░░░░████████░░░░░░░░░░░░
-Weeks 2-4:  Epic 2 ░░░░░░░░░░░░░░░░████████████████░░░░░░
-Weeks 4-6:  Epic 3 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░████████░░
-Weeks 6-8:  Epic 4 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░████
-Weeks 8-10: Epic 5 ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░██
-Week 10:    Launch █
+Weeks 0-2:  Epic 1  (Foundation)              [COMPLETED]
+Concurrent: Epic 9  (Multi-Agent Management)  [COMPLETED]
+Weeks 2-3:  Epic 1.5 (Deployment/Packaging)   [Pending]
+Weeks 2-4:  Epic 2  (Autonomous Loop)         [Pending]
+Weeks 4-6:  Epic 3  (Quality Gates)           [Pending]
+Weeks 6-8:  Epic 4  (Event Sourcing)          [Pending]
+Weeks 8-10: Epic 5  (Observability)           [Pending]
+Week 10:    Alpha Launch
 ```
 
 ---

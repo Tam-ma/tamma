@@ -1,4 +1,4 @@
-# 🤖 Tamma
+# Tamma
 
 Tam-ma or Tam for short, meaning It's Done
 
@@ -10,70 +10,92 @@ From GitHub issue to merged PR—completely autonomous.
 [![Node.js](https://img.shields.io/badge/node-%3E%3D22.0.0-brightgreen.svg)](https://nodejs.org/)
 [![TypeScript](https://img.shields.io/badge/typescript-%5E5.7.0-blue.svg)](https://www.typescriptlang.org/)
 [![PostgreSQL](https://img.shields.io/badge/postgreSQL-17-blue.svg)](https://www.postgresql.org/)
+[![Tests](https://img.shields.io/badge/tests-3864%20passing-brightgreen.svg)](#development-progress)
 [![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](http://makeapullrequest.com)
-
----
-
-# 🚧 **Pre-Development Phase**
-
-**⚠️ Important: This project is currently in the architecture and specification phase. No working code is available yet.**
-
-However, we have:
-
-- ✅ **Complete technical specifications** for all features
-- ✅ **Comprehensive architecture documentation**
-- ✅ **58 developer-ready stories** with detailed implementation guidance
-- ✅ **Clear roadmap** and development timeline
-
-**🎯 Ready to start contributing?** See [Development Setup](#️-development-setup-pre-implementation) below.
 
 ---
 
 Tamma bridges the gap between AI coding assistants and fully autonomous development by providing a structured, event-sourced workflow that turns GitHub issues into merged pull requests without human intervention.
 
-## 🎯 Why Tamma? (Planned Features)
+## Why Tamma?
 
-- **🤖 Fully Autonomous**: From issue selection to PR merge without human intervention
-- **🔧 Multi-Provider**: Works with Claude, OpenAI, GitHub Copilot, and any AI provider
-- **🌐 Platform Agnostic**: GitHub, GitLab, and self-hosted Git support
-- **📊 Event Sourced**: Complete audit trail with time-travel debugging
-- **⚡ Hybrid Architecture**: Standalone CLI or distributed orchestrator/worker setup
-- **🛡️ Enterprise Ready**: Secure, scalable, and observable
+- **Fully Autonomous**: From issue selection to PR merge without human intervention
+- **Multi-Provider**: Works with Claude Code, OpenCode, OpenRouter, Zen MCP, and any AI provider
+- **Config-Driven Agent Management**: Per-role provider chains, budgets, tools, and prompts defined in configuration
+- **Security-First**: Prompt injection detection, SSRF protection, action gating, and content sanitization baked in
+- **Platform Agnostic**: GitHub, GitLab, and self-hosted Git support
+- **Event Sourced**: Complete audit trail with time-travel debugging
+- **Hybrid Architecture**: Standalone CLI or distributed orchestrator/worker setup
+- **Enterprise Ready**: Secure, scalable, and observable with circuit-breaker resilience
 
-_All features are thoroughly planned and specified. Implementation has not yet begun._
+## Quick Start
 
-## 🚀 Quick Start (Coming Soon)
-
-### Current Status: 🚧 Pre-Development
-
-Tamma is currently in the **specification and architecture phase**. Working code is not yet available, but you can get involved today!
-
-### Prerequisites (for future use)
+### Prerequisites
 
 - Node.js 22 LTS or later
 - pnpm 9.x or later
 - PostgreSQL 17 (for orchestrator mode)
 
-### Planned Installation (Not Yet Available)
+### Installation
 
 ```bash
-# These commands will work once implementation begins
-npx create-tamma-app@latest my-project
-cd my-project
-tamma init --mode standalone
+# Install globally
+npm install -g tamma
+
+# Or run directly
+npx tamma init --mode standalone
 tamma run --issue "Add user authentication"
 ```
 
-### 🎯 What You Can Do Today
+### Configuration
 
-- **📚 Review Specifications**: Read our comprehensive technical documentation
-- **🤝 Join Community**: Participate in design discussions and planning
-- **👨‍💻 Contribute**: Help build the foundation - see [Development Stories](docs/stories/)
-- **⭐ Watch Repository**: Get notified when development begins
+Tamma is configured through a YAML or JSON file. The `agents` section controls which AI providers handle each workflow phase:
 
-## ✨ Planned Features
+```yaml
+agents:
+  defaults:
+    providerChain:
+      - provider: claude-code
+      - provider: openrouter
+        model: anthropic/claude-3-5-sonnet
+        apiKeyRef: OPENROUTER_API_KEY
+    maxBudgetUsd: 10
+    allowedTools:
+      - read
+      - write
+      - bash
 
-### 🤖 Autonomous Development Workflow
+  roles:
+    implementer:
+      providerChain:
+        - provider: opencode
+        - provider: claude-code
+      maxBudgetUsd: 25
+      allowedTools:
+        - read
+        - write
+        - bash
+        - search
+    reviewer:
+      providerChain:
+        - provider: openrouter
+          model: openai/gpt-4o
+          apiKeyRef: OPENROUTER_API_KEY
+      maxBudgetUsd: 5
+
+security:
+  sanitizeContent: true
+  validateUrls: true
+  gateActions: true
+  maxFetchSizeBytes: 10485760
+  blockedCommandPatterns:
+    - "rm -rf"
+    - "DROP TABLE"
+```
+
+## Features
+
+### Autonomous Development Workflow
 
 - **Issue Selection**: Intelligent filtering and prioritization from project management systems
 - **Plan Generation**: Comprehensive development plans with approval checkpoints
@@ -81,254 +103,437 @@ tamma run --issue "Add user authentication"
 - **PR Management**: Automatic creation, monitoring, and merging of pull requests
 - **CI/CD Integration**: Real-time status monitoring and error handling
 
-### 🔌 Multi-Provider Architecture
+### Config-Driven Multi-Agent System (Epic 9)
 
-- **AI Providers**: Claude, OpenAI, GitHub Copilot, Gemini, and custom providers
-- **Git Platforms**: GitHub, GitLab, Gitea, Bitbucket, Azure DevOps, and plain Git
-- **Automatic Failover**: Smart provider switching and load balancing
-- **Streaming Support**: Real-time feedback and progress updates
+Tamma's agent system is fully driven by configuration. No code changes are required to swap providers, adjust budgets, or tune per-role behavior.
 
-### 🏗️ Hybrid Deployment Modes
+**Provider Chains with Automatic Fallback**: Each agent role has an ordered list of providers to try. If the primary provider is unavailable, over budget, or has an open circuit, Tamma automatically falls back to the next entry in the chain.
+
+**Role-Based Agent Resolution**: Eight workflow phases are mapped to agent roles. The engine asks for the agent appropriate to the current phase; the resolver handles all the wiring:
+
+| Workflow Phase | Default Agent Role |
+|---|---|
+| ISSUE_SELECTION | scrum_master |
+| CONTEXT_ANALYSIS | analyst |
+| PLAN_GENERATION | architect |
+| CODE_GENERATION | implementer |
+| PR_CREATION | implementer |
+| CODE_REVIEW | reviewer |
+| TEST_EXECUTION | tester |
+| STATUS_MONITORING | scrum_master |
+
+Phase-to-role mappings are overridable per deployment via `agents.phaseRoleMap` in configuration.
+
+**Agent Prompt Registry**: Six-level template resolution for system prompts. Per-provider-per-role templates take highest priority, falling back through role defaults, global provider defaults, global defaults, built-in role templates, and a generic fallback. Templates support `{{variable}}` interpolation with single-pass expansion that prevents recursive injection.
+
+**Budget Enforcement**: Per-role USD budget ceilings enforced via the cost monitor. Task-level overrides are clamped to the configured ceiling; they can never exceed it. The permission bypass mode (`bypassPermissions`) additionally requires the `TAMMA_ALLOW_BYPASS_PERMISSIONS=true` environment variable.
+
+### Multi-Provider Architecture
+
+- **Built-in Providers**: Claude Code (CLI agent), OpenCode (CLI agent), OpenRouter (LLM API), Zen MCP (MCP-based)
+- **LLM-to-Agent Adapter**: Any `IAIProvider` LLM can be wrapped as an `IAgentProvider` via `wrapAsAgent()`, enabling OpenRouter, local LLMs, and future providers to participate in the agent chain without native agent support
+- **Provider Registration**: Third-party providers register by name at startup; built-in names are locked and cannot be overridden
+
+### Circuit-Breaker Resilience (ProviderHealthTracker)
+
+Each provider+model combination is tracked individually with a sliding-window circuit breaker:
+
+- **Failure threshold**: 5 failures within 60 seconds trips the circuit (configurable)
+- **Open duration**: Tripped circuits remain open for 5 minutes (configurable)
+- **Half-open probing**: After the open duration, one probe request is allowed through. Success closes the circuit; failure re-opens it with a fresh timer
+- **Thundering herd prevention**: Only one caller can be in the half-open probe state at a time
+- **Non-retryable errors**: Configuration errors and caller mistakes are not counted toward the health threshold
+
+### Security Model (Epic 9)
+
+Defense-in-depth security is applied at multiple layers without requiring per-provider customization.
+
+**Content Sanitization (`ContentSanitizer`)**: Applied to every prompt going into an agent and every output coming back:
+
+- HTML stripping via a quote-aware state machine (handles `<div title="a>b">` correctly)
+- Zero-width and invisible Unicode character removal (20+ code points including bidi overrides from CVE-2021-42574 / Trojan Source)
+- Prompt injection detection across five categories: instruction override, role hijacking, system prompt extraction, delimiter injection, and encoding evasion via Unicode NFKD normalization
+- Output sanitization preserves content inside triple-backtick code blocks
+
+Sanitization never throws and never blocks execution. Detected patterns are reported as warnings in the return value, giving callers full control over how to respond.
+
+**URL Validation (`validateUrl`)**: Blocks outbound requests to private networks:
+
+- RFC 1918 ranges validated via numeric octet parsing, not regex (eliminates regex bypass risks)
+- IPv6-mapped IPv4 addresses (`::ffff:x.x.x.x`)
+- Bracketed IPv6 (`[::1]`, `[fc00::]`, `[fe80::]`)
+- Cloud metadata endpoints: GCP (`metadata.google.internal`), AWS/Azure (`169.254.169.254`), Alibaba Cloud (`100.100.100.200`), Docker (`host.docker.internal`)
+- Protocol allowlist: only `http:`, `https:`, `ws:`, `wss:`
+
+**Secure Fetch (`secureFetch`)**: SSRF-hardened fetch wrapper built on Node.js 22 native `globalThis.fetch`:
+
+- Pre-request URL validation
+- Manual redirect handling with Location header re-validation at each hop (max 5 redirects)
+- Sensitive headers (`Authorization`, `Cookie`) stripped on cross-origin redirects
+- Content-Type allowlist checked before reading the body
+- Body read via `ReadableStream` with a running byte counter—size limit enforced without buffering the full response
+- AbortController-based timeout (default 30 seconds)
+
+**Action Gating (`evaluateAction`)**: Blocks destructive shell commands before agents can execute them:
+
+- Normalized whitespace, lowercase matching, and backslash stripping prevent common evasion techniques
+- Default blocklist covers: `rm -rf`, `mkfs`, `dd`, fork bombs, `shutdown/reboot/halt`, `kill -9 1`, pipe-to-shell patterns (`| sh`, `| bash`, `| eval`), command substitution (`$(`, `${`), and interpreter pipes (`| python`, `| perl`, `| node`)
+- Block reason messages do not reveal which pattern matched, preventing blocklist probing
+- Additional patterns configurable via `security.blockedCommandPatterns` in config
+
+**SecureAgentProvider Decorator**: Wraps any `IAgentProvider` with input and output sanitization without modifying the underlying provider. The decorator pattern means any provider in any chain position can be security-wrapped generically.
+
+**MCP Tool Interceptors (`ToolInterceptorChain`)**: Blocking pre/post transformation hooks on MCP tool calls:
+
+- Pre-interceptors transform tool arguments before execution (for example, URL validation replaces blocked URLs with `[URL_BLOCKED_BY_POLICY]`)
+- Post-interceptors transform results after execution (for example, content sanitization strips invisible characters from tool output)
+- Prototype pollution keys (`__proto__`, `constructor`, `prototype`) are stripped from interceptor output
+- Errors are isolated per interceptor and fail-open to avoid breaking valid tool calls
+
+### Diagnostics and Observability
+
+**Diagnostics Queue**: Bounded, timer-drained event queue for zero overhead on the hot path:
+
+- `emit()` is synchronous, adding no async latency to agent task execution
+- Timer-based drain (default 5 seconds) batches events to a processor
+- Bounded at 1000 events by default; oldest events are dropped on overflow with a counter
+- `dispose()` drains remaining events before shutdown (up to 10 drain iterations)
+- Drain timer uses `.unref()` so it does not prevent process exit
+
+**Diagnostics Processor**: Maps completion and error events to cost tracking records via dependency injection. Provider name and task type values are validated through mapper functions rather than unsafe casts. Per-event errors are caught and logged as warnings so a single bad event does not block the entire batch.
+
+**Instrumented Providers**: Every provider returned from a `ProviderChain` is wrapped in `InstrumentedAgentProvider`, which emits `provider:call`, `provider:complete`, and `provider:error` events to the diagnostics queue. Token counts, latency, success/failure status, and cost data are captured automatically.
+
+### Deployment Modes
 
 - **Standalone**: Single-machine CLI for individual developers
 - **Orchestrator**: Centralized task queue and state management
 - **Worker**: Distributed execution for parallel processing
 - **Cloud Native**: Container-ready with Kubernetes support
 
-### 📊 Event Sourcing & Observability
+### Event Sourcing and Audit Trail
 
-- **Complete Audit Trail**: Every decision and action recorded
-- **Time-Travel Debugging**: Replay any development session
+- **Complete Audit Trail**: Every decision and action recorded as an immutable event
+- **Time-Travel Debugging**: Replay any development session from the event log
 - **Black-Box Testing**: Reproduce issues with exact context
 - **Real-time Dashboards**: Development velocity and system health
 
-_All features are fully specified in technical documentation. Implementation pending._
-
-## 🏗️ Architecture
+## Architecture
 
 Tamma uses a **Dynamic Consistency Boundary (DCB)** pattern with event sourcing for deterministic replay and maximum flexibility:
 
-```mermaid
-graph TB
-    subgraph "Orchestrator"
-        TQ[Task Queue]
-        WP[Worker Pool]
-        EB[Event Bus]
-    end
-
-    subgraph "Workers"
-        W1[Worker 1]
-        W2[Worker 2]
-        WN[Worker N]
-    end
-
-    subgraph "Storage"
-        PG[(PostgreSQL<br/>Event Store)]
-    end
-
-    subgraph "External"
-        AI[AI Providers]
-        GIT[Git Platforms]
-        CI[CI/CD Systems]
-    end
-
-    TQ --> W1
-    TQ --> W2
-    TQ --> WN
-
-    W1 --> EB
-    W2 --> EB
-    WN --> EB
-
-    EB --> PG
-
-    W1 --> AI
-    W1 --> GIT
-    W1 --> CI
-
-    W2 --> AI
-    W2 --> GIT
-    W2 --> CI
-
-    WN --> AI
-    WN --> GIT
-    WN --> CI
+```
++------------------------------------------------------------------+
+|                         Orchestrator                             |
+|                                                                  |
+|  +-----------+    +-------------------+    +-----------------+  |
+|  | Task Queue |    | RoleBasedAgent    |    |  Diagnostics    |  |
+|  |           |--->| Resolver          |--->|  Queue          |  |
+|  +-----------+    |                   |    +-----------------+  |
+|                   | phase --> role --> |            |            |
+|                   | ProviderChain --> |    +-----------------+  |
+|                   | SecureAgent       |    |  Cost Monitor   |  |
+|                   | Provider          |    +-----------------+  |
+|                   +-------------------+                         |
++------------------------------------------------------------------+
+         |                    |
+         v                    v
++------------------+  +------------------+
+|   AI Providers   |  |   Git Platforms  |
+|                  |  |                  |
+| - Claude Code    |  | - GitHub         |
+| - OpenCode       |  | - GitLab         |
+| - OpenRouter     |  | - Gitea          |
+| - Zen MCP        |  | - Bitbucket      |
+| - Local LLMs     |  | - Azure DevOps   |
++------------------+  +------------------+
+         |
+         v
++------------------+
+|  Security Layer  |
+|                  |
+| - ContentSanitizer
+| - UrlValidator   |
+| - ActionGating   |
+| - SecureFetch    |
+| - MCP Interceptors
++------------------+
+         |
+         v
++------------------+
+|   PostgreSQL     |
+|  Event Store     |
+| (DCB Pattern)    |
++------------------+
 ```
 
-### 🛠️ Tech Stack
+### Agent Resolution Flow
 
-- **Runtime**: Node.js 22 LTS + TypeScript 5.7
-- **Database**: PostgreSQL 17 (event sourcing)
+When the engine needs an agent for a workflow phase, the following resolution chain runs:
+
+```
+Engine calls getAgentForPhase(phase)
+          |
+          v
+RoleBasedAgentResolver.getRoleForPhase(phase)
+  config.phaseRoleMap[phase] ?? DEFAULT_PHASE_ROLE_MAP[phase]
+          |
+          v
+RoleBasedAgentResolver.getAgentForRole(role)
+  _getOrCreateChain(role)
+    role.providerChain if non-empty, else defaults.providerChain
+          |
+          v
+ProviderChain.getProvider(context)
+  for each entry in chain:
+    1. health.isHealthy(key)?          -- circuit breaker
+    2. costTracker.checkLimit()?       -- budget gate
+    3. factory.create(entry)?          -- instantiate provider
+    4. provider.isAvailable()?         -- liveness check
+    5. new InstrumentedAgentProvider() -- wrap with diagnostics
+          |
+          v
+SecureAgentProvider(provider, sanitizer)
+  -- wraps prompt input and result output with ContentSanitizer
+```
+
+### Tech Stack
+
+- **Runtime**: Node.js 22 LTS + TypeScript 5.7 (strict mode)
+- **Database**: PostgreSQL 17 (event sourcing via DCB pattern)
 - **API Framework**: Fastify 5.x
 - **Package Manager**: pnpm with workspaces
-- **Testing**: Jest with integration suites
-- **Security**: AES-256 encryption + OS keychain
+- **Testing**: Vitest 3.x (3864 tests passing)
+- **CLI**: Ink 5.x (React for terminals)
+- **Logging**: Pino (structured JSON)
+- **Date/Time**: dayjs (UTC)
+- **Security**: AES-256 encryption + OS keychain integration
 
-## 📊 Development Progress
+## Repository Structure
 
-### 🚧 Current Status: Pre-Alpha Development
+```
+tamma/
+├── packages/
+│   ├── shared/                # Shared types, contracts, security, telemetry
+│   │   └── src/
+│   │       ├── types/
+│   │       │   ├── agent-config.ts    # AgentsConfig, IAgentRoleConfig,
+│   │       │   │                      # IProviderChainEntry, WorkflowPhase,
+│   │       │   │                      # DEFAULT_PHASE_ROLE_MAP, validation
+│   │       │   └── security-config.ts # SecurityConfig interface
+│   │       ├── security/
+│   │       │   ├── content-sanitizer.ts  # HTML stripping, invisible char
+│   │       │   │                          # removal, prompt injection detection
+│   │       │   ├── url-validator.ts      # Private IP blocking, SSRF protection
+│   │       │   ├── action-gating.ts      # Destructive command blocklist
+│   │       │   └── secure-fetch.ts       # SSRF-hardened fetch with redirect
+│   │       │                              # re-validation and size limiting
+│   │       └── telemetry/
+│   │           ├── diagnostics-queue.ts      # Bounded timer-drained event queue
+│   │           └── diagnostics-processor.ts  # Maps events to cost tracking records
+│   ├── providers/             # AI provider implementations and agent management
+│   │   └── src/
+│   │       ├── agent-provider-factory.ts   # Creates providers by name, wrapAsAgent
+│   │       ├── provider-chain.ts           # Ordered fallback with health+budget+instrumentation
+│   │       ├── provider-health.ts          # Circuit breaker with half-open probing
+│   │       ├── agent-prompt-registry.ts    # 6-level template resolution + {{var}} interpolation
+│   │       ├── role-based-agent-resolver.ts # Phase-to-role-to-provider mapping, top-level API
+│   │       ├── secure-agent-provider.ts    # Decorator: adds sanitization to any IAgentProvider
+│   │       ├── instrumented-agent-provider.ts # Decorator: emits diagnostics events
+│   │       ├── claude-agent-provider.ts    # Claude Code CLI agent provider
+│   │       ├── opencode-provider.ts        # OpenCode CLI agent provider
+│   │       ├── openrouter-provider.ts      # OpenRouter LLM API provider
+│   │       └── zen-mcp-provider.ts         # Zen MCP provider
+│   ├── mcp-client/            # MCP protocol client with security hooks
+│   │   └── src/
+│   │       └── interceptors.ts  # ToolInterceptorChain, sanitization interceptor,
+│   │                             # URL validation interceptor
+│   ├── cli/                   # Ink-based CLI interface
+│   ├── orchestrator/          # 14-step autonomous loop engine
+│   ├── workers/               # Background job workers
+│   ├── gates/                 # Quality gates (build, test, security)
+│   ├── intelligence/          # Research and ambiguity detection
+│   ├── events/                # DCB event sourcing
+│   ├── platforms/             # Git platform abstraction
+│   ├── api/                   # Fastify REST API + SSE
+│   ├── dashboard/             # React observability dashboard
+│   ├── observability/         # Logging and metrics (Pino)
+│   ├── config/                # Configuration loading, normalization, validation
+│   ├── cost-monitor/          # Token counting, cost tracking, budget enforcement
+│   └── scrum-master/          # Issue selection and prioritization
+├── docs/                      # Architecture, PRD, epics, stories
+│   ├── architecture.md        # Complete technical architecture
+│   ├── PRD.md                 # Product requirements document
+│   ├── epics.md               # Epic breakdown
+│   └── stories/               # Individual story implementation plans
+├── .dev/                      # Development knowledge base
+│   ├── spikes/                # Research and prototyping
+│   ├── bugs/                  # Bug reports and resolutions
+│   ├── findings/              # Pitfalls and lessons learned
+│   └── decisions/             # Architecture Decision Records
+└── database/                  # Database migrations
+```
 
-### ✅ Completed (October 2025)
+## Development Progress
+
+### Current Status: Active Development
+
+**3864 tests passing** across all packages.
+
+### Completed
 
 - **Product Requirements**: Comprehensive PRD with feature definitions and acceptance criteria
-- **Architecture Design**: Hybrid orchestrator/worker architecture with event sourcing foundation
-- **Technical Specifications**: All 5 epics fully specified with detailed implementation guidance
-- **Epic 1 Foundation**: 12 developer-ready stories with comprehensive technical contexts
+- **Architecture Design**: Hybrid orchestrator/worker architecture with DCB event sourcing
+- **Epic 1 - Foundation**: Multi-provider AI abstraction, Git platform interfaces, hybrid architecture, CLI scaffolding, extended providers (OpenRouter, OpenCode, Zen MCP)
+- **Epic 9 - Config-Driven Agent Management**:
+  - Story 9-1: Configuration schema (AgentsConfig, SecurityConfig, normalize, validate, env-var merge)
+  - Story 9-2: Provider diagnostics (InstrumentedAgentProvider, InstrumentedLLMProvider, cost tracking)
+  - Story 9-3: ProviderHealthTracker (circuit breaker with configurable thresholds and half-open probing)
+  - Story 9-4: AgentProviderFactory (creates providers by name, wrapAsAgent for LLM-to-agent adaptation)
+  - Story 9-5: ProviderChain (ordered fallback with health, budget, and instrumentation)
+  - Story 9-6: AgentPromptRegistry (six-level template resolution with variable interpolation)
+  - Story 9-7: Content sanitization (ContentSanitizer, validateUrl, evaluateAction, secureFetch, SecureAgentProvider)
+  - Story 9-8: RoleBasedAgentResolver (phase-to-role-to-provider mapping, engine-facing API)
+  - Story 9-9: Engine integration (orchestrator uses resolver for phase-aware agent selection)
+  - Story 9-10: CLI wiring (config-driven agent resolver with diagnostics integration)
+  - Story 9-11: Diagnostics queue and MCP interceptors (ToolInterceptorChain, sanitization and URL validation interceptors)
 
-### 🔄 In Progress
+### Roadmap
 
-- **Core Implementation**: AI and Git provider abstractions
-- **CLI Development**: Standalone mode scaffolding and command interface
-- **Event Store**: PostgreSQL-based event sourcing implementation
+**Epic 1: Foundation and Core Infrastructure** - Complete
 
-### 📅 Upcoming Milestones
+Multi-provider AI abstraction, multi-platform Git integration, hybrid orchestrator/worker architecture.
 
-- **Alpha Release**: Q1 2025 (Epic 1 complete)
-- **Beta Release**: Q2 2025 (Epic 1-2 complete)
-- **Public Launch**: Q3 2025 (All epics complete)
+**Epic 2: Autonomous Development Workflow** - In Progress
 
-### 🎯 Epic Readiness
+Issue selection, plan generation, test-first implementation, PR creation and monitoring.
 
-- **Epic 1**: ✅ Ready for Development (12 stories)
-- **Epic 2**: ✅ Specifications Complete (11 stories)
-- **Epic 3**: ✅ Specifications Complete (9 stories)
-- **Epic 4**: ✅ Specifications Complete (8 stories)
-- **Epic 5**: ✅ Specifications Complete (10 stories)
+**Epic 3: Intelligence and Quality Enhancement** - Planned
 
-## 🗺️ Roadmap
+Build/test automation, research capability, ambiguity detection, static analysis.
 
-### Epic 1: Foundation & Core Infrastructure 🚧
+**Epic 4: Event Sourcing and Time-Travel** - Planned
 
-**Multi-provider AI abstraction, multi-platform Git integration, hybrid orchestrator/worker architecture**
+Complete event capture, time-travel debugging, black-box replay.
 
-- ✅ **AI Provider Strategy**: Research and interface definition
-- ✅ **Core Implementations**: Claude Code, GitHub, GitLab providers
-- ✅ **Configuration Management**: Secure provider and platform configuration
-- ✅ **Architecture Design**: Hybrid orchestrator/worker pattern
-- ✅ **CLI Scaffolding**: Mode selection and basic commands
-- ✅ **Extended Providers**: Additional AI and Git platform support
+**Epic 5: Observability and Production Readiness** - Planned
 
-### Epic 2: Autonomous Development Workflow 📋
+Structured logging, metrics, dashboards, integration testing, public release.
 
-**Issue selection, plan generation, test-first implementation, PR creation and monitoring**
+**Epic 9: Config-Driven Agent Management** - Complete
 
-- 🔄 **Issue Selection**: Intelligent filtering and prioritization
-- 🔄 **Development Planning**: Comprehensive plan generation with approvals
-- 🔄 **Test-First Development**: Automated test writing and implementation
-- 🔄 **PR Management**: Creation, monitoring, and merging
-- 🔄 **CI/CD Integration**: Status monitoring and error handling
+Multi-agent configuration schema, provider health tracking, prompt registry, content sanitization, role-based resolution, MCP interceptors.
 
-### Epic 3: Intelligence & Quality Enhancement 🧠
+## Configuration Reference
 
-**Build/test automation, research capability, ambiguity detection, static analysis**
+### agents
 
-- 📋 **Build Automation**: Retry logic and error recovery
-- 📋 **Research Integration**: Unfamiliar concept investigation
-- 📋 **Ambiguity Detection**: Scoring and clarification workflows
-- 📋 **Quality Gates**: Static analysis and security scanning
+| Field | Type | Description |
+|---|---|---|
+| `agents.defaults` | `IAgentRoleConfig` | Base configuration applied to all roles |
+| `agents.defaults.providerChain` | `IProviderChainEntry[]` | Ordered list of providers to try (required, non-empty) |
+| `agents.defaults.allowedTools` | `string[]` | Tools all roles may use by default |
+| `agents.defaults.maxBudgetUsd` | `number` | Default per-role budget ceiling in USD (0-100) |
+| `agents.defaults.permissionMode` | `'default' \| 'bypassPermissions'` | Permission enforcement mode |
+| `agents.defaults.systemPrompt` | `string` | Default system prompt (overridden by role templates) |
+| `agents.defaults.providerPrompts` | `Record<string, string>` | Provider-specific default prompts |
+| `agents.roles` | `Record<AgentType, Partial<IAgentRoleConfig>>` | Per-role overrides merged with defaults |
+| `agents.phaseRoleMap` | `Record<WorkflowPhase, AgentType>` | Override phase-to-role mappings |
 
-### Epic 4: Event Sourcing & Time-Travel ⏰
+### Provider Chain Entry
 
-**Complete event capture, time-travel debugging, black-box replay**
+| Field | Type | Description |
+|---|---|---|
+| `provider` | `string` | Provider identifier (`claude-code`, `opencode`, `openrouter`, `zen-mcp`) |
+| `model` | `string` | Model identifier (e.g., `claude-sonnet-4-5`, `openai/gpt-4o`) |
+| `apiKeyRef` | `string` | Environment variable name containing the API key (never the raw key) |
+| `config` | `Record<string, unknown>` | Provider-specific options (baseUrl, timeout, etc.) |
 
-- 📋 **Event Schema**: Comprehensive event design
-- 📋 **Event Capture**: All development decisions and actions
-- 📋 **Time-Travel Debugging**: Replay and analysis capabilities
-- 📋 **Black-Box Testing**: Issue reproduction with exact context
+### security
 
-### Epic 5: Observability & Production Readiness 📊
+| Field | Type | Default | Description |
+|---|---|---|---|
+| `sanitizeContent` | `boolean` | `true` | Strip HTML, invisible chars, detect prompt injection |
+| `validateUrls` | `boolean` | `true` | Block requests to private/reserved IP ranges |
+| `gateActions` | `boolean` | `true` | Block destructive shell commands |
+| `maxFetchSizeBytes` | `number` | `10485760` | Maximum response body size for secureFetch (0 to 1 GiB) |
+| `blockedCommandPatterns` | `string[]` | `[]` | Additional substring patterns to block (max 100, each max 500 chars) |
 
-**Structured logging, metrics, dashboards, integration testing, alpha release**
+### Environment Variables
 
-- 📋 **Logging & Metrics**: Comprehensive observability
-- 📋 **Real-time Dashboards**: System health and development velocity
-- 📋 **Integration Testing**: End-to-end test suites
-- 📋 **Production Deployment**: Alpha release preparation
+| Variable | Description |
+|---|---|
+| `TAMMA_ALLOW_BYPASS_PERMISSIONS` | Set to `"true"` to allow agents to use `bypassPermissions` mode |
+| `ANTHROPIC_API_KEY` | API key for Anthropic providers |
+| `OPENROUTER_API_KEY` | API key for OpenRouter |
+| Any `apiKeyRef` value | The variable name from `apiKeyRef` is resolved at startup |
 
-**Legend**: ✅ Complete | 🔄 In Progress | 📋 Planned
+## Development Setup
 
-## Technology Stack
+### Install Dependencies
 
-- **Language**: TypeScript 5.7+
-- **Runtime**: Node.js 22 LTS
-- **Database**: PostgreSQL 17 (event store)
-- **API Framework**: Fastify 5.x
-- **Package Manager**: pnpm with workspaces
-- **Testing**: Jest, integration testing suite
-- **Security**: AES-256 encryption, OS keychain integration
+```bash
+pnpm install
+```
 
-## 🛠️ Development Setup (Pre-Implementation)
+### Build All Packages
 
-### 🚧 Current Phase: Architecture & Specification
+```bash
+pnpm build
+```
 
-We're currently in the **pre-development phase**. The codebase is not yet implemented, but the foundation is thoroughly planned and documented.
+### Run Tests
 
-### 📋 What's Ready Today
+```bash
+pnpm test                   # All tests
+pnpm test:unit              # Unit tests only
+pnpm test:integration       # Integration tests (requires credentials)
+pnpm test:coverage          # Coverage report
+```
 
-- **✅ Complete Architecture**: Hybrid orchestrator/worker design with event sourcing
-- **✅ Technical Specifications**: All 5 epics fully detailed with implementation guidance
-- **✅ Development Stories**: 50+ stories with comprehensive technical context
-- **✅ Project Structure**: Monorepo setup with workspaces and tooling configuration
+### Development Mode
 
-### 🚀 How to Start Contributing
+```bash
+pnpm dev                              # All packages
+pnpm dev --filter @tamma/cli         # CLI only
+pnpm dev --filter @tamma/providers   # Providers only
+```
 
-**For New Contributors:**
+### Lint and Format
 
-1. **📖 Study the Architecture**: Review [Architecture Overview](docs/architecture.md) and [Epic 1 Tech Spec](docs/tech-spec-epic-1.md)
-2. **🎯 Choose a Story**: Pick from [Epic 1 stories](docs/stories/) - all have comprehensive technical context
-3. **💬 Join Discussion**: Participate in [GitHub Discussions](https://github.com/meywd/tamma/discussions) to ask questions
-4. **🌟 Watch Repository**: Get notified when implementation begins
+```bash
+pnpm lint     # ESLint
+pnpm format   # Prettier
+```
 
-**Good First Stories for Implementation:**
+## Contributing
 
-- [AI Provider Interface](docs/stories/1-1-ai-provider-interface-definition.md) - Define the core AI abstraction
-- [CLI Scaffolding](docs/stories/1-9-basic-cli-scaffolding-with-mode-selection.md) - Create the command-line interface
-- [Configuration Management](docs/stories/1-3-provider-configuration-management.md) - Build secure configuration system
+We welcome contributions of all kinds.
 
-### 📋 Planned Development Focus
-
-**Epic 1 Foundation Implementation** (Specifications Complete):
-
-- **AI Provider Abstraction**: Pluggable interface for Claude, OpenAI, GitHub Copilot, etc.
-- **Git Platform Integration**: Unified API for GitHub, GitLab, Gitea, Bitbucket, etc.
-- **Hybrid Architecture**: Orchestrator/worker pattern with PostgreSQL event sourcing
-- **CLI Development**: Command-line interface with standalone and orchestrator modes
-
-### 🗓️ Implementation Timeline
-
-- **📅 November 2025**: Epic 1 implementation begins
-- **📅 Q1 2026**: Alpha release with core functionality
-- **📅 Q2 2026**: Beta release with autonomous workflows
-- **📅 Q3 2026**: Public launch with all features
-
-See [Sprint Status](docs/sprint-status.yaml) for current planning progress.
-
-## 🤝 Community & Support
-
-### 💬 Get Help
-
-- **[GitHub Discussions](https://github.com/meywd/tamma/discussions)** - Ask questions and share ideas
-- **[GitHub Issues](https://github.com/meywd/tamma/issues)** - Report bugs and request features
-
-### 🚀 Contributing
-
-We welcome contributions of all kinds! Here's how to get started:
-
-#### **Good First Issues**
+### Good First Issues
 
 - [AI Provider Interface](https://github.com/meywd/tamma/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+label%3Aepic-1)
 - [CLI Commands](https://github.com/meywd/tamma/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+label%3Acli)
 - [Documentation](https://github.com/meywd/tamma/issues?q=is%3Aissue+is%3Aopen+label%3A%22good+first+issue%22+label%3Adocumentation)
 
-#### **Contribution Areas**
+### Contribution Areas
 
-- **🔧 Core Development**: AI providers, Git platforms, event sourcing
-- **📚 Documentation**: Guides, tutorials, API docs
-- **🧪 Testing**: Unit tests, integration tests, end-to-end scenarios
-- **🎨 Design**: UI components, dashboards, user experience
-- **🌐 Localization**: Help translate Tamma to other languages
+- **Core Development**: AI providers, Git platforms, event sourcing
+- **Documentation**: Guides, tutorials, API docs
+- **Testing**: Unit tests, integration tests, end-to-end scenarios
+- **Design**: UI components, dashboards, user experience
 
-#### **Development Process (Starting November 2025)**
+### Development Process
+
+Before writing any code, read:
+
+1. `BEFORE_YOU_CODE.md` — mandatory process guide
+2. `.dev/README.md` — development knowledge base
+3. `CLAUDE.md` — project guidelines
+4. `docs/architecture.md` — technical architecture
+5. The relevant story file in `docs/stories/`
+
+Then:
 
 1. Fork the repository
 2. Create a feature branch (`git checkout -b feature/amazing-feature`)
@@ -336,48 +541,50 @@ We welcome contributions of all kinds! Here's how to get started:
 4. Push to the branch (`git push origin feature/amazing-feature`)
 5. Open a Pull Request
 
-_Currently accepting contributions to architecture, documentation, and implementation planning._
-
-### 📋 Code of Conduct
+### Code of Conduct
 
 Please read and follow our [Code of Conduct](docs/code-of-conduct.md) to ensure a welcoming environment for all contributors.
 
-### 🏆 Contributors
+### Contributors
 
 Thank you to all our contributors! Your work makes Tamma possible.
 
 [![Contributors](https://contrib.rocks/image?repo=meywd/tamma)](https://github.com/meywd/tamma/graphs/contributors)
 
-## 🎯 Planned Use Cases
+## Use Cases
 
-### 🏢 Enterprise Teams
+### Enterprise Teams
 
 - **Legacy Modernization**: Autonomous refactoring of large codebases
 - **Feature Development**: Rapid prototyping and implementation
 - **Code Review Automation**: Automated PR generation and review
 
-### 👥 Solo Developers
+### Solo Developers
 
 - **Productivity Boost**: Handle routine development tasks automatically
 - **Learning**: Understand best practices through AI-generated code
 - **Side Projects**: Accelerate personal project development
 
-### 🚀 Startups
+### Startups
 
 - **MVP Development**: Fast feature implementation and iteration
 - **Technical Debt**: Automated refactoring and maintenance
-- **Scaling**: Handle growing codebase with limited resources
+- **Scaling**: Handle a growing codebase with limited resources
 
-_These use cases are thoroughly planned and specified. Implementation will begin November 2025._
-
-## 🔗 Related Projects
+## Related Projects
 
 - **[GitHub Copilot](https://github.com/features/copilot)** - AI pair programming
 - **[Cursor](https://cursor.sh)** - AI-powered code editor
 - **[Aider](https://github.com/paul-gauthier/aider)** - AI pair programming in terminal
 - **[Continue](https://github.com/continuedev/continue)** - Open-source AI code assistant
 
-## 📄 License
+## Community and Support
+
+- **[GitHub Discussions](https://github.com/meywd/tamma/discussions)** - Ask questions and share ideas
+- **[GitHub Issues](https://github.com/meywd/tamma/issues)** - Report bugs and request features
+- **[Wiki](https://github.com/meywd/tamma/wiki)** - Extended documentation
+
+## License
 
 This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENSE) file for details.
 
@@ -391,10 +598,10 @@ This project is licensed under the Apache License 2.0 - see the [LICENSE](LICENS
 
 <div align="center">
 
-**⭐ Star this repository to support autonomous development!**
+Star this repository to support autonomous development!
 
 Built with the vision of democratizing autonomous software development
 
-[🔝 Back to top](#-tamma)
+[Back to top](#tamma)
 
 </div>

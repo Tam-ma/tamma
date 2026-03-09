@@ -306,12 +306,16 @@ export class ContentSanitizer implements IContentSanitizer {
 
     for (let i = 0; i < segments.length; i++) {
       const segment = segments[i]!;
-      if (i % 2 === 0) {
-        // Outside code block -- strip HTML
-        result.push(this._stripHtml(segment));
-      } else {
-        // Inside code block -- preserve verbatim with delimiters
+      const isInsideCodeBlock = i % 2 === 1;
+      const isLastUnclosedFence = isInsideCodeBlock && i === segments.length - 1;
+
+      if (isInsideCodeBlock && !isLastUnclosedFence) {
+        // Inside matched code block -- preserve verbatim with delimiters
         result.push(delimiter + segment + delimiter);
+      } else {
+        // Outside code block, or unclosed last fence -- strip HTML
+        if (isLastUnclosedFence) result.push(delimiter);
+        result.push(this._stripHtml(segment));
       }
     }
 

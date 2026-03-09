@@ -127,11 +127,12 @@ export class ProviderHealthTracker implements IProviderHealthTracker {
     // Half-open probe timeout: if the probe caller crashed or forgot to
     // call recordSuccess/recordFailure, auto-reset to open state.
     if (entry.halfOpenInProgress) {
-      if (Date.now() - entry.halfOpenStartedAt > this.halfOpenProbeTimeoutMs) {
+      const now = Date.now();
+      if (now - entry.halfOpenStartedAt > this.halfOpenProbeTimeoutMs) {
         // Probe timed out -- reset to open and allow a new probe
         entry.halfOpenInProgress = false;
         entry.circuitOpen = true;
-        entry.circuitOpenUntil = Date.now() + this.circuitOpenDurationMs;
+        entry.circuitOpenUntil = now + this.circuitOpenDurationMs;
         this.onCircuitChange?.(key, 'open');
         return false;
       }

@@ -7,7 +7,8 @@ This directory contains the source markdown files for the Tamma GitHub Wiki.
 - **Home.md** - Wiki homepage with quick links and project overview
 - **Roadmap.md** - Project roadmap with epic breakdown and timeline
 - **Epic-1-Foundation.md** - Detailed Epic 1 breakdown with all 86 tasks
-- **Architecture.md** - System architecture overview
+- **Epic-9-Agent-Management.md** - Config-driven multi-agent system (Epic 9, 11 stories)
+- **Architecture.md** - System architecture overview including multi-agent and security layers
 - **Contributing.md** - Contributing guidelines for developers
 - **Stories.md** - Index of all user stories across epics
 
