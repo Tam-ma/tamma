@@ -1,6 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
 import type { IAgentProvider, AgentTaskConfig } from './agent-types.js';
-import type { IAIProvider, MessageResponse, ProviderConfig } from './types.js';
+import type { IAIProvider, MessageRequest, MessageResponse, ProviderConfig } from './types.js';
 
 // ---- Mock provider modules ----
 // vi.mock factories are hoisted; all mock classes must be self-contained.
@@ -615,6 +615,26 @@ describe('wrapAsAgent', () => {
     };
   }
 
+  it('returns object with executeTask, isAvailable, and dispose methods', () => {
+    const llm = createMockLLM();
+    const agent = wrapAsAgent(llm, 'model');
+    expect(typeof agent.executeTask).toBe('function');
+    expect(typeof agent.isAvailable).toBe('function');
+    expect(typeof agent.dispose).toBe('function');
+  });
+
+  it('does not mutate the original IAIProvider instance', () => {
+    const llm = createMockLLM();
+    const keysBefore = Object.keys(llm).sort();
+    const _agent = wrapAsAgent(llm, 'model');
+    const keysAfter = Object.keys(llm).sort();
+    expect(keysAfter).toEqual(keysBefore);
+    // Verify the original provider still has its own methods unchanged
+    expect(typeof llm.sendMessageSync).toBe('function');
+    expect(typeof llm.initialize).toBe('function');
+    expect(typeof llm.dispose).toBe('function');
+  });
+
   describe('executeTask', () => {
     it('calls sendMessageSync and maps response fields correctly', async () => {
       const llm = createMockLLM();
@@ -625,6 +645,33 @@ describe('wrapAsAgent', () => {
       expect(result.output).toBe('response for model=my-model');
       expect(result.costUsd).toBe(0);
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
+    });
+
+    it('builds MessageRequest with correct prompt and calls sendMessageSync', async () => {
+      let capturedRequest: MessageRequest | undefined;
+      const llm = createMockLLM({
+        async sendMessageSync(request: MessageRequest): Promise<MessageResponse> {
+          capturedRequest = request;
+          return {
+            id: 'id',
+            content: 'ok',
+            model: 'model',
+            usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+            finishReason: 'stop',
+          };
+        },
+      });
+      const agent = wrapAsAgent(llm, 'test-model');
+      await agent.executeTask({ prompt: 'do something', cwd: '/tmp' });
+
+      expect(capturedRequest).toBeDefined();
+      expect(capturedRequest!.messages).toEqual([
+        { role: 'user', content: 'do something' },
+      ]);
+      expect(capturedRequest!.model).toBe('test-model');
+      // maxTokens and temperature should not be set (omitted, not undefined)
+      expect('maxTokens' in capturedRequest!).toBe(false);
+      expect('temperature' in capturedRequest!).toBe(false);
     });
 
     it('uses config.model when provided (task-level override)', async () => {
@@ -670,6 +717,60 @@ describe('wrapAsAgent', () => {
       expect(result.success).toBe(true);
     });
 
+    it('maps finishReason=length to success=true', async () => {
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          return {
+            id: 'len-1',
+            content: 'truncated output',
+            model: 'model',
+            usage: { inputTokens: 10, outputTokens: 4096, totalTokens: 4106 },
+            finishReason: 'length',
+          };
+        },
+      });
+      const agent = wrapAsAgent(llm, 'model');
+      const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('truncated output');
+    });
+
+    it('maps finishReason=tool_calls to success=true', async () => {
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          return {
+            id: 'tc-1',
+            content: 'tool call output',
+            model: 'model',
+            usage: { inputTokens: 10, outputTokens: 20, totalTokens: 30 },
+            finishReason: 'tool_calls',
+          };
+        },
+      });
+      const agent = wrapAsAgent(llm, 'model');
+      const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('tool call output');
+    });
+
+    it('maps finishReason=content_filter to success=true', async () => {
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          return {
+            id: 'cf-1',
+            content: 'filtered output',
+            model: 'model',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            finishReason: 'content_filter',
+          };
+        },
+      });
+      const agent = wrapAsAgent(llm, 'model');
+      const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
+      expect(result.success).toBe(true);
+      expect(result.output).toBe('filtered output');
+    });
+
     it('catches sendMessageSync error with safe casting (Error instance)', async () => {
       const llm = createMockLLM({
         async sendMessageSync() {
@@ -686,7 +787,7 @@ describe('wrapAsAgent', () => {
       expect(result.durationMs).toBeGreaterThanOrEqual(0);
     });
 
-    it('handles non-Error thrown values via String(err)', async () => {
+    it('handles non-Error thrown values via String(err) (number)', async () => {
       const llm = createMockLLM({
         async sendMessageSync() {
           throw 42; // eslint-disable-line no-throw-literal
@@ -697,6 +798,21 @@ describe('wrapAsAgent', () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toBe('42');
+    });
+
+    it('handles non-Error thrown values via String(err) (string)', async () => {
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          throw 'boom'; // eslint-disable-line no-throw-literal
+        },
+      });
+      const agent = wrapAsAgent(llm, 'model');
+      const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
+
+      expect(result.success).toBe(false);
+      expect(result.output).toBe('');
+      expect(result.error).toBe('boom');
+      expect(result.costUsd).toBe(0);
     });
 
     it('sets costUsd to 0', async () => {
@@ -724,11 +840,48 @@ describe('wrapAsAgent', () => {
       const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
       expect(result.durationMs).toBeGreaterThanOrEqual(5);
     });
+
+    it('tracks durationMs on error path', async () => {
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          await new Promise((resolve) => setTimeout(resolve, 10));
+          throw new Error('delayed failure');
+        },
+      });
+      const agent = wrapAsAgent(llm, 'model');
+      const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
+      expect(result.success).toBe(false);
+      expect(result.durationMs).toBeGreaterThanOrEqual(5);
+    });
+
+    it('accepts _onProgress callback but does not invoke it', async () => {
+      const llm = createMockLLM();
+      const agent = wrapAsAgent(llm, 'model');
+      const onProgress = vi.fn();
+      const result = await agent.executeTask(
+        { prompt: 'test', cwd: '/tmp' },
+        onProgress,
+      );
+      expect(result.success).toBe(true);
+      expect(onProgress).not.toHaveBeenCalled();
+    });
   });
 
   describe('isAvailable', () => {
     it('always returns true', async () => {
       const llm = createMockLLM();
+      const agent = wrapAsAgent(llm, 'model');
+      expect(await agent.isAvailable()).toBe(true);
+    });
+
+    it('returns true regardless of provider state', async () => {
+      // Even with a provider that would fail on executeTask,
+      // isAvailable() should return true (lazy validation)
+      const llm = createMockLLM({
+        async sendMessageSync() {
+          throw new Error('provider down');
+        },
+      });
       const agent = wrapAsAgent(llm, 'model');
       expect(await agent.isAvailable()).toBe(true);
     });
@@ -741,6 +894,14 @@ describe('wrapAsAgent', () => {
       const agent = wrapAsAgent(llm, 'model');
       await agent.dispose();
       expect(disposeFn).toHaveBeenCalledOnce();
+    });
+
+    it('returns a resolved promise', async () => {
+      const llm = createMockLLM();
+      const agent = wrapAsAgent(llm, 'model');
+      const result = agent.dispose();
+      expect(result).toBeInstanceOf(Promise);
+      await expect(result).resolves.toBeUndefined();
     });
   });
 });
