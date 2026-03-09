@@ -3,6 +3,8 @@
  */
 
 import type { ILogger } from '../contracts/index.js';
+import type { AgentsConfig } from './agent-config.js';
+import type { SecurityConfig } from './security-config.js';
 
 // Re-export knowledge types
 export * from './knowledge.js';
@@ -72,6 +74,10 @@ export interface TammaConfig {
   elsa?: ElsaConfig;
   /** API server configuration */
   server?: ServerConfig;
+  /** Multi-agent provider chain configuration */
+  agents?: AgentsConfig;
+  /** Security settings for content sanitization, URL validation, and action gating */
+  security?: SecurityConfig;
 }
 
 export interface GitHubConfig {
