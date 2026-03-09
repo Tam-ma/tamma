@@ -12,7 +12,7 @@
  * - registerBuiltin() override, logging, and security behavior
  * - Prototype pollution protection
  *
- * Story 9-6: Agent Prompt Registry (Task 1 + Task 2)
+ * Story 9-6: Agent Prompt Registry (Task 1 + Task 2 + Task 3)
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -563,6 +563,92 @@ describe('AgentPromptRegistry', () => {
       });
       expect(result).toBe('Start: Hello World');
     });
+
+    it('replaces the same {{var}} appearing twice in a template', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Hello {{name}}, welcome {{name}}!' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'provider', {
+        name: 'Agent',
+      });
+      expect(result).toBe('Hello Agent, welcome Agent!');
+    });
+
+    it('replaces {{context}} with empty string value', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Start: {{context}} end' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'provider', {
+        context: '',
+      });
+      expect(result).toBe('Start:  end');
+    });
+
+    it('handles keys with special characters gracefully (no crash)', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Template with no matching placeholder' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      // Keys with special chars -- they just won't match any placeholder, but must not crash
+      const result = registry.render('architect', 'provider', {
+        'key.with.dots': 'value1',
+        'key[0]': 'value2',
+        'key$special': 'value3',
+      });
+      expect(result).toBe('Template with no matching placeholder');
+    });
+
+    it('handles regex special characters: foo$bar^baz.*', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Data: {{context}}' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'provider', {
+        context: 'foo$bar^baz.*',
+      });
+      // split+join should handle regex special chars literally
+      expect(result).toBe('Data: foo$bar^baz.*');
+    });
+
+    it('handles values with $& and $1 regex replacement patterns literally', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Cost: {{amount}}' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'provider', {
+        amount: '$& $1 $2',
+      });
+      // With regex-based replace, $& and $1 would be interpreted.
+      // split+join treats them literally.
+      expect(result).toBe('Cost: $& $1 $2');
+    });
+
+    it('unused vars are ignored silently -- template unchanged', () => {
+      const registry = createRegistry();
+      const templateBefore = registry.resolveTemplate('reviewer', 'provider');
+      const result = registry.render('reviewer', 'provider', {
+        unused: 'value',
+        another_unused: 'other',
+      });
+      expect(result).toBe(templateBefore);
+    });
   });
 
   describe('render - size limits', () => {
@@ -628,6 +714,29 @@ describe('AgentPromptRegistry', () => {
           length: 2_000_000,
           limit: 1_000_000,
         }),
+      );
+    });
+
+    it('skips only the oversized variable -- others are applied normally', () => {
+      const logger = createMockLogger();
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'A={{a}} B={{b}} C={{c}}' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config, logger });
+      const oversizedValue = 'x'.repeat(100_001);
+      const result = registry.render('architect', 'provider', {
+        a: 'alpha',
+        b: oversizedValue,
+        c: 'gamma',
+      });
+      // 'b' should be skipped, but 'a' and 'c' should be replaced
+      expect(result).toBe('A=alpha B={{b}} C=gamma');
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Skipping variable exceeding MAX_VAR_VALUE_LENGTH',
+        expect.objectContaining({ key: 'b' }),
       );
     });
   });
@@ -800,6 +909,140 @@ describe('AgentPromptRegistry', () => {
     });
   });
 
+  describe('no regex usage in interpolation', () => {
+    it('values with regex replacement patterns ($1, $&, $$) are substituted literally', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: { systemPrompt: 'Match: {{val}}' },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      // These patterns would be interpreted by String.prototype.replace() with regex
+      expect(registry.render('architect', 'provider', { val: '$1' })).toBe('Match: $1');
+      expect(registry.render('architect', 'provider', { val: '$&' })).toBe('Match: $&');
+      expect(registry.render('architect', 'provider', { val: '$$' })).toBe('Match: $$');
+      expect(registry.render('architect', 'provider', { val: "$'" })).toBe("Match: $'");
+      expect(registry.render('architect', 'provider', { val: '$`' })).toBe('Match: $`');
+    });
+  });
+
+  describe('render - integration with resolution chain', () => {
+    it('render() uses per-provider-per-role template (level 1) and interpolates vars into it', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: {
+            providerPrompts: {
+              'claude-code': 'Provider-specific prompt for {{context}}',
+            },
+            systemPrompt: 'Should not use this',
+          },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'claude-code', {
+        context: 'my feature',
+      });
+      expect(result).toBe('Provider-specific prompt for my feature');
+    });
+
+    it('render() uses GENERIC_FALLBACK (level 6) when nothing configured -- vars have no effect (no placeholders in fallback)', () => {
+      const registry = createRegistry();
+      const unknownRole = 'unknown_role' as AgentType;
+      const result = registry.render(unknownRole, 'provider', {
+        context: 'should not appear',
+      });
+      // GENERIC_FALLBACK has no {{placeholders}}, so vars are irrelevant
+      expect(result).toBe(GENERIC_FALLBACK_TEXT);
+    });
+
+    it('render() uses per-role systemPrompt (level 2) with variable interpolation', () => {
+      const config: AgentsConfig = {
+        defaults: { providerChain: [] },
+        roles: {
+          architect: {
+            systemPrompt: 'Role prompt with {{context}} and {{extra}}',
+          },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+      const result = registry.render('architect', 'provider', {
+        context: 'issue details',
+        extra: 'additional info',
+      });
+      expect(result).toBe('Role prompt with issue details and additional info');
+    });
+  });
+
+  describe('render - full end-to-end scenario', () => {
+    it('realistic AgentsConfig: different roles and providers resolve and render correctly', () => {
+      const config: AgentsConfig = {
+        defaults: {
+          providerChain: [],
+          systemPrompt: 'Default: handle {{task}}',
+          providerPrompts: {
+            'openai': 'OpenAI default: handle {{task}}',
+          },
+        },
+        roles: {
+          architect: {
+            providerPrompts: {
+              'claude-code': 'Claude architect: analyze {{context}} for issue #{{issueNumber}}',
+            },
+            systemPrompt: 'Generic architect: analyze {{context}}',
+          },
+          implementer: {
+            systemPrompt: 'Implement plan for issue #{{issueNumber}}: {{plan}}',
+          },
+          reviewer: {
+            // No custom prompts -- falls through to defaults or built-in
+          },
+        },
+      };
+      const registry = new AgentPromptRegistry({ config });
+
+      // architect + claude-code -> level 1 (provider-specific)
+      const r1 = registry.render('architect', 'claude-code', {
+        context: 'feature request',
+        issueNumber: '42',
+      });
+      expect(r1).toBe('Claude architect: analyze feature request for issue #42');
+
+      // architect + openai -> level 2 (per-role systemPrompt, since no providerPrompts entry for 'openai')
+      const r2 = registry.render('architect', 'openai', {
+        context: 'bug report',
+      });
+      expect(r2).toBe('Generic architect: analyze bug report');
+
+      // implementer + any-provider -> level 2 (per-role systemPrompt)
+      const r3 = registry.render('implementer', 'any-provider', {
+        issueNumber: '99',
+        plan: 'add caching layer',
+      });
+      expect(r3).toBe('Implement plan for issue #99: add caching layer');
+
+      // reviewer + openai -> level 3 (defaults.providerPrompts['openai'])
+      const r4 = registry.render('reviewer', 'openai', {
+        task: 'code review',
+      });
+      expect(r4).toBe('OpenAI default: handle code review');
+
+      // reviewer + unknown-provider -> level 4 (defaults.systemPrompt)
+      const r5 = registry.render('reviewer', 'unknown-provider', {
+        task: 'review PR',
+      });
+      expect(r5).toBe('Default: handle review PR');
+
+      // tester (no role config) + unknown-provider (no default providerPrompts match)
+      // -> level 4 (defaults.systemPrompt)
+      const r6 = registry.render('tester', 'some-provider', {
+        task: 'testing',
+      });
+      expect(r6).toBe('Default: handle testing');
+    });
+  });
+
   describe('resolution chain priority - comprehensive priority tests', () => {
     it('level 1 takes priority over levels 2-6', () => {
       const registry = createRegistry({
@@ -868,5 +1111,20 @@ describe('AgentPromptRegistry', () => {
       expect(result).not.toBe(GENERIC_FALLBACK_TEXT);
       expect(result).toContain('You are analyzing a GitHub issue');
     });
+  });
+});
+
+describe('AgentPromptRegistry exports', () => {
+  it('AgentPromptRegistry, IAgentPromptRegistry, and AgentPromptRegistryOptions are exported from the module', async () => {
+    const mod = await import('./agent-prompt-registry.js');
+    expect(mod.AgentPromptRegistry).toBeDefined();
+    // Type exports are not available at runtime, but we verify the class is constructable
+    const instance = new mod.AgentPromptRegistry({
+      config: { defaults: { providerChain: [] } },
+    });
+    expect(instance).toBeInstanceOf(mod.AgentPromptRegistry);
+    expect(typeof instance.render).toBe('function');
+    expect(typeof instance.resolveTemplate).toBe('function');
+    expect(typeof instance.registerBuiltin).toBe('function');
   });
 });

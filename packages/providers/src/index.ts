@@ -25,3 +25,9 @@ export type {
   IAgentProviderFactory,
   ProviderChainEntry,
 } from './agent-provider-factory.js';
+
+export { AgentPromptRegistry } from './agent-prompt-registry.js';
+export type {
+  IAgentPromptRegistry,
+  AgentPromptRegistryOptions,
+} from './agent-prompt-registry.js';
