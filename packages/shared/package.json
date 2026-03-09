@@ -24,6 +24,10 @@
     "./errors": {
       "types": "./dist/errors.d.ts",
       "import": "./dist/errors.js"
+    },
+    "./telemetry": {
+      "types": "./dist/telemetry/index.d.ts",
+      "import": "./dist/telemetry/index.js"
     }
   },
   "scripts": {
