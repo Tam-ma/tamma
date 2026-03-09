@@ -14,3 +14,6 @@ export { isPrivateHost, validateUrl } from './url-validator.js';
 
 export type { ActionGateOptions, ActionEvaluation } from './action-gating.js';
 export { DEFAULT_BLOCKED_COMMANDS, evaluateAction } from './action-gating.js';
+
+export type { SecureFetchOptions, SecureFetchResult } from './secure-fetch.js';
+export { secureFetch } from './secure-fetch.js';
