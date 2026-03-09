@@ -12,7 +12,8 @@
  * - Warnings are accumulated from all interceptors
  */
 
-import type { ToolResult } from './types.js';
+import type { IContentSanitizer } from '@tamma/shared';
+import type { ToolResult, ToolResultContent } from './types.js';
 
 /**
  * Pre-interceptor function type.
@@ -155,4 +156,91 @@ export class ToolInterceptorChain {
 
     return { result: current, warnings };
   }
+}
+
+// --- Built-in interceptor factories ---
+
+/**
+ * Type for the validateUrl function signature from Story 9-7.
+ * Returns `{ valid: boolean; warnings: string[] }`.
+ */
+export type ValidateUrlFn = (url: string) => { valid: boolean; warnings: string[] };
+
+/**
+ * Creates a post-interceptor that sanitizes text content in tool results.
+ *
+ * Uses `IContentSanitizer` from Story 9-7 (F10).
+ * Iterates `result.content` and sanitizes each `text`-typed item.
+ * Returns a new ToolResult (does not mutate input).
+ * Collects warnings from each sanitization call.
+ *
+ * @param sanitizer - An IContentSanitizer instance (from Story 9-7)
+ * @returns A PostInterceptor function
+ */
+export function createSanitizationInterceptor(
+  sanitizer: IContentSanitizer,
+): PostInterceptor {
+  return async (_toolName: string, result: ToolResult) => {
+    const warnings: string[] = [];
+    const sanitizedContent: ToolResultContent[] = result.content.map(
+      (item): ToolResultContent => {
+        if (item.type === 'text') {
+          const { result: sanitized, warnings: w } = sanitizer.sanitize(
+            item.text,
+          );
+          warnings.push(...w);
+          if (sanitized !== item.text) {
+            return { ...item, text: sanitized };
+          }
+          return item;
+        }
+        return item;
+      },
+    );
+
+    return {
+      result: { ...result, content: sanitizedContent },
+      warnings,
+    };
+  };
+}
+
+/**
+ * Creates a pre-interceptor that validates URL-like values in tool args.
+ *
+ * Uses the `validateUrl()` function signature from Story 9-7 (F11).
+ * Scans top-level arg values for strings containing `://` or starting with `http`.
+ * For each URL-like value, calls `validateUrl(url)`.
+ * Collects warnings and adds `"URL blocked by policy: {url}"` for invalid URLs.
+ *
+ * IMPORTANT: Does NOT modify args -- only reports warnings.
+ * Blocking is the caller's responsibility.
+ *
+ * @param validateUrlFn - A function matching `(url: string) => { valid: boolean; warnings: string[] }`
+ * @returns A PreInterceptor function
+ */
+export function createUrlValidationInterceptor(
+  validateUrlFn: ValidateUrlFn,
+): PreInterceptor {
+  return async (
+    _toolName: string,
+    args: Record<string, unknown>,
+  ) => {
+    const warnings: string[] = [];
+
+    for (const value of Object.values(args)) {
+      if (
+        typeof value === 'string' &&
+        (value.includes('://') || value.startsWith('http'))
+      ) {
+        const { valid, warnings: w } = validateUrlFn(value);
+        warnings.push(...w);
+        if (!valid) {
+          warnings.push(`URL blocked by policy: ${value}`);
+        }
+      }
+    }
+
+    return { args, warnings };
+  };
 }

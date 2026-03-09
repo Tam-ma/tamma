@@ -169,6 +169,16 @@ export {
   createNonStreamingResult,
 } from './streaming.js';
 
+// Interceptors
+export {
+  type PreInterceptor,
+  type PostInterceptor,
+  type ValidateUrlFn,
+  ToolInterceptorChain,
+  createSanitizationInterceptor,
+  createUrlValidationInterceptor,
+} from './interceptors.js';
+
 // Audit logging
 export {
   type AuditEventType,
