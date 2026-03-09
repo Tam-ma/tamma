@@ -10,6 +10,12 @@ export * from './knowledge.js';
 // Re-export knowledge base UI types
 export * from './knowledge-base/index.js';
 
+// Re-export agent configuration types
+export * from './agent-config.js';
+
+// Re-export security configuration types
+export * from './security-config.js';
+
 // --- AI Provider Types ---
 
 /** Supported AI/LLM provider types */
