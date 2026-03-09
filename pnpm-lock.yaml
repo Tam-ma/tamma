@@ -568,6 +568,9 @@ importers:
       '@opencode-ai/sdk':
         specifier: ^1.2.15
         version: 1.2.21
+      '@tamma/cost-monitor':
+        specifier: workspace:*
+        version: link:../cost-monitor
       '@tamma/observability':
         specifier: workspace:*
         version: link:../observability

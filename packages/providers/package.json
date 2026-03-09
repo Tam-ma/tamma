@@ -19,6 +19,7 @@
   "dependencies": {
     "@tamma/shared": "workspace:*",
     "@tamma/observability": "workspace:*",
+    "@tamma/cost-monitor": "workspace:*",
     "@anthropic-ai/sdk": "^0.68.0",
     "openai": "^4.77.3",
     "@opencode-ai/sdk": "^1.2.15",

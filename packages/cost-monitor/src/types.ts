@@ -3,6 +3,11 @@
  * @tamma/cost-monitor
  */
 
+import type { AgentType } from '@tamma/shared';
+
+// Re-export AgentType for backward compatibility
+export type { AgentType };
+
 // --- Provider and Agent Types ---
 
 /**
@@ -14,21 +19,10 @@ export type Provider =
   | 'openrouter'
   | 'google'
   | 'local'
-  | 'claude-code';
-
-/**
- * Agent types in the Tamma system
- */
-export type AgentType =
-  | 'scrum_master'
-  | 'architect'
-  | 'researcher'
-  | 'analyst'
-  | 'planner'
-  | 'implementer'
-  | 'reviewer'
-  | 'tester'
-  | 'documenter';
+  | 'claude-code'
+  | 'opencode'
+  | 'z-ai'
+  | 'zen-mcp';
 
 /**
  * Task types for categorization

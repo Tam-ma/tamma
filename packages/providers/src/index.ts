@@ -39,3 +39,5 @@ export { SecureAgentProvider } from './secure-agent-provider.js';
 
 export { InstrumentedAgentProvider } from './instrumented-agent-provider.js';
 export type { InstrumentedAgentContext } from './instrumented-agent-provider.js';
+
+export { mapProviderName } from './provider-name-mapping.js';
