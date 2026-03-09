@@ -11,17 +11,26 @@
  * creates a TammaEngine, and registers it with the engine registry.
  */
 
+import * as path from 'node:path';
 import {
   createApp,
   EngineRegistry,
   InMemoryWorkflowStore,
 } from '@tamma/api';
 import { TammaEngine } from '@tamma/orchestrator';
-import { InMemoryEventStore } from '@tamma/shared';
-import { ClaudeAgentProvider } from '@tamma/providers';
+import { InMemoryEventStore, DiagnosticsQueue, ContentSanitizer } from '@tamma/shared';
+import {
+  RoleBasedAgentResolver,
+  AgentProviderFactory,
+  ProviderHealthTracker,
+  AgentPromptRegistry,
+  createDiagnosticsProcessor,
+} from '@tamma/providers';
+import type { IRoleBasedAgentResolver } from '@tamma/providers';
 import { GitHubPlatform } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
-import { loadConfig, validateConfig } from '../config.js';
+import { createCostTracker, FileStore } from '@tamma/cost-monitor';
+import { loadConfig, validateConfig, normalizeAgentsConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
 
 export interface ServerOptions extends CLIOptions {
@@ -46,11 +55,43 @@ export async function serverCommand(options: ServerOptions): Promise<void> {
 
   const logger = createLogger('tamma-server', config.logLevel);
 
-  // Platform + Agent
+  // Platform
   const platform = new GitHubPlatform();
   await platform.initialize({ token: config.github.token });
 
-  const agent = new ClaudeAgentProvider();
+  // Config-driven agent setup
+  const agentsConfig = normalizeAgentsConfig(config);
+  const healthTracker = new ProviderHealthTracker();
+  const agentFactory = new AgentProviderFactory();
+  const promptRegistry = new AgentPromptRegistry({ config: agentsConfig });
+
+  const costStorePath = path.join(config.engine.workingDirectory, '.tamma', 'cost-data.json');
+  const costTracker = createCostTracker({ storage: new FileStore(costStorePath) });
+
+  const diagnosticsQueue = new DiagnosticsQueue({ drainIntervalMs: 5000, maxQueueSize: 1000 });
+  diagnosticsQueue.setProcessor(createDiagnosticsProcessor(costTracker, logger));
+
+  const sanitizer = config.security?.sanitizeContent !== false ? new ContentSanitizer() : undefined;
+  if (sanitizer) {
+    logger.info('Content sanitization enabled');
+  }
+
+  const resolverOptions: ConstructorParameters<typeof RoleBasedAgentResolver>[0] = {
+    config: agentsConfig,
+    factory: agentFactory,
+    health: healthTracker,
+    promptRegistry,
+    diagnostics: diagnosticsQueue,
+    logger,
+  };
+  if (costTracker !== undefined) {
+    resolverOptions.costTracker = costTracker;
+  }
+  if (sanitizer !== undefined) {
+    resolverOptions.sanitizer = sanitizer;
+  }
+
+  const agentResolver: IRoleBasedAgentResolver = new RoleBasedAgentResolver(resolverOptions);
 
   // Event store for audit trail
   const eventStore = new InMemoryEventStore();
@@ -59,7 +100,7 @@ export async function serverCommand(options: ServerOptions): Promise<void> {
   const engine = new TammaEngine({
     config,
     platform,
-    agent,
+    agentResolver,
     logger,
     eventStore,
   });
@@ -94,10 +135,17 @@ export async function serverCommand(options: ServerOptions): Promise<void> {
   });
 
   // Graceful shutdown
+  let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
+    if (shuttingDown) { process.exit(1); return; }
+    shuttingDown = true;
+    const shutdownTimer = setTimeout(() => { process.exit(1); }, 10_000);
+    shutdownTimer.unref();
     logger.info('Shutting down server...');
-    await engineRegistry.disposeAll();
-    await app.close();
+    try { await engineRegistry.disposeAll(); } catch (err) { logger.error('Engine registry disposal failed', { error: err }); }
+    try { await diagnosticsQueue.dispose(); } catch (err) { logger.error('DiagnosticsQueue disposal failed', { error: err }); }
+    try { await costTracker.dispose(); } catch (err) { logger.error('CostTracker disposal failed', { error: err }); }
+    try { await app.close(); } catch (err) { logger.error('App close failed', { error: err }); }
     process.exit(0);
   };
 

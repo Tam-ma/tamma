@@ -26,6 +26,7 @@
     "@tamma/observability": "workspace:*",
     "@tamma/providers": "workspace:*",
     "@tamma/platforms": "workspace:*",
+    "@tamma/cost-monitor": "workspace:*",
     "ink": "^5.0.1",
     "ink-spinner": "^5.0.0",
     "ink-text-input": "^6.0.0",

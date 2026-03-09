@@ -306,6 +306,9 @@ importers:
       '@tamma/api':
         specifier: workspace:*
         version: link:../api
+      '@tamma/cost-monitor':
+        specifier: workspace:*
+        version: link:../cost-monitor
       '@tamma/observability':
         specifier: workspace:*
         version: link:../observability

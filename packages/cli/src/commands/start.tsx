@@ -1,16 +1,27 @@
 import React from 'react';
 import { render } from 'ink';
 import * as fs from 'node:fs';
-import { EngineState } from '@tamma/shared';
+import * as path from 'node:path';
+import { EngineState, DiagnosticsQueue, ContentSanitizer } from '@tamma/shared';
 import type { IssueData } from '@tamma/shared';
 import { TammaEngine } from '@tamma/orchestrator';
 import type { EngineStats, ApprovalHandler } from '@tamma/orchestrator';
-import { ClaudeAgentProvider } from '@tamma/providers';
+import {
+  RoleBasedAgentResolver,
+  AgentProviderFactory,
+  ProviderHealthTracker,
+  AgentPromptRegistry,
+  createDiagnosticsProcessor,
+} from '@tamma/providers';
+import type { IRoleBasedAgentResolver } from '@tamma/providers';
 import { GitHubPlatform } from '@tamma/platforms';
 import type { Issue } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
-import { loadConfig, validateConfig } from '../config.js';
+import { createCostTracker, FileStore } from '@tamma/cost-monitor';
+import type { CostTracker } from '@tamma/cost-monitor';
+import { loadConfig, validateConfig, normalizeAgentsConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
+import type { ILogger } from '@tamma/shared/contracts';
 import { writeLockfile, removeLockfile } from '../state.js';
 import { createLogEmitter, createLoggerBridge } from '../log-emitter.js';
 import { formatErrorWithSuggestions } from '../error-handler.js';
@@ -18,6 +29,7 @@ import { createFileLogSubscriber } from '../file-logger.js';
 import type { StateEmitter, PendingApproval, CommandContext } from '../types.js';
 import SessionLayout from '../components/SessionLayout.js';
 import IssueSelector from '../components/IssueSelector.js';
+import type { TammaConfig } from '@tamma/shared';
 
 const HEALTH_SENTINEL = '/tmp/tamma-engine-healthy';
 
@@ -68,6 +80,56 @@ function selectIssueInteractively(issues: Issue[]): Promise<Issue | null> {
   });
 }
 
+/**
+ * Resources created by agent setup that need disposal on shutdown.
+ */
+interface AgentSetupResult {
+  agentResolver: IRoleBasedAgentResolver;
+  diagnosticsQueue: DiagnosticsQueue;
+  costTracker: CostTracker;
+}
+
+/**
+ * Create config-driven agent resolver with all dependencies.
+ * Returns the resolver and disposable resources for shutdown.
+ */
+function createAgentSetup(config: TammaConfig, logger: ILogger): AgentSetupResult {
+  const agentsConfig = normalizeAgentsConfig(config);
+  const healthTracker = new ProviderHealthTracker();
+  const agentFactory = new AgentProviderFactory();
+  const promptRegistry = new AgentPromptRegistry({ config: agentsConfig });
+
+  const costStorePath = path.join(config.engine.workingDirectory, '.tamma', 'cost-data.json');
+  const costTracker = createCostTracker({ storage: new FileStore(costStorePath) });
+
+  const diagnosticsQueue = new DiagnosticsQueue({ drainIntervalMs: 5000, maxQueueSize: 1000 });
+  diagnosticsQueue.setProcessor(createDiagnosticsProcessor(costTracker, logger));
+
+  const sanitizer = config.security?.sanitizeContent !== false ? new ContentSanitizer() : undefined;
+  if (sanitizer) {
+    logger.info('Content sanitization enabled');
+  }
+
+  const resolverOptions: ConstructorParameters<typeof RoleBasedAgentResolver>[0] = {
+    config: agentsConfig,
+    factory: agentFactory,
+    health: healthTracker,
+    promptRegistry,
+    diagnostics: diagnosticsQueue,
+    logger,
+  };
+  if (costTracker !== undefined) {
+    resolverOptions.costTracker = costTracker;
+  }
+  if (sanitizer !== undefined) {
+    resolverOptions.sanitizer = sanitizer;
+  }
+
+  const agentResolver: IRoleBasedAgentResolver = new RoleBasedAgentResolver(resolverOptions);
+
+  return { agentResolver, diagnosticsQueue, costTracker };
+}
+
 export async function startCommand(options: CLIOptions): Promise<void> {
   const config = loadConfig(options);
   const errors = validateConfig(config);
@@ -89,19 +151,19 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   const platform = new GitHubPlatform();
   await platform.initialize({ token: config.github.token });
 
-  // Set up agent provider
-  const agent = new ClaudeAgentProvider();
-
   // ---- Service mode: headless, no TUI, auto-approval, JSON logging ----
   if (options.mode === 'service') {
     config.engine.approvalMode = 'auto';
 
     const logger = createLogger('tamma-engine', config.logLevel);
 
+    // Config-driven agent setup
+    const { agentResolver, diagnosticsQueue, costTracker } = createAgentSetup(config, logger);
+
     const engine = new TammaEngine({
       config,
       platform,
-      agent,
+      agentResolver,
       logger,
       onStateChange: (state, issue, stats) => {
         writeLockfile(state, issue, stats);
@@ -110,16 +172,23 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     });
 
     let running = true;
+    let shuttingDown = false;
 
     const removeHealthSentinel = (): void => {
       try { fs.unlinkSync(HEALTH_SENTINEL); } catch { /* ignore */ }
     };
 
     const shutdown = async (): Promise<void> => {
+      if (shuttingDown) { process.exit(1); return; }
+      shuttingDown = true;
+      const shutdownTimer = setTimeout(() => { process.exit(1); }, 10_000);
+      shutdownTimer.unref();
       running = false;
       logger.info('Shutting down engine (service mode)...');
       removeHealthSentinel();
-      await engine.dispose();
+      try { await engine.dispose(); } catch (err) { logger.error('Engine disposal failed', { error: err }); }
+      try { await diagnosticsQueue.dispose(); } catch (err) { logger.error('DiagnosticsQueue disposal failed', { error: err }); }
+      try { await costTracker.dispose(); } catch (err) { logger.error('CostTracker disposal failed', { error: err }); }
       removeLockfile();
       process.exit(0);
     };
@@ -169,9 +238,12 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   const interactiveLogger = createLoggerBridge(logEmitter);
 
   // Use pino for dry-run, bridge logger for interactive mode
-  const logger = options.dryRun === true
+  const logger: ILogger = options.dryRun === true
     ? createLogger('tamma', config.logLevel)
     : interactiveLogger;
+
+  // Config-driven agent setup
+  const { agentResolver, diagnosticsQueue, costTracker } = createAgentSetup(config, logger);
 
   // File logging when --debug is set
   if (options.debug === true) {
@@ -192,7 +264,7 @@ export async function startCommand(options: CLIOptions): Promise<void> {
   const engine = new TammaEngine({
     config,
     platform,
-    agent,
+    agentResolver,
     logger,
     onStateChange: (state, issue, stats) => {
       writeLockfile(state, issue, stats);
@@ -203,10 +275,17 @@ export async function startCommand(options: CLIOptions): Promise<void> {
 
   // Handle graceful shutdown
   let running = true;
+  let shuttingDown = false;
   const shutdown = async (): Promise<void> => {
+    if (shuttingDown) { process.exit(1); return; }
+    shuttingDown = true;
+    const shutdownTimer = setTimeout(() => { process.exit(1); }, 10_000);
+    shutdownTimer.unref();
     running = false;
     logger.info('Shutting down...');
-    await engine.dispose();
+    try { await engine.dispose(); } catch (err) { logger.error('Engine disposal failed', { error: err }); }
+    try { await diagnosticsQueue.dispose(); } catch (err) { logger.error('DiagnosticsQueue disposal failed', { error: err }); }
+    try { await costTracker.dispose(); } catch (err) { logger.error('CostTracker disposal failed', { error: err }); }
     removeLockfile();
     process.exit(0);
   };
