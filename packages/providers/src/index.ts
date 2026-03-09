@@ -34,3 +34,5 @@ export type {
   IAgentPromptRegistry,
   AgentPromptRegistryOptions,
 } from './agent-prompt-registry.js';
+
+export { SecureAgentProvider } from './secure-agent-provider.js';
