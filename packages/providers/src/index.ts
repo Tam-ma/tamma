@@ -41,3 +41,5 @@ export { InstrumentedAgentProvider } from './instrumented-agent-provider.js';
 export type { InstrumentedAgentContext } from './instrumented-agent-provider.js';
 
 export { mapProviderName } from './provider-name-mapping.js';
+
+export { createDiagnosticsProcessor } from './diagnostics-processor.js';
