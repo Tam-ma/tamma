@@ -11,3 +11,6 @@ export type { IContentSanitizer, ContentSanitizerOptions } from './content-sanit
 export { ContentSanitizer } from './content-sanitizer.js';
 
 export { isPrivateHost, validateUrl } from './url-validator.js';
+
+export type { ActionGateOptions, ActionEvaluation } from './action-gating.js';
+export { DEFAULT_BLOCKED_COMMANDS, evaluateAction } from './action-gating.js';

@@ -9,7 +9,7 @@
  */
 
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { ProviderHealthTracker } from './provider-health-tracker.js';
+import { ProviderHealthTracker } from './provider-health.js';
 import { createProviderError } from './errors.js';
 
 describe('ProviderHealthTracker', () => {
@@ -203,6 +203,24 @@ describe('ProviderHealthTracker', () => {
 
       expect(() => tracker.isHealthy('')).toThrow(/invalid characters/);
     });
+
+    it('should accept valid key format "anthropic:claude-opus-4"', () => {
+      const tracker = new ProviderHealthTracker();
+
+      expect(() => tracker.isHealthy('anthropic:claude-opus-4')).not.toThrow();
+    });
+
+    it('should reject keys with hash characters', () => {
+      const tracker = new ProviderHealthTracker();
+
+      expect(() => tracker.isHealthy('provider#model')).toThrow(/invalid characters/);
+    });
+
+    it('should reject keys with newlines', () => {
+      const tracker = new ProviderHealthTracker();
+
+      expect(() => tracker.isHealthy('provider\nmodel')).toThrow(/invalid characters/);
+    });
   });
 
   // --- isHealthy: basic behavior ---
@@ -296,6 +314,45 @@ describe('ProviderHealthTracker', () => {
       expect(tracker.isHealthy(key)).toBe(true);
     });
 
+    it('should trip circuit with exactly threshold failures within window', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 3,
+        failureWindowMs: 10_000,
+      });
+      const key = 'test:model';
+
+      // Exactly 3 failures, each 2s apart (all within 10s)
+      tracker.recordFailure(key);
+      vi.advanceTimersByTime(2_000);
+      tracker.recordFailure(key);
+      vi.advanceTimersByTime(2_000);
+      tracker.recordFailure(key);
+
+      expect(tracker.isHealthy(key)).toBe(false);
+    });
+
+    it('should prune old timestamps when new failures are recorded', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 3,
+        failureWindowMs: 5_000,
+      });
+      const key = 'test:model';
+
+      // Record 2 failures at time 0
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Advance to 6s (past window for the first 2 failures)
+      vi.advanceTimersByTime(6_000);
+
+      // Record a new failure -- old timestamps should be pruned during this call
+      tracker.recordFailure(key);
+
+      // Only 1 failure in window
+      const status = tracker.getStatus();
+      expect(status[key]?.failures).toBe(1);
+    });
+
     it('should accumulate failures within the window', () => {
       const tracker = new ProviderHealthTracker({
         failureThreshold: 3,
@@ -311,6 +368,47 @@ describe('ProviderHealthTracker', () => {
 
       // All 3 failures within 10s window
       expect(tracker.isHealthy(key)).toBe(false);
+    });
+  });
+
+  // --- Circuit open behavior ---
+
+  describe('circuit open behavior', () => {
+    it('should return false from isHealthy while circuit is open and not expired', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 10_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Check at various points during the open period
+      expect(tracker.isHealthy(key)).toBe(false);
+      vi.advanceTimersByTime(5_000);
+      expect(tracker.isHealthy(key)).toBe(false);
+      vi.advanceTimersByTime(4_999);
+      expect(tracker.isHealthy(key)).toBe(false);
+    });
+
+    it('should transition from open to half-open only after circuitOpenDurationMs', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 10_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Just before expiry -- still open
+      vi.advanceTimersByTime(9_999);
+      expect(tracker.isHealthy(key)).toBe(false);
+
+      // After expiry -- half-open (probe allowed)
+      vi.advanceTimersByTime(2);
+      expect(tracker.isHealthy(key)).toBe(true);
     });
   });
 
@@ -397,6 +495,33 @@ describe('ProviderHealthTracker', () => {
       expect(tracker.isHealthy(key)).toBe(false);
     });
 
+    it('should re-open circuit with fresh duration after failed half-open probe', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      vi.advanceTimersByTime(5_001);
+      expect(tracker.isHealthy(key)).toBe(true); // half-open probe
+
+      tracker.recordFailure(key); // probe fails, re-opens circuit
+
+      // Circuit is open again with fresh duration
+      expect(tracker.isHealthy(key)).toBe(false);
+
+      // Should not allow half-open probe until 5s has passed
+      vi.advanceTimersByTime(4_999);
+      expect(tracker.isHealthy(key)).toBe(false);
+
+      // Now it should allow half-open again
+      vi.advanceTimersByTime(2);
+      expect(tracker.isHealthy(key)).toBe(true);
+    });
+
     it('should auto-reset stuck half-open probe after halfOpenProbeTimeoutMs', () => {
       const tracker = new ProviderHealthTracker({
         failureThreshold: 2,
@@ -417,6 +542,54 @@ describe('ProviderHealthTracker', () => {
 
       // The stuck probe should be detected and circuit reset to open
       expect(tracker.isHealthy(key)).toBe(false);
+    });
+
+    it('should allow a new probe after probe timeout reset and circuitOpenDurationMs elapses again', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+        halfOpenProbeTimeoutMs: 2_000,
+      });
+      const key = 'test:model';
+
+      // Trip the circuit
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Wait for half-open
+      vi.advanceTimersByTime(5_001);
+      expect(tracker.isHealthy(key)).toBe(true); // half-open probe allowed
+
+      // Probe times out
+      vi.advanceTimersByTime(2_001);
+      expect(tracker.isHealthy(key)).toBe(false); // probe timed out, resets to open
+
+      // Wait for the new circuit open duration to elapse
+      vi.advanceTimersByTime(5_001);
+
+      // A new half-open probe should be allowed
+      expect(tracker.isHealthy(key)).toBe(true);
+    });
+
+    it('should set circuitOpen to false and clear failures on recordSuccess during half-open', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      vi.advanceTimersByTime(5_001);
+      tracker.isHealthy(key); // half-open probe
+
+      tracker.recordSuccess(key);
+
+      const status = tracker.getStatus();
+      expect(status[key]?.circuitOpen).toBe(false);
+      expect(status[key]?.failures).toBe(0);
+      expect(status[key]?.healthy).toBe(true);
     });
   });
 
@@ -528,6 +701,34 @@ describe('ProviderHealthTracker', () => {
       // The circuit should now be open with exactly 5 failures recorded
       expect(status[key]?.failures).toBe(5);
     });
+
+    it('should not grow unbounded even with rapid failure injection', () => {
+      // With threshold=3, cap = 3*2 = 6
+      // We will record failures, reset the circuit, and record more
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 3,
+        failureWindowMs: 60_000,
+        circuitOpenDurationMs: 1_000,
+      });
+      const key = 'test:model';
+
+      // Record 3 failures to trip the circuit
+      tracker.recordFailure(key);
+      vi.advanceTimersByTime(10);
+      tracker.recordFailure(key);
+      vi.advanceTimersByTime(10);
+      tracker.recordFailure(key);
+      // Circuit is now open
+
+      // Wait for half-open, then succeed to close
+      vi.advanceTimersByTime(1_001);
+      tracker.isHealthy(key); // half-open probe
+      tracker.recordSuccess(key); // closes circuit, resets timestamps
+
+      // Verify timestamps were cleared
+      const status = tracker.getStatus();
+      expect(status[key]?.failures).toBe(0);
+    });
   });
 
   // --- recordFailure: maxTrackedKeys ---
@@ -549,6 +750,28 @@ describe('ProviderHealthTracker', () => {
       expect(status['key1:model']).toBeDefined();
       expect(status['key2:model']).toBeDefined();
       expect(status['key3:model']).toBeUndefined();
+    });
+
+    it('should accept new keys after reset() frees a slot', () => {
+      const tracker = new ProviderHealthTracker({
+        maxTrackedKeys: 2,
+      });
+
+      tracker.recordFailure('key1:model');
+      tracker.recordFailure('key2:model');
+
+      // At capacity -- key3 should be silently rejected
+      tracker.recordFailure('key3:model');
+      expect(tracker.getStatus()['key3:model']).toBeUndefined();
+
+      // Free a slot
+      tracker.reset('key1:model');
+
+      // Now key3 should be accepted
+      tracker.recordFailure('key3:model');
+      const status = tracker.getStatus();
+      expect(status['key3:model']).toBeDefined();
+      expect(status['key1:model']).toBeUndefined();
     });
 
     it('should accept failures for existing keys even at capacity', () => {
@@ -584,6 +807,26 @@ describe('ProviderHealthTracker', () => {
 
       const status = tracker.getStatus();
       expect(status[key]?.failures).toBe(0);
+    });
+
+    it('should set circuitOpen to false after recording success on open circuit', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+      });
+      const key = 'test:model';
+
+      // Trip the circuit
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+      expect(tracker.getStatus()[key]?.circuitOpen).toBe(true);
+
+      // Wait for half-open, probe, succeed
+      vi.advanceTimersByTime(5_001);
+      tracker.isHealthy(key);
+      tracker.recordSuccess(key);
+
+      expect(tracker.getStatus()[key]?.circuitOpen).toBe(false);
     });
 
     it('should be a no-op for unknown keys', () => {
@@ -859,6 +1102,44 @@ describe('ProviderHealthTracker', () => {
       ]);
     });
 
+    it('should not throw when onCircuitChange is not provided', () => {
+      // No callback -- default constructor, no onCircuitChange option
+      const tracker = new ProviderHealthTracker({ failureThreshold: 2, circuitOpenDurationMs: 5_000 });
+      const key = 'test:model';
+
+      // Trip the circuit (would fire 'open' if callback existed)
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Half-open (would fire 'half-open')
+      vi.advanceTimersByTime(5_001);
+      tracker.isHealthy(key);
+
+      // Close (would fire 'closed')
+      tracker.recordSuccess(key);
+
+      // If we got here without throwing, the test passes
+      expect(tracker.isHealthy(key)).toBe(true);
+    });
+
+    it('should receive the correct key in callback', () => {
+      const callback = vi.fn();
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        onCircuitChange: callback,
+      });
+
+      tracker.recordFailure('provider-a:model-x');
+      tracker.recordFailure('provider-a:model-x');
+
+      expect(callback).toHaveBeenCalledWith('provider-a:model-x', 'open');
+
+      tracker.recordFailure('provider-b:model-y');
+      tracker.recordFailure('provider-b:model-y');
+
+      expect(callback).toHaveBeenCalledWith('provider-b:model-y', 'open');
+    });
+
     it('should not fire "closed" on recordSuccess when circuit was never open', () => {
       const callback = vi.fn();
       const tracker = new ProviderHealthTracker({
@@ -882,6 +1163,41 @@ describe('ProviderHealthTracker', () => {
   // --- Custom options honored ---
 
   describe('custom options', () => {
+    it('should honor custom halfOpenProbeTimeoutMs', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 3_000,
+        halfOpenProbeTimeoutMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Wait for half-open
+      vi.advanceTimersByTime(3_001);
+      expect(tracker.isHealthy(key)).toBe(true); // half-open probe
+
+      // After 4s the probe should NOT yet be timed out (timeout is 5s)
+      vi.advanceTimersByTime(4_000);
+      expect(tracker.isHealthy(key)).toBe(false); // still in progress, not timed out
+
+      // After another 1.5s (total 5.5s), probe should time out
+      vi.advanceTimersByTime(1_500);
+      expect(tracker.isHealthy(key)).toBe(false); // timed out, reset to open
+    });
+
+    it('should honor custom maxTrackedKeys', () => {
+      const tracker = new ProviderHealthTracker({ maxTrackedKeys: 1 });
+
+      tracker.recordFailure('first:model');
+      tracker.recordFailure('second:model');
+
+      const status = tracker.getStatus();
+      expect(Object.keys(status)).toHaveLength(1);
+      expect(status['first:model']).toBeDefined();
+    });
+
     it('should honor custom circuitOpenDurationMs', () => {
       const tracker = new ProviderHealthTracker({
         failureThreshold: 2,

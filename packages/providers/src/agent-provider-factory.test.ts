@@ -118,6 +118,8 @@ import {
   wrapAsAgent,
 } from './agent-provider-factory.js';
 import type { ProviderChainEntry, IAgentProviderFactory } from './agent-provider-factory.js';
+import { OpenRouterProvider } from './openrouter-provider.js';
+import { OpenCodeProvider } from './opencode-provider.js';
 
 describe('BUILTIN_PROVIDER_NAMES', () => {
   it('has correct values for all four built-in providers', () => {
@@ -268,6 +270,13 @@ describe('AgentProviderFactory', () => {
       );
     });
 
+    it('throws Unknown provider: foo for provider "foo"', async () => {
+      const factory = new AgentProviderFactory();
+      await expect(factory.create({ provider: 'foo' })).rejects.toThrow(
+        'Unknown provider: foo',
+      );
+    });
+
     it('throws for empty string provider (not in map)', async () => {
       const factory = new AgentProviderFactory();
       await expect(factory.create({ provider: '' })).rejects.toThrow(
@@ -279,34 +288,152 @@ describe('AgentProviderFactory', () => {
   describe('create() -- initialization', () => {
     it('calls initialize() on providers that have the method', async () => {
       process.env['TEST_OR_KEY'] = 'or-key-value';
+      const initSpy = vi.spyOn(OpenRouterProvider.prototype, 'initialize');
       const factory = new AgentProviderFactory();
-      // openrouter has initialize(), which should be called
       const provider = await factory.create({
         provider: 'openrouter',
         model: 'test-model',
         apiKeyRef: 'TEST_OR_KEY',
       });
-      // If we got here without error, initialize() was called successfully
       expect(provider).toBeDefined();
+      expect(initSpy).toHaveBeenCalledOnce();
+      expect(initSpy).toHaveBeenCalledWith({
+        apiKey: 'or-key-value',
+        model: 'test-model',
+      });
+      initSpy.mockRestore();
+    });
+
+    it('calls initialize() on built-in openrouter with config spread order verified', async () => {
+      process.env['TEST_OR_SPREAD'] = 'resolved-or-key';
+      const initSpy = vi.spyOn(OpenRouterProvider.prototype, 'initialize');
+      const factory = new AgentProviderFactory();
+      await factory.create({
+        provider: 'openrouter',
+        model: 'my-model',
+        apiKeyRef: 'TEST_OR_SPREAD',
+        config: { baseUrl: 'https://custom.openrouter.ai', apiKey: 'old-key', model: 'old-model' },
+      });
+      // Verify spread order: config fields first, then apiKey and model override
+      expect(initSpy).toHaveBeenCalledWith({
+        baseUrl: 'https://custom.openrouter.ai',
+        apiKey: 'resolved-or-key',   // Overrides 'old-key' from config
+        model: 'my-model',           // Overrides 'old-model' from config
+      });
+      initSpy.mockRestore();
+    });
+
+    it('calls initialize() on built-in opencode provider', async () => {
+      const initSpy = vi.spyOn(OpenCodeProvider.prototype, 'initialize');
+      const factory = new AgentProviderFactory();
+      const provider = await factory.create({ provider: 'opencode' });
+      expect(provider).toBeDefined();
+      expect(initSpy).toHaveBeenCalledOnce();
+      // opencode has no apiKeyRef, so apiKey='' and model=undefined
+      expect(initSpy).toHaveBeenCalledWith({
+        apiKey: '',
+        model: undefined,
+      });
+      initSpy.mockRestore();
+    });
+
+    it('OpenCodeProvider.initialize() throwing propagates wrapped error (via mock prototype)', async () => {
+      const initSpy = vi.spyOn(OpenCodeProvider.prototype, 'initialize')
+        .mockRejectedValueOnce(new Error('Failed to initialize OpenCode SDK: connection refused'));
+      const factory = new AgentProviderFactory();
+      await expect(
+        factory.create({ provider: 'opencode' }),
+      ).rejects.toThrow(
+        'Provider "opencode" failed to initialize: Failed to initialize OpenCode SDK: connection refused',
+      );
+      initSpy.mockRestore();
     });
 
     it('passes correct config with spread order: entry.config first, explicit fields override', async () => {
       process.env['TEST_OR_KEY2'] = 'resolved-key';
 
-      // We need to inspect what initialize() received.
-      // The mock OpenRouterProvider stores initConfig.
+      // Register a custom LLM provider with a spy on initialize()
+      // so we can verify the exact arguments passed.
+      const initializeSpy = vi.fn().mockResolvedValue(undefined);
       const factory = new AgentProviderFactory();
-      const provider = await factory.create({
-        provider: 'openrouter',
+      factory.register('custom-llm-spy', () => {
+        return {
+          initialize: initializeSpy,
+          async sendMessageSync() {
+            return {
+              id: 'id',
+              content: 'ok',
+              model: 'model',
+              usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              finishReason: 'stop' as const,
+            };
+          },
+          async sendMessage() { return (async function* () { /* empty */ })(); },
+          getCapabilities() {
+            return {
+              supportsStreaming: false, supportsImages: false, supportsTools: false,
+              maxInputTokens: 0, maxOutputTokens: 0, supportedModels: [], features: {},
+            };
+          },
+          async getModels() { return []; },
+          async dispose() { /* no-op */ },
+        } satisfies IAIProvider;
+      });
+
+      await factory.create({
+        provider: 'custom-llm-spy',
         model: 'override-model',
         apiKeyRef: 'TEST_OR_KEY2',
         config: { baseUrl: 'https://custom.api', apiKey: 'should-be-overridden', model: 'should-be-overridden' },
       });
 
-      // The provider is wrapped via wrapAsAgent, so we can't directly
-      // access the underlying mock. But we verify it was created successfully
-      // and the call didn't throw.
-      expect(provider).toBeDefined();
+      // Verify initialize() was called with the correct spread order:
+      // entry.config is spread first, then apiKey and model override.
+      expect(initializeSpy).toHaveBeenCalledOnce();
+      expect(initializeSpy).toHaveBeenCalledWith({
+        baseUrl: 'https://custom.api',
+        apiKey: 'resolved-key',       // Overrides 'should-be-overridden' from config
+        model: 'override-model',      // Overrides 'should-be-overridden' from config
+      });
+    });
+
+    it('passes apiKey and model from entry directly (no config spread)', async () => {
+      process.env['SIMPLE_KEY'] = 'simple-value';
+
+      const initializeSpy = vi.fn().mockResolvedValue(undefined);
+      const factory = new AgentProviderFactory();
+      factory.register('simple-llm', () => {
+        return {
+          initialize: initializeSpy,
+          async sendMessageSync() {
+            return {
+              id: 'id', content: 'ok', model: 'model',
+              usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+              finishReason: 'stop' as const,
+            };
+          },
+          async sendMessage() { return (async function* () { /* empty */ })(); },
+          getCapabilities() {
+            return {
+              supportsStreaming: false, supportsImages: false, supportsTools: false,
+              maxInputTokens: 0, maxOutputTokens: 0, supportedModels: [], features: {},
+            };
+          },
+          async getModels() { return []; },
+          async dispose() { /* no-op */ },
+        } satisfies IAIProvider;
+      });
+
+      await factory.create({
+        provider: 'simple-llm',
+        model: 'my-model',
+        apiKeyRef: 'SIMPLE_KEY',
+      });
+
+      expect(initializeSpy).toHaveBeenCalledWith({
+        apiKey: 'simple-value',
+        model: 'my-model',
+      });
     });
 
     it('wraps initialize() error with provider name', async () => {
