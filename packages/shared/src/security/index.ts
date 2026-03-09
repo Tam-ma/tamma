@@ -9,3 +9,5 @@
 
 export type { IContentSanitizer, ContentSanitizerOptions } from './content-sanitizer.js';
 export { ContentSanitizer } from './content-sanitizer.js';
+
+export { isPrivateHost, validateUrl } from './url-validator.js';
