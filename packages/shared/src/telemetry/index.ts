@@ -10,3 +10,4 @@ export * from './diagnostics-queue.js';
 export * from './diagnostics-processor.js';
 export * from './sanitize-error.js';
 export * from './validate-diagnostics.js';
+export * from './utils.js';
