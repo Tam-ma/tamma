@@ -198,7 +198,11 @@ export class ContentSanitizer implements IContentSanitizer {
         return { result, warnings };
       }
 
+      const preHtml = result;
       result = this._stripHtml(result);
+      if (result !== preHtml) {
+        warnings.push('HTML content was stripped from input');
+      }
       result = this._removeZeroWidthChars(result);
 
       const injectionWarnings = this._detectPromptInjection(result);

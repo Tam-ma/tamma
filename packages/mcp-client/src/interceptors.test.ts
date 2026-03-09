@@ -637,7 +637,7 @@ describe('createSanitizationInterceptor', () => {
 
   it('sanitizes text content in a ToolResult with text items', async () => {
     const sanitizer = createMockSanitizer({
-      sanitize: (input: string) => ({
+      sanitizeOutput: (input: string) => ({
         result: input.replace('<script>alert("xss")</script>', ''),
         warnings: [],
       }),
@@ -690,7 +690,7 @@ describe('createSanitizationInterceptor', () => {
 
   it('returns a new ToolResult object (does not mutate input)', async () => {
     const sanitizer = createMockSanitizer({
-      sanitize: (input: string) => ({
+      sanitizeOutput: (input: string) => ({
         result: input.toUpperCase(),
         warnings: [],
       }),
@@ -713,7 +713,7 @@ describe('createSanitizationInterceptor', () => {
 
   it('adds warnings when content was modified', async () => {
     const sanitizer = createMockSanitizer({
-      sanitize: (_input: string) => ({
+      sanitizeOutput: (_input: string) => ({
         result: 'sanitized',
         warnings: ['Detected injection pattern'],
       }),
@@ -757,7 +757,7 @@ describe('createSanitizationInterceptor', () => {
   it('collects warnings from multiple text items', async () => {
     let callCount = 0;
     const sanitizer = createMockSanitizer({
-      sanitize: (input: string) => {
+      sanitizeOutput: (input: string) => {
         callCount++;
         return {
           result: input,
@@ -782,7 +782,7 @@ describe('createSanitizationInterceptor', () => {
 
   it('handles mixed content types (text, image, resource)', async () => {
     const sanitizer = createMockSanitizer({
-      sanitize: (input: string) => ({
+      sanitizeOutput: (input: string) => ({
         result: `sanitized:${input}`,
         warnings: [],
       }),
@@ -832,7 +832,7 @@ describe('createSanitizationInterceptor', () => {
 
   it('integrates with ToolInterceptorChain as a post-interceptor', async () => {
     const sanitizer = createMockSanitizer({
-      sanitize: (input: string) => ({
+      sanitizeOutput: (input: string) => ({
         result: input.replace('bad', '***'),
         warnings: ['Content was sanitized'],
       }),
@@ -941,7 +941,7 @@ describe('createUrlValidationInterceptor', () => {
     expect(warnings).toContain('URL blocked by policy: https://evil.com/steal');
   });
 
-  it('returns original args (does not modify them)', async () => {
+  it('replaces blocked URLs in args with placeholder (fail-closed)', async () => {
     const validateUrl = createMockValidateUrl((_url: string) => ({
       valid: false,
       warnings: ['blocked'],
@@ -955,12 +955,14 @@ describe('createUrlValidationInterceptor', () => {
 
     const { args } = await interceptor('test-tool', originalArgs);
 
-    // Same reference -- args are NOT modified even for blocked URLs
-    expect(args).toBe(originalArgs);
+    // Blocked URLs are replaced with a safe placeholder
+    expect(args).not.toBe(originalArgs);
     expect(args).toEqual({
-      url: 'http://blocked.com/path',
+      url: '[URL_BLOCKED_BY_POLICY]',
       name: 'test',
     });
+    // Original args not mutated
+    expect(originalArgs.url).toBe('http://blocked.com/path');
   });
 
   it('detects URL-like strings containing ://', async () => {
@@ -1022,8 +1024,8 @@ describe('createUrlValidationInterceptor', () => {
       name: 'test',
     });
 
-    // Args should be unchanged
-    expect(args).toEqual({ url: 'http://127.0.0.1:3000/api', name: 'test' });
+    // Blocked URL should be replaced (fail-closed)
+    expect(args).toEqual({ url: '[URL_BLOCKED_BY_POLICY]', name: 'test' });
     // Warnings should contain validation info
     expect(warnings).toContain('Blocked private host: 127.0.0.1');
     expect(warnings).toContain('URL blocked by policy: http://127.0.0.1:3000/api');

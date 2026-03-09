@@ -39,6 +39,8 @@ const BLOCKED_HOSTS: ReadonlySet<string> = new Set([
   'localhost',
   'metadata.google.internal',  // GCP metadata endpoint
   'host.docker.internal',      // Docker host access
+  '169.254.169.254',           // AWS/Azure metadata endpoint
+  '100.100.100.200',           // Alibaba Cloud metadata endpoint
 ]);
 
 /**

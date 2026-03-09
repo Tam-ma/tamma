@@ -549,7 +549,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Pattern: $1.00 + 2^3 = (8) [test]');
     });
 
-    it('handles iterative expansion: variable A containing {{B}} gets B expanded', () => {
+    it('single-pass interpolation: variable A containing {{B}} does NOT get B expanded (prevents template injection)', () => {
       const config: AgentsConfig = {
         defaults: { providerChain: [] },
         roles: {
@@ -561,7 +561,8 @@ describe('AgentPromptRegistry', () => {
         a: 'Hello {{b}}',
         b: 'World',
       });
-      expect(result).toBe('Start: Hello World');
+      // Single-pass: {{b}} in var A's value is NOT expanded (security fix)
+      expect(result).toBe('Start: Hello {{b}}');
     });
 
     it('replaces the same {{var}} appearing twice in a template', () => {

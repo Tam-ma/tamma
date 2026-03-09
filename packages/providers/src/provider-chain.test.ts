@@ -718,7 +718,7 @@ describe('ProviderChain', () => {
   // ---- Invariants ----
 
   describe('invariants', () => {
-    it('recordSuccess() is NOT called after isAvailable()', async () => {
+    it('recordSuccess() IS called after successful provider creation', async () => {
       const chain = new ProviderChain({
         entries: [makeEntry('anthropic', 'claude-sonnet-4-5')],
         factory: mockFactory,
@@ -727,7 +727,7 @@ describe('ProviderChain', () => {
       });
 
       await chain.getProvider(defaultContext);
-      expect(mockHealth.recordSuccess).not.toHaveBeenCalled();
+      expect(mockHealth.recordSuccess).toHaveBeenCalledWith('anthropic:claude-sonnet-4-5');
     });
 
     it('entries are defensively copied and frozen', () => {

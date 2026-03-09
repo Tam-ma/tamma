@@ -894,8 +894,9 @@ describe('wrapAsAgent', () => {
       });
       const agent = wrapAsAgent(llm, 'model');
       const result = await agent.executeTask({ prompt: 'test', cwd: '/tmp' });
-      expect(result.success).toBe(true);
+      expect(result.success).toBe(false);
       expect(result.output).toBe('filtered output');
+      expect(result.error).toContain('content_filter');
     });
 
     it('catches sendMessageSync error with safe casting (Error instance)', async () => {

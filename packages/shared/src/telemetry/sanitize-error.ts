@@ -21,7 +21,12 @@ const API_KEY_PATTERNS: readonly RegExp[] = [
   /Bearer\s+[A-Za-z0-9\-._~+/]+=*/g,     // Bearer tokens
   /sk-[A-Za-z0-9]{20,}/g,                   // OpenAI-style keys
   /key-[A-Za-z0-9]{20,}/g,                  // Generic key-* patterns
-  /[A-Za-z0-9]{32,}/g,                      // Long alphanumeric strings (potential keys)
+  /xox[bpras]-[A-Za-z0-9-]+/g,              // Slack tokens
+  /ghp_[A-Za-z0-9]{36,}/g,                  // GitHub PATs
+  /gho_[A-Za-z0-9]{36,}/g,                  // GitHub OAuth tokens
+  /glpat-[A-Za-z0-9\-_]{20,}/g,             // GitLab PATs
+  /AIza[A-Za-z0-9\-_]{35}/g,                // Google API keys
+  /[A-Za-z0-9]{40,}/g,                      // Long alphanumeric strings (potential keys, 40+ chars)
 ];
 
 /**

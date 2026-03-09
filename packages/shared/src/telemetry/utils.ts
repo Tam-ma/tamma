@@ -35,9 +35,10 @@ const REDACTED = '[REDACTED]';
 /**
  * Redact sensitive keys from a tool arguments object (F07).
  *
- * Performs a shallow clone of the input object and replaces
+ * Performs a deep clone of the input object and replaces
  * values of keys matching the sensitive key list with `[REDACTED]`.
- * Key matching is case-insensitive.
+ * Key matching is case-insensitive. Recurses into nested objects
+ * and arrays (max depth 10 to prevent stack overflow on circular refs).
  *
  * Does NOT mutate the input object.
  *
@@ -50,16 +51,32 @@ export function redactSensitiveKeys(
   sensitiveKeys: readonly string[] = DEFAULT_SENSITIVE_KEYS,
 ): Record<string, unknown> {
   const lowerSensitiveKeys = new Set(sensitiveKeys.map((k) => k.toLowerCase()));
-  const result: Record<string, unknown> = {};
+  return _redactDeep(args, lowerSensitiveKeys, 0) as Record<string, unknown>;
+}
 
-  for (const [key, value] of Object.entries(args)) {
-    if (lowerSensitiveKeys.has(key.toLowerCase())) {
-      result[key] = REDACTED;
-    } else {
-      result[key] = value;
-    }
+const MAX_REDACT_DEPTH = 10;
+
+function _redactDeep(
+  value: unknown,
+  sensitiveKeys: ReadonlySet<string>,
+  depth: number,
+): unknown {
+  if (depth > MAX_REDACT_DEPTH) return value;
+  if (value === null || value === undefined) return value;
+  if (typeof value !== 'object') return value;
+
+  if (Array.isArray(value)) {
+    return value.map((item) => _redactDeep(item, sensitiveKeys, depth + 1));
   }
 
+  const result: Record<string, unknown> = {};
+  for (const [key, val] of Object.entries(value as Record<string, unknown>)) {
+    if (sensitiveKeys.has(key.toLowerCase())) {
+      result[key] = REDACTED;
+    } else {
+      result[key] = _redactDeep(val, sensitiveKeys, depth + 1);
+    }
+  }
   return result;
 }
 
@@ -96,6 +113,5 @@ export function truncateArgs(
     _truncated: true,
     _originalSize: serialized.length,
     _maxSize: maxSize,
-    _preview: serialized.slice(0, 200),
   };
 }

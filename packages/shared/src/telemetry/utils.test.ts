@@ -201,8 +201,8 @@ describe('truncateArgs', () => {
     expect(result['_truncated']).toBe(true);
     expect(typeof result['_originalSize']).toBe('number');
     expect(result['_maxSize']).toBe(MAX_DIAGNOSTICS_ARG_SIZE);
-    expect(typeof result['_preview']).toBe('string');
-    expect((result['_preview'] as string).length).toBe(200);
+    // _preview removed for security (could leak sensitive data from args)
+    expect(result['_preview']).toBeUndefined();
   });
 
   it('respects custom maxSize parameter', () => {
@@ -247,13 +247,12 @@ describe('truncateArgs', () => {
     expect(MAX_DIAGNOSTICS_ARG_SIZE).toBe(10_240);
   });
 
-  it('preview in truncation marker is limited to 200 chars', () => {
+  it('truncation marker does not include _preview (security: prevents leaking sensitive data)', () => {
     const largeArgs = { data: 'y'.repeat(20_000) };
     const result = truncateArgs(largeArgs, 100);
 
     expect(result['_truncated']).toBe(true);
-    const preview = result['_preview'] as string;
-    expect(preview.length).toBe(200);
+    expect(result['_preview']).toBeUndefined();
   });
 
   it('preserves original args when under limit (nested objects)', () => {

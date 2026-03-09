@@ -124,7 +124,7 @@ export class TammaEngine {
     }
     this.logger.info('TammaEngine initialized', {
       mode: this.config.mode,
-      model: this.config.agent?.model ?? 'resolver-mode',
+      model: this.config.agent?.model ?? (this.agentResolver ? 'resolver-mode' : 'unknown'),
       approvalMode: this.config.engine.approvalMode,
     });
   }
@@ -516,10 +516,10 @@ Return ONLY valid JSON matching the schema.`;
       cwd: this.config.engine.workingDirectory,
       // Resolver-provided (allowlisted) fields, falling back to direct config
       ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : {}),
-      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : { maxBudgetUsd: this.config.agent.maxBudgetUsd }),
-      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : { permissionMode: this.config.agent.permissionMode }),
+      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : (this.config.agent?.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.config.agent.maxBudgetUsd } : {})),
+      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : (this.config.agent?.permissionMode !== undefined ? { permissionMode: this.config.agent.permissionMode } : {})),
       // Model from resolver or direct config
-      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : { model: this.config.agent.model }),
+      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : (this.config.agent?.model !== undefined ? { model: this.config.agent.model } : {})),
       outputFormat: {
         type: 'json_schema',
         schema: {
@@ -788,11 +788,11 @@ Follow existing project conventions and patterns.`;
       prompt: implPrompt,
       cwd: this.config.engine.workingDirectory,
       // Resolver-provided (allowlisted) fields, falling back to direct config
-      ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : { allowedTools: this.config.agent.allowedTools }),
-      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : { maxBudgetUsd: this.config.agent.maxBudgetUsd }),
-      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : { permissionMode: this.config.agent.permissionMode }),
+      ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : (this.config.agent?.allowedTools !== undefined ? { allowedTools: this.config.agent.allowedTools } : {})),
+      ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : (this.config.agent?.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.config.agent.maxBudgetUsd } : {})),
+      ...(resolverConfig.permissionMode !== undefined ? { permissionMode: resolverConfig.permissionMode } : (this.config.agent?.permissionMode !== undefined ? { permissionMode: this.config.agent.permissionMode } : {})),
       // Model from resolver or direct config
-      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : { model: this.config.agent.model }),
+      ...(resolverConfig.model !== undefined ? { model: resolverConfig.model } : (this.config.agent?.model !== undefined ? { model: this.config.agent.model } : {})),
     };
 
     let result: AgentTaskResult;

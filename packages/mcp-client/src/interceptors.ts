@@ -39,21 +39,31 @@ export type PostInterceptor = (
 const PROTOTYPE_POLLUTION_KEYS = ['__proto__', 'constructor', 'prototype'] as const;
 
 /**
- * Strips prototype pollution keys from an object and returns warnings
- * for each key removed.
+ * Strips prototype pollution keys from an object and returns a clean copy
+ * plus warnings for each key removed. Does NOT mutate the input object.
  */
 function _stripPrototypePollutionKeys(
   obj: Record<string, unknown>,
-): string[] {
+): { cleaned: Record<string, unknown>; warnings: string[] } {
   const warnings: string[] = [];
+  let needsCleaning = false;
   for (const key of PROTOTYPE_POLLUTION_KEYS) {
     if (Object.hasOwn(obj, key)) {
-      // Use Reflect.deleteProperty to avoid issues with __proto__
-      Reflect.deleteProperty(obj, key);
+      needsCleaning = true;
       warnings.push(`Prototype pollution key "${key}" removed from interceptor output`);
     }
   }
-  return warnings;
+  if (!needsCleaning) {
+    return { cleaned: obj, warnings };
+  }
+  // Create a clean copy without the polluted keys
+  const cleaned: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(obj)) {
+    if (!PROTOTYPE_POLLUTION_KEYS.includes(key as typeof PROTOTYPE_POLLUTION_KEYS[number])) {
+      cleaned[key] = value;
+    }
+  }
+  return { cleaned, warnings };
 }
 
 /**
@@ -108,11 +118,12 @@ export class ToolInterceptorChain {
 
         // Validate returned args for prototype pollution keys (F16)
         if (result.args && typeof result.args === 'object') {
-          const pollutionWarnings = _stripPrototypePollutionKeys(result.args);
+          const { cleaned, warnings: pollutionWarnings } = _stripPrototypePollutionKeys(result.args);
           warnings.push(...pollutionWarnings);
+          current = cleaned;
+        } else {
+          current = result.args;
         }
-
-        current = result.args;
         warnings.push(...result.warnings);
       } catch (err: unknown) {
         warnings.push(
@@ -185,7 +196,7 @@ export function createSanitizationInterceptor(
     const sanitizedContent: ToolResultContent[] = result.content.map(
       (item): ToolResultContent => {
         if (item.type === 'text') {
-          const { result: sanitized, warnings: w } = sanitizer.sanitize(
+          const { result: sanitized, warnings: w } = sanitizer.sanitizeOutput(
             item.text,
           );
           warnings.push(...w);
@@ -211,10 +222,10 @@ export function createSanitizationInterceptor(
  * Uses the `validateUrl()` function signature from Story 9-7 (F11).
  * Scans top-level arg values for strings containing `://` or starting with `http`.
  * For each URL-like value, calls `validateUrl(url)`.
- * Collects warnings and adds `"URL blocked by policy: {url}"` for invalid URLs.
+ * Collects warnings and **replaces blocked URLs** with a safe placeholder.
  *
- * IMPORTANT: Does NOT modify args -- only reports warnings.
- * Blocking is the caller's responsibility.
+ * SECURITY: This interceptor blocks invalid URLs by replacing them in args
+ * (fail-closed). The original URL is reported in warnings.
  *
  * @param validateUrlFn - A function matching `(url: string) => { valid: boolean; warnings: string[] }`
  * @returns A PreInterceptor function
@@ -227,8 +238,10 @@ export function createUrlValidationInterceptor(
     args: Record<string, unknown>,
   ) => {
     const warnings: string[] = [];
+    let modified = false;
+    const cleanedArgs: Record<string, unknown> = {};
 
-    for (const value of Object.values(args)) {
+    for (const [key, value] of Object.entries(args)) {
       if (
         typeof value === 'string' &&
         (value.includes('://') || value.startsWith('http'))
@@ -236,11 +249,16 @@ export function createUrlValidationInterceptor(
         const { valid, warnings: w } = validateUrlFn(value);
         warnings.push(...w);
         if (!valid) {
-          warnings.push(`URL blocked by policy: ${value}`);
+          const truncatedUrl = value.length > 200 ? value.slice(0, 200) + '...' : value;
+          warnings.push(`URL blocked by policy: ${truncatedUrl}`);
+          cleanedArgs[key] = '[URL_BLOCKED_BY_POLICY]';
+          modified = true;
+          continue;
         }
       }
+      cleanedArgs[key] = value;
     }
 
-    return { args, warnings };
+    return { args: modified ? cleanedArgs : args, warnings };
   };
 }

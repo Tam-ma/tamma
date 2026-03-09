@@ -87,8 +87,9 @@ export interface SecureFetchResult {
  */
 export async function secureFetch(
   url: string,
-  options?: SecureFetchOptions,
+  inputOptions?: SecureFetchOptions,
 ): Promise<SecureFetchResult> {
+  let options = inputOptions;
   const warnings: string[] = [];
   const maxSize = options?.maxSizeBytes ?? DEFAULT_MAX_SIZE_BYTES;
   const maxRedirects = options?.maxRedirects ?? DEFAULT_MAX_REDIRECTS;
@@ -182,6 +183,30 @@ export async function secureFetch(
           error: 'Redirect URL validation failed',
           warnings: [...warnings, ...redirectValidation.warnings],
         };
+      }
+
+      // Strip sensitive headers on cross-origin redirect (prevent credential leak)
+      try {
+        const currentOrigin = new URL(currentUrl).origin;
+        const redirectOrigin = new URL(resolvedLocation).origin;
+        if (currentOrigin !== redirectOrigin && options?.headers !== undefined) {
+          const sensitiveHeaderNames = ['authorization', 'cookie', 'proxy-authorization'];
+          const lowerHeaders = Object.entries(options.headers);
+          const hasLeakedHeaders = lowerHeaders.some(([k]) => sensitiveHeaderNames.includes(k.toLowerCase()));
+          if (hasLeakedHeaders) {
+            warnings.push(`Sensitive headers stripped on cross-origin redirect to ${redirectOrigin}`);
+            // Create a copy without sensitive headers for subsequent requests
+            const safeHeaders: Record<string, string> = {};
+            for (const [k, v] of lowerHeaders) {
+              if (!sensitiveHeaderNames.includes(k.toLowerCase())) {
+                safeHeaders[k] = v;
+              }
+            }
+            options = { ...options, headers: Object.keys(safeHeaders).length > 0 ? safeHeaders : undefined };
+          }
+        }
+      } catch {
+        // URL parsing failed -- already validated above, shouldn't happen
       }
 
       currentUrl = resolvedLocation;

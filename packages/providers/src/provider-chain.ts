@@ -205,7 +205,10 @@ export class ProviderChain implements IProviderChain {
           continue;
         }
 
-        // 4. Wrap with instrumentation and return
+        // 4. Record success so circuit breaker recovers from half-open
+        this.health.recordSuccess(key);
+
+        // 5. Wrap with instrumentation and return
         return new InstrumentedAgentProvider(provider, this.diagnostics, {
           providerName: entry.provider,
           model: entry.model ?? 'default',

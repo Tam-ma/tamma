@@ -140,11 +140,17 @@ export function wrapAsAgent(llm: IAIProvider, model: string): IAgentProvider {
       try {
         const response: MessageResponse = await llm.sendMessageSync(request);
 
+        const isSuccess = response.finishReason === 'end_turn'
+          || response.finishReason === 'stop'
+          || response.finishReason === 'tool_use'
+          || response.finishReason === 'tool_calls'
+          || response.finishReason === 'length';
         return {
-          success: response.finishReason !== 'error',
+          success: isSuccess,
           output: response.content,
           costUsd: 0, // Actual cost computed by cost-monitor from token counts
           durationMs: Date.now() - start,
+          ...(isSuccess ? {} : { error: `Unexpected finish reason: ${response.finishReason}` }),
         };
       } catch (err) {
         return {

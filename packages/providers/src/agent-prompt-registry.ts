@@ -93,12 +93,9 @@ export class AgentPromptRegistry implements IAgentPromptRegistry {
    * 5. builtinTemplates[role]
    * 6. GENERIC_FALLBACK
    *
-   * Note: The caller (engine) is responsible for sanitizing variable values
-   * before passing to render(). Variables are applied iteratively via
-   * split+join in Object.entries() order. If variable A's replacement
-   * contains {{B}} and B is also provided, B WILL be expanded within A's
-   * value. This is by design -- callers should sanitize values if this is
-   * undesirable.
+   * Variable replacement is done in a single pass to prevent recursive
+   * expansion (template injection). If variable A's value contains {{B}},
+   * B will NOT be expanded.
    */
   render(
     role: AgentType,
@@ -174,18 +171,19 @@ export class AgentPromptRegistry implements IAgentPromptRegistry {
   }
 
   /**
-   * Replace `{{key}}` placeholders with values from vars.
+   * Replace `{{key}}` placeholders with values from vars in a single pass.
    *
-   * Variables are applied iteratively in Object.entries() order using
-   * split+join. If variable A's replacement contains {{B}} and B is also
-   * provided, B WILL be expanded within A's value. This is by design --
-   * callers should sanitize values if this is undesirable.
+   * Uses a single regex replacement to prevent recursive expansion:
+   * if variable A's value contains `{{B}}`, B will NOT be expanded.
+   * This prevents template injection where user-controlled values could
+   * reference internal template variables like `{{systemPrompt}}`.
    *
    * Variables whose values exceed MAX_VAR_VALUE_LENGTH are skipped with
    * a warning log.
    */
   private _interpolate(template: string, vars: Record<string, string>): string {
-    let result = template;
+    // Pre-filter vars to skip oversized values
+    const validVars = new Map<string, string>();
     for (const [key, value] of Object.entries(vars)) {
       if (value.length > MAX_VAR_VALUE_LENGTH) {
         this.logger?.warn('Skipping variable exceeding MAX_VAR_VALUE_LENGTH', {
@@ -195,9 +193,19 @@ export class AgentPromptRegistry implements IAgentPromptRegistry {
         });
         continue;
       }
-      // Use split+join instead of regex for safety on untrusted template content
-      result = result.split(`{{${key}}}`).join(value);
+      validVars.set(key, value);
     }
+
+    // Single-pass replacement: match all {{...}} and replace if key is in vars
+    let result = template.replace(/\{\{([^}]+)\}\}/g, (_match, key: string) => {
+      const value = validVars.get(key);
+      if (value !== undefined) {
+        return value;
+      }
+      // Leave unmatched placeholders as-is
+      return `{{${key}}}`;
+    });
+
     // Truncate if rendered template exceeds MAX_TEMPLATE_LENGTH
     if (result.length > MAX_TEMPLATE_LENGTH) {
       this.logger?.warn('Rendered template exceeds MAX_TEMPLATE_LENGTH, truncating', {

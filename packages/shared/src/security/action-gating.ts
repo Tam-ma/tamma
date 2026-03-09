@@ -39,6 +39,9 @@ export const DEFAULT_BLOCKED_COMMANDS: readonly string[] = [
   'rm -rf /',
   'rm -rf ~',
   'rm -rf *',
+  'rm -fr /',           // alternate flag order
+  'rm -fr ~',
+  'rm -fr *',
   'mkfs',
   'dd if=',
   'format c:',
@@ -54,6 +57,7 @@ export const DEFAULT_BLOCKED_COMMANDS: readonly string[] = [
   'kill -9 1',
   'killall',
   'pkill -9',
+  'pkill -kill',
   '> /dev/sda',
   'mv / ',
   'wget | sh',
@@ -64,8 +68,19 @@ export const DEFAULT_BLOCKED_COMMANDS: readonly string[] = [
   '| sh',
   '| bash',
   '| eval',
+  '| /bin/sh',          // full path shell pipes
+  '| /bin/bash',
+  '| /usr/bin/sh',
+  '| /usr/bin/bash',
+  '| /usr/bin/env sh',
+  '| /usr/bin/env bash',
   'base64 -d |',
   '$(',                 // command substitution
+  '${',                 // shell variable expansion
+  '| python',           // piped to interpreters
+  '| perl',
+  '| ruby',
+  '| node',
 ] as const;
 
 /**
@@ -119,11 +134,19 @@ export function evaluateAction(
       ? (options.extraPatterns ?? [])
       : [...DEFAULT_BLOCKED_COMMANDS, ...(options?.extraPatterns ?? [])];
 
-    // Normalize whitespace before matching:
+    // Normalize before matching:
     // 1. Trim leading/trailing whitespace
     // 2. Convert to lowercase for case-insensitive matching
-    // 3. Collapse multiple spaces into single space
-    const normalized = command.trim().toLowerCase().replace(/\s+/g, ' ');
+    // 3. Strip backslashes (prevents evasion via r\m, c\url, etc.)
+    // 4. Strip empty quote pairs (prevents evasion via r""m, r''m, etc.)
+    // 5. Collapse multiple spaces into single space
+    const normalized = command
+      .trim()
+      .toLowerCase()
+      .replace(/\\/g, '')
+      .replace(/""/g, '')
+      .replace(/''/g, '')
+      .replace(/\s+/g, ' ');
 
     for (const pattern of patterns) {
       if (normalized.includes(pattern.toLowerCase())) {
