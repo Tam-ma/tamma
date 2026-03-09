@@ -901,6 +901,136 @@ describe('ProviderHealthTracker', () => {
       // Only 1 failure within the current 10s window
       expect(status[key]?.failures).toBe(1);
     });
+
+    it('should report healthy: true after circuit open duration expires', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Circuit is open
+      const statusOpen = tracker.getStatus();
+      expect(statusOpen[key]?.healthy).toBe(false);
+      expect(statusOpen[key]?.circuitOpen).toBe(true);
+
+      // Advance past circuit open duration
+      vi.advanceTimersByTime(5_001);
+
+      // Circuit duration has expired -- getStatus should report healthy
+      const statusExpired = tracker.getStatus();
+      expect(statusExpired[key]?.healthy).toBe(true);
+      expect(statusExpired[key]?.circuitOpen).toBe(false);
+    });
+
+    it('should report failures: 0 when all failures have aged out of the window', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 10,
+        failureWindowMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Advance past the failure window
+      vi.advanceTimersByTime(6_000);
+
+      const status = tracker.getStatus();
+      expect(status[key]?.failures).toBe(0);
+      expect(status[key]?.healthy).toBe(true);
+    });
+
+    it('should return independent status for multiple provider+model keys', () => {
+      const tracker = new ProviderHealthTracker({ failureThreshold: 2 });
+
+      // Trip circuit for key1 but not key2
+      tracker.recordFailure('provider-a:model-1');
+      tracker.recordFailure('provider-a:model-1');
+      tracker.recordFailure('provider-b:model-2');
+
+      const status = tracker.getStatus();
+
+      expect(status['provider-a:model-1']).toEqual({
+        healthy: false,
+        failures: 2,
+        circuitOpen: true,
+      });
+      expect(status['provider-b:model-2']).toEqual({
+        healthy: true,
+        failures: 1,
+        circuitOpen: false,
+      });
+    });
+
+    it('should report healthy with zero failures after recordSuccess() resets circuit', () => {
+      const tracker = new ProviderHealthTracker({
+        failureThreshold: 2,
+        circuitOpenDurationMs: 5_000,
+      });
+      const key = 'test:model';
+
+      tracker.recordFailure(key);
+      tracker.recordFailure(key);
+
+      // Wait for half-open, probe, succeed
+      vi.advanceTimersByTime(5_001);
+      tracker.isHealthy(key); // half-open probe
+      tracker.recordSuccess(key);
+
+      const status = tracker.getStatus();
+      expect(status[key]).toEqual({
+        healthy: true,
+        failures: 0,
+        circuitOpen: false,
+      });
+    });
+
+    it('should not include a key after reset(key) is called', () => {
+      const tracker = new ProviderHealthTracker();
+
+      tracker.recordFailure('keep:model');
+      tracker.recordFailure('remove:model');
+
+      tracker.reset('remove:model');
+
+      const status = tracker.getStatus();
+      expect(status['keep:model']).toBeDefined();
+      expect(status['remove:model']).toBeUndefined();
+    });
+
+    it('should return empty Record after clear() is called', () => {
+      const tracker = new ProviderHealthTracker();
+
+      tracker.recordFailure('key1:model');
+      tracker.recordFailure('key2:model');
+
+      tracker.clear();
+
+      const status = tracker.getStatus();
+      expect(status).toEqual({});
+      expect(Object.keys(status)).toHaveLength(0);
+    });
+
+    it('should produce a result where JSON.stringify succeeds and deserializes correctly', () => {
+      const tracker = new ProviderHealthTracker({ failureThreshold: 3 });
+
+      tracker.recordFailure('healthy:model');
+      tracker.recordFailure('unhealthy:model');
+      tracker.recordFailure('unhealthy:model');
+      tracker.recordFailure('unhealthy:model');
+
+      const status = tracker.getStatus();
+      const json = JSON.stringify(status);
+      const parsed = JSON.parse(json) as Record<string, { healthy: boolean; failures: number; circuitOpen: boolean }>;
+
+      expect(parsed['healthy:model']).toEqual(status['healthy:model']);
+      expect(parsed['unhealthy:model']).toEqual(status['unhealthy:model']);
+    });
   });
 
   // --- reset and clear ---

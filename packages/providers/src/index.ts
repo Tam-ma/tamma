@@ -6,6 +6,9 @@
 
 export * from './types.js';
 
+export { createProviderError, isProviderError } from './errors.js';
+export { ProviderHealthTracker } from './provider-health.js';
+
 export { ProviderRegistry } from './registry.js';
 export { ProviderFactory } from './factory.js';
 
