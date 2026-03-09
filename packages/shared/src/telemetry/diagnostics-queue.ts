@@ -57,6 +57,7 @@ export class DiagnosticsQueue implements IDiagnosticsQueue {
   private readonly maxQueueSize: number;
   private readonly logger?: DiagnosticsQueueLogger;
   private droppedCount: number = 0;
+  private disposed: boolean = false;
 
   constructor(options?: {
     drainIntervalMs?: number;
@@ -87,8 +88,10 @@ export class DiagnosticsQueue implements IDiagnosticsQueue {
   /**
    * Synchronous push -- zero overhead in the hot path.
    * Drops the oldest event when the queue exceeds maxQueueSize.
+   * Silently ignores events emitted after dispose() has been called.
    */
   emit(event: DiagnosticsEvent): void {
+    if (this.disposed) return;
     if (this.queue.length >= this.maxQueueSize) {
       this.queue.shift();
       this.droppedCount++;
@@ -141,11 +144,14 @@ export class DiagnosticsQueue implements IDiagnosticsQueue {
   }
 
   /**
-   * Flush remaining events and stop the drain timer.
-   * Re-drains in a loop until the queue is empty (max 10 iterations)
-   * to handle events arriving during drain.
+   * Stop accepting new events, flush remaining queued events, and stop
+   * the drain timer. Re-drains in a loop until the queue is empty
+   * (max 10 iterations). Events emitted after dispose() begins are
+   * silently dropped (the `disposed` flag gates `emit()`).
    */
   async dispose(): Promise<void> {
+    this.disposed = true;
+
     if (this.drainTimer) {
       clearInterval(this.drainTimer);
       this.drainTimer = null;

@@ -387,13 +387,13 @@ describe('DiagnosticsQueue', () => {
     expect(queue.getDroppedCount()).toBe(3);
   });
 
-  it('dispose() re-drains until queue is empty (max 10 iterations) (F12)', async () => {
+  it('dispose() drains queued events and rejects new emits (F12)', async () => {
     const processor = vi.fn<DiagnosticsEventProcessor>();
-    // First 3 calls: each time we process, simulate more events being added
+    // Simulate events being emitted during drain -- these are dropped
+    // because dispose() sets the disposed flag before draining.
     let callCount = 0;
     processor.mockImplementation(async () => {
       callCount++;
-      // On the first two calls, add an event during processing
       if (callCount <= 2) {
         queue.emit(makeToolEvent({ toolName: `during-drain-${callCount}` }));
       }
@@ -406,8 +406,8 @@ describe('DiagnosticsQueue', () => {
 
     await queue.dispose();
 
-    // Should have drained 3 times total: initial + 2 re-drains
-    expect(processor).toHaveBeenCalledTimes(3);
+    // Only 1 drain: the initial event. Events emitted during/after dispose are dropped.
+    expect(processor).toHaveBeenCalledTimes(1);
   });
 
   it('dispose() caps at 10 iterations to prevent infinite loop (F12)', async () => {
