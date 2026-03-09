@@ -3,14 +3,16 @@
  *
  * Tests:
  * - Built-in templates cover all 9 AgentType roles
- * - 6-level resolution chain
+ * - 6-level resolution chain with comprehensive fallthrough tests
  * - {{variable}} interpolation via render()
- * - Security guards (forbidden keys, immutable roles)
+ * - Security guards (forbidden keys, immutable roles, Object.hasOwn)
  * - Size limits (MAX_VAR_VALUE_LENGTH, MAX_TEMPLATE_LENGTH)
  * - Null-safety with minimal config
- * - registerBuiltin() override and logging behavior
+ * - Empty-string semantics at every resolution level
+ * - registerBuiltin() override, logging, and security behavior
+ * - Prototype pollution protection
  *
- * Story 9-6: Agent Prompt Registry (Task 1)
+ * Story 9-6: Agent Prompt Registry (Task 1 + Task 2)
  */
 
 import { describe, it, expect, vi } from 'vitest';
@@ -36,6 +38,9 @@ const ALL_AGENT_TYPES: AgentType[] = [
   'planner',
   'documenter',
 ];
+
+/** The expected GENERIC_FALLBACK text */
+const GENERIC_FALLBACK_TEXT = 'You are an AI assistant working on a software development task.';
 
 /** Minimal AgentsConfig with no roles, no systemPrompt, no providerPrompts */
 function minimalConfig(): AgentsConfig {
@@ -118,7 +123,7 @@ describe('AgentPromptRegistry', () => {
       for (const role of ALL_AGENT_TYPES) {
         const template = registry.resolveTemplate(role, 'some-provider');
         // Should NOT be the generic fallback since all 9 roles have built-ins
-        expect(template).not.toBe('You are an AI assistant working on a software development task.');
+        expect(template).not.toBe(GENERIC_FALLBACK_TEXT);
         expect(template.length).toBeGreaterThan(0);
       }
     });
@@ -146,7 +151,8 @@ describe('AgentPromptRegistry', () => {
   });
 
   describe('resolveTemplate - 6-level resolution chain', () => {
-    it('level 1: per-provider-per-role prompt takes priority', () => {
+    // --- Level 1: per-provider-per-role ---
+    it('level 1: returns roles[role].providerPrompts[providerName] when set', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
         roles: {
@@ -160,7 +166,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Provider-specific architect prompt');
     });
 
-    it('level 2: per-role systemPrompt is used when providerPrompts has no entry for the provider', () => {
+    it('level 1 fallthrough: falls through to level 2 when providerPrompts exists but has no entry for the provider', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
         roles: {
@@ -174,7 +180,8 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Role-level system prompt');
     });
 
-    it('level 2: per-role systemPrompt is used when role has no providerPrompts at all', () => {
+    // --- Level 2: per-role systemPrompt ---
+    it('level 2: returns roles[role].systemPrompt when no provider-specific match', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
         roles: {
@@ -187,7 +194,24 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Architect system prompt');
     });
 
-    it('level 3: defaults.providerPrompts[providerName] is used when role has no prompt config', () => {
+    it('level 2 fallthrough: falls through to level 3 when roles[role] exists but has no systemPrompt', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'claude-code': 'Default provider prompt' },
+        },
+        roles: {
+          architect: {
+            // No providerPrompts, no systemPrompt -- just empty role config
+          },
+        },
+      });
+      const result = registry.resolveTemplate('architect', 'claude-code');
+      expect(result).toBe('Default provider prompt');
+    });
+
+    // --- Level 3: per-provider default ---
+    it('level 3: returns defaults.providerPrompts[providerName] when role has no prompt config', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -199,7 +223,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Default prompt for claude-code');
     });
 
-    it('level 4: defaults.systemPrompt is used when defaults.providerPrompts has no entry', () => {
+    it('level 3 fallthrough: falls through to level 4 when defaults.providerPrompts exists but has no entry for the provider', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -211,7 +235,8 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Global default system prompt');
     });
 
-    it('level 4: defaults.systemPrompt is used when defaults has no providerPrompts', () => {
+    // --- Level 4: global default systemPrompt ---
+    it('level 4: returns defaults.systemPrompt when no provider-specific default match', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -222,40 +247,78 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('Global default system prompt only');
     });
 
-    it('level 5: builtinTemplates[role] is used when no config-level prompt exists', () => {
+    it('level 4 fallthrough: falls through to level 5 when defaults has no systemPrompt', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          // no systemPrompt, no providerPrompts
+        },
+      });
+      const result = registry.resolveTemplate('architect', 'any-provider');
+      // Should get the built-in architect template
+      expect(result).toContain('You are analyzing a GitHub issue');
+    });
+
+    // --- Level 5: built-in template ---
+    it('level 5: returns builtinTemplates[role] when no config-level prompt exists', () => {
       const registry = createRegistry();
       const result = registry.resolveTemplate('architect', 'any-provider');
       expect(result).toContain('You are analyzing a GitHub issue');
     });
 
-    it('level 6: GENERIC_FALLBACK is returned when role has no built-in template and no config', () => {
-      // Override all built-in templates so none exist for the role
+    it('level 5: returns builtinTemplates for each of the 9 built-in roles', () => {
       const registry = createRegistry();
-      // Remove the architect built-in via registerBuiltin with a new role then test a non-existent one
-      // Instead, use a custom registry where we can remove built-ins
-      // Actually, all 9 roles have built-ins, so we can't test this directly with standard AgentType
-      // But the GENERIC_FALLBACK is still accessible if builtins were removed.
-      // We can test this by registering and then testing -- but the test requirement says
-      // "Test fallback to generic when role has no built-in" which is hard since all 9 have built-ins.
-      // Let's just verify that the GENERIC_FALLBACK text matches expectations.
-      // We'll rely on the registerBuiltin tests to verify the mechanism works.
-      expect(registry.resolveTemplate('architect', 'provider')).not.toBe(
-        'You are an AI assistant working on a software development task.',
-      );
+      for (const role of ALL_AGENT_TYPES) {
+        const template = registry.resolveTemplate(role, 'any-provider');
+        expect(template).not.toBe(GENERIC_FALLBACK_TEXT);
+      }
+    });
+
+    // --- Level 6: GENERIC_FALLBACK ---
+    it('level 6: returns GENERIC_FALLBACK when role has no built-in template and no config', () => {
+      // All 9 AgentType roles have built-ins. To test GENERIC_FALLBACK,
+      // we cast an unknown role string to AgentType. This simulates a future
+      // scenario where a new AgentType is added without a built-in template.
+      const registry = createRegistry();
+      const unknownRole = 'unknown_future_role' as AgentType;
+      const result = registry.resolveTemplate(unknownRole, 'any-provider');
+      expect(result).toBe(GENERIC_FALLBACK_TEXT);
+    });
+
+    it('level 6: GENERIC_FALLBACK is used when all preceding levels are exhausted', () => {
+      // Use minimal config (no roles, no defaults.systemPrompt, no defaults.providerPrompts)
+      // and a non-existent role
+      const registry = new AgentPromptRegistry({ config: minimalConfig() });
+      const result = registry.resolveTemplate('unknown_role' as AgentType, 'any-provider');
+      expect(result).toBe(GENERIC_FALLBACK_TEXT);
     });
   });
 
-  describe('resolveTemplate - null-safety', () => {
-    it('handles config with no roles defined', () => {
+  describe('resolveTemplate - null-safety edge cases', () => {
+    it('config.roles is undefined -- resolution skips levels 1 and 2', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
+        // no roles
       });
-      // Should fall through to built-in
       const result = registry.resolveTemplate('architect', 'provider');
+      // Should fall through to built-in (level 5)
       expect(result).toContain('You are analyzing a GitHub issue');
     });
 
-    it('handles config.roles[role] that exists but has no providerPrompts', () => {
+    it('config.roles[role] is undefined -- resolution skips levels 1 and 2', () => {
+      const registry = createRegistry({
+        defaults: { providerChain: [] },
+        roles: {
+          // Define a role for reviewer, but not for architect
+          reviewer: { systemPrompt: 'Reviewer prompt' },
+        },
+      });
+      const result = registry.resolveTemplate('architect', 'provider');
+      // architect has no role config, should fall through to built-in
+      expect(result).toContain('You are analyzing a GitHub issue');
+    });
+
+    it('config.roles[role] exists but providerPrompts is undefined -- resolution skips level 1', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
         roles: {
@@ -264,12 +327,12 @@ describe('AgentPromptRegistry', () => {
           },
         },
       });
-      // Should fall through to built-in
       const result = registry.resolveTemplate('architect', 'provider');
+      // Should skip levels 1 and 2, fall through to built-in (level 5)
       expect(result).toContain('You are analyzing a GitHub issue');
     });
 
-    it('handles config.defaults.providerPrompts being undefined', () => {
+    it('config.defaults.providerPrompts is undefined -- resolution skips level 3', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -278,6 +341,21 @@ describe('AgentPromptRegistry', () => {
         },
       });
       const result = registry.resolveTemplate('architect', 'provider');
+      // Should skip level 3, skip level 4, fall through to built-in (level 5)
+      expect(result).toContain('You are analyzing a GitHub issue');
+    });
+
+    it('config.defaults.systemPrompt is undefined -- resolution skips level 4', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'other-provider': 'Not matching' },
+          // no systemPrompt
+        },
+      });
+      const result = registry.resolveTemplate('architect', 'some-provider');
+      // Level 3 doesn't match (wrong provider), level 4 skipped (no systemPrompt)
+      // Falls through to built-in (level 5)
       expect(result).toContain('You are analyzing a GitHub issue');
     });
 
@@ -292,7 +370,7 @@ describe('AgentPromptRegistry', () => {
   });
 
   describe('resolveTemplate - empty string semantics', () => {
-    it('empty string is treated as valid template at level 1 (per-provider-per-role)', () => {
+    it('empty string at level 1 (providerPrompts) is returned as valid, not skipped', () => {
       const registry = createRegistry({
         defaults: { providerChain: [] },
         roles: {
@@ -306,7 +384,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('');
     });
 
-    it('empty string is treated as valid template at level 2 (per-role systemPrompt)', () => {
+    it('empty string at level 2 (systemPrompt) is returned as valid, not skipped', () => {
       const registry = createRegistry({
         defaults: { providerChain: [], systemPrompt: 'Should not reach this' },
         roles: {
@@ -319,7 +397,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('');
     });
 
-    it('empty string is treated as valid template at level 3 (defaults.providerPrompts)', () => {
+    it('empty string at level 3 (defaults.providerPrompts) is returned as valid, not skipped', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -331,7 +409,7 @@ describe('AgentPromptRegistry', () => {
       expect(result).toBe('');
     });
 
-    it('empty string is treated as valid template at level 4 (defaults.systemPrompt)', () => {
+    it('empty string at level 4 (defaults.systemPrompt) is returned as valid, not skipped', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
@@ -344,40 +422,57 @@ describe('AgentPromptRegistry', () => {
   });
 
   describe('resolveTemplate - security guards', () => {
-    it('rejects forbidden provider name: __proto__', () => {
+    it('throws for providerName = "__proto__"', () => {
       const registry = createRegistry();
       expect(() => registry.resolveTemplate('architect', '__proto__')).toThrow(
         'Cannot resolve template with forbidden provider name: __proto__',
       );
     });
 
-    it('rejects forbidden provider name: constructor', () => {
+    it('throws for providerName = "constructor"', () => {
       const registry = createRegistry();
       expect(() => registry.resolveTemplate('architect', 'constructor')).toThrow(
         'Cannot resolve template with forbidden provider name: constructor',
       );
     });
 
-    it('rejects forbidden provider name: prototype', () => {
+    it('throws for providerName = "prototype"', () => {
       const registry = createRegistry();
       expect(() => registry.resolveTemplate('architect', 'prototype')).toThrow(
         'Cannot resolve template with forbidden provider name: prototype',
       );
     });
 
-    it('uses Object.hasOwn() for providerPrompts property access (prototype chain protection)', () => {
-      // Create a config where the providerPrompts object might inherit from prototype
-      // With Object.hasOwn(), inherited properties should NOT match
+    it('Object.hasOwn() guards on role-level providerPrompts prevent prototype chain lookups', () => {
+      // Create a config where providerPrompts is a regular object.
+      // Inherited properties like 'toString' should NOT be matched.
+      const registry = createRegistry({
+        defaults: { providerChain: [] },
+        roles: {
+          architect: {
+            providerPrompts: { 'legit-provider': 'Legit prompt' },
+            systemPrompt: 'Role system prompt',
+          },
+        },
+      });
+      // 'toString' is inherited from Object.prototype -- should NOT be found by Object.hasOwn
+      const result = registry.resolveTemplate('architect', 'toString');
+      // Should fall through level 1 (Object.hasOwn returns false) to level 2
+      expect(result).toBe('Role system prompt');
+    });
+
+    it('Object.hasOwn() guards on defaults.providerPrompts prevent prototype chain lookups', () => {
       const registry = createRegistry({
         defaults: {
           providerChain: [],
           providerPrompts: { 'legit-provider': 'Legit prompt' },
+          systemPrompt: 'Global default',
         },
       });
-      // toString is inherited from Object.prototype -- should not be found
-      const result = registry.resolveTemplate('architect', 'toString');
-      // Should fall through to built-in, not find toString on the prototype
-      expect(result).toContain('You are analyzing a GitHub issue');
+      // 'hasOwnProperty' is inherited from Object.prototype
+      const result = registry.resolveTemplate('architect', 'hasOwnProperty');
+      // Should fall through level 3 (Object.hasOwn returns false) to level 4
+      expect(result).toBe('Global default');
     });
   });
 
@@ -401,10 +496,6 @@ describe('AgentPromptRegistry', () => {
     });
 
     it('replaces multiple variables in one template', () => {
-      const registry = createRegistry();
-      // Register a template with multiple placeholders
-      registry.registerBuiltin('custom_role', 'Hello {{name}}, your task is {{task}}.');
-      // We need to cast since render() expects AgentType, but let's test through a config override
       const configWithCustom: AgentsConfig = {
         defaults: {
           providerChain: [],
@@ -415,8 +506,8 @@ describe('AgentPromptRegistry', () => {
           },
         },
       };
-      const reg2 = new AgentPromptRegistry({ config: configWithCustom });
-      const result = reg2.render('architect', 'provider', {
+      const registry = new AgentPromptRegistry({ config: configWithCustom });
+      const result = registry.render('architect', 'provider', {
         name: 'Agent',
         task: 'build a feature',
       });
@@ -440,7 +531,7 @@ describe('AgentPromptRegistry', () => {
       const result = registry.render('architect', 'provider', {
         unrelatedKey: 'value',
       });
-      // {{context}} should still be present since we only replaced {{unrelatedKey}} which isn't in the template
+      // {{context}} should still be present since {{unrelatedKey}} is not in the template
       expect(result).toContain('{{context}}');
     });
 
@@ -466,9 +557,6 @@ describe('AgentPromptRegistry', () => {
         },
       };
       const registry = new AgentPromptRegistry({ config });
-      // Since vars are applied in Object.entries() order,
-      // if 'a' is processed before 'b', then a's value "Hello {{b}}" is substituted,
-      // then b is processed and replaces {{b}} within the result.
       const result = registry.render('architect', 'provider', {
         a: 'Hello {{b}}',
         b: 'World',
@@ -521,27 +609,16 @@ describe('AgentPromptRegistry', () => {
 
     it('truncates rendered templates exceeding MAX_TEMPLATE_LENGTH (1MB) with warning', () => {
       const logger = createMockLogger();
-      const config: AgentsConfig = {
-        defaults: { providerChain: [] },
-        roles: {
-          architect: { systemPrompt: '{{data}}' },
-        },
-      };
-      const registry = new AgentPromptRegistry({ config, logger });
-      // Use exactly 100KB value many times through multiple vars to exceed 1MB
-      // Simpler: just use a single value that's close to 1MB
-      const largeValue = 'x'.repeat(100_000);
-      // Template {{data}} gets replaced with 100K chars, way under 1MB.
-      // Let's use a template that repeats the placeholder many times.
       const repeatedConfig: AgentsConfig = {
         defaults: { providerChain: [] },
         roles: {
           architect: { systemPrompt: '{{data}}'.repeat(20) },
         },
       };
-      const registry2 = new AgentPromptRegistry({ config: repeatedConfig, logger });
+      const registry = new AgentPromptRegistry({ config: repeatedConfig, logger });
+      const largeValue = 'x'.repeat(100_000);
       // 20 * 100_000 = 2_000_000 > 1_000_000
-      const result = registry2.render('architect', 'provider', {
+      const result = registry.render('architect', 'provider', {
         data: largeValue,
       });
       expect(result.length).toBe(1_000_000);
@@ -556,25 +633,50 @@ describe('AgentPromptRegistry', () => {
   });
 
   describe('registerBuiltin', () => {
-    it('overrides a default template', () => {
-      const registry = createRegistry();
+    it('overrides an existing built-in template (e.g., architect) -- logs WARN', () => {
+      const logger = createMockLogger();
+      const registry = createRegistry(undefined, logger);
       const originalTemplate = registry.resolveTemplate('architect', 'provider');
       registry.registerBuiltin('architect', 'New architect prompt: {{context}}');
       const newTemplate = registry.resolveTemplate('architect', 'provider');
       expect(newTemplate).toBe('New architect prompt: {{context}}');
       expect(newTemplate).not.toBe(originalTemplate);
+      expect(logger.warn).toHaveBeenCalledWith(
+        'Overriding existing built-in template',
+        { role: 'architect' },
+      );
     });
 
-    it('adds a template for a role not in BUILTIN_TEMPLATES', () => {
+    it('adds a template for a role not in BUILTIN_TEMPLATES (custom role) -- logs INFO', () => {
       const logger = createMockLogger();
       const registry = createRegistry(undefined, logger);
       registry.registerBuiltin('custom_agent', 'Custom agent prompt');
-      // custom_agent is not in AgentType, but it's stored in builtinTemplates
-      // We can verify it was registered via the INFO log
       expect(logger.info).toHaveBeenCalledWith(
         'Registering new built-in template',
         { role: 'custom_agent' },
       );
+    });
+
+    it('after registerBuiltin(), resolveTemplate() returns the new template at level 5', () => {
+      const registry = createRegistry();
+      // Override the architect built-in
+      registry.registerBuiltin('architect', 'Overridden architect template');
+      // With no config-level prompts, resolveTemplate should return the new built-in
+      const result = registry.resolveTemplate('architect', 'any-provider');
+      expect(result).toBe('Overridden architect template');
+    });
+
+    it('does not affect the module-level BUILTIN_TEMPLATES constant (second instance test)', () => {
+      // Modify built-ins on one instance
+      const registry1 = createRegistry();
+      const originalTemplate = registry1.resolveTemplate('architect', 'provider');
+      registry1.registerBuiltin('architect', 'Modified architect on instance 1');
+
+      // A new instance should still have the original built-in template
+      const registry2 = createRegistry();
+      const template2 = registry2.resolveTemplate('architect', 'provider');
+      expect(template2).toBe(originalTemplate);
+      expect(template2).not.toBe('Modified architect on instance 1');
     });
 
     it('rejects forbidden key: __proto__', () => {
@@ -598,7 +700,7 @@ describe('AgentPromptRegistry', () => {
       );
     });
 
-    it('rejects overriding immutable roles', () => {
+    it('rejects overriding a role in immutableRoles set with thrown error', () => {
       const immutableRoles = new Set(['reviewer', 'implementer']);
       const registry = createRegistry(undefined, undefined, immutableRoles);
       expect(() => registry.registerBuiltin('reviewer', 'New reviewer prompt')).toThrow(
@@ -609,10 +711,17 @@ describe('AgentPromptRegistry', () => {
       );
     });
 
+    it('allows overriding non-immutable roles even when immutableRoles is set', () => {
+      const immutableRoles = new Set(['reviewer']);
+      const registry = createRegistry(undefined, undefined, immutableRoles);
+      // architect is not in immutableRoles, should succeed
+      expect(() => registry.registerBuiltin('architect', 'New architect')).not.toThrow();
+      expect(registry.resolveTemplate('architect', 'provider')).toBe('New architect');
+    });
+
     it('logs WARN when overriding an existing template', () => {
       const logger = createMockLogger();
       const registry = createRegistry(undefined, logger);
-      // architect has a built-in template
       registry.registerBuiltin('architect', 'Overridden architect prompt');
       expect(logger.warn).toHaveBeenCalledWith(
         'Overriding existing built-in template',
@@ -632,56 +741,132 @@ describe('AgentPromptRegistry', () => {
   });
 
   describe('GENERIC_FALLBACK behavior', () => {
-    it('returns generic fallback text for unknown roles when built-in is removed', () => {
-      // We can test this by constructing a registry and removing a built-in
-      // by overriding it, then checking if the generic fallback appears for a new role
-      // that was never in BUILTIN_TEMPLATES.
-      // Since all 9 AgentType values have built-ins, we test by registering a custom
-      // built-in then verifying that a role not present falls back.
-      // Actually, AgentType is a union so we can't pass arbitrary strings to resolveTemplate.
-      // All 9 AgentType roles have built-ins. The GENERIC_FALLBACK would only trigger
-      // if a built-in was somehow removed, which our API doesn't support.
-      // This is acceptable -- the generic fallback is a safety net.
-
-      // We CAN verify the fallback indirectly: if a built-in IS present, it should NOT
-      // return the generic fallback.
+    it('all 9 built-in roles do not return GENERIC_FALLBACK', () => {
       const registry = createRegistry();
       for (const role of ALL_AGENT_TYPES) {
         const template = registry.resolveTemplate(role, 'provider');
-        expect(template).not.toBe('You are an AI assistant working on a software development task.');
+        expect(template).not.toBe(GENERIC_FALLBACK_TEXT);
       }
+    });
+
+    it('returns GENERIC_FALLBACK for a role with no built-in and no config', () => {
+      const registry = createRegistry();
+      // Cast an unknown role to simulate a role not in BUILTIN_TEMPLATES
+      const result = registry.resolveTemplate('nonexistent_role' as AgentType, 'provider');
+      expect(result).toBe(GENERIC_FALLBACK_TEXT);
     });
   });
 
   describe('prototype pollution protection', () => {
-    it('builtinTemplates backing store has no prototype chain', () => {
-      // The constructor uses Object.create(null) for the backing store.
-      // We can verify this indirectly: 'toString' should not be found as a built-in key.
+    it('builtinTemplates backing store has no prototype chain (Object.create(null))', () => {
       const registry = createRegistry();
-      // If the backing store had Object.prototype, 'toString' would be a property.
-      // But since it's Object.create(null), it should not exist.
-      // We test by checking that resolving a role falls through to built-in, not to some
-      // inherited method.
-      const result = registry.resolveTemplate('architect', 'provider');
-      expect(typeof result).toBe('string');
-      expect(result.length).toBeGreaterThan(0);
+      // If the backing store had Object.prototype, resolving 'toString' as a role
+      // would find a function on the prototype chain instead of returning undefined.
+      // With Object.create(null), the lookup should produce undefined at level 5,
+      // falling through to GENERIC_FALLBACK.
+      const result = registry.resolveTemplate('toString' as AgentType, 'provider');
+      expect(result).toBe(GENERIC_FALLBACK_TEXT);
+    });
+
+    it('providerPrompts property access does not traverse prototype chain', () => {
+      // Create config with providerPrompts that is a regular object.
+      // Properties inherited from Object.prototype (e.g., valueOf) should not match.
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'my-provider': 'My prompt' },
+        },
+      });
+      // 'valueOf' is inherited from Object.prototype
+      const result = registry.resolveTemplate('architect', 'valueOf');
+      // Should NOT find 'valueOf' on the prototype chain, should fall through to built-in
+      expect(result).toContain('You are analyzing a GitHub issue');
     });
   });
 
   describe('BUILTIN_TEMPLATES frozen check', () => {
-    it('modifications to BUILTIN_TEMPLATES from outside should not affect the registry', () => {
-      // Since BUILTIN_TEMPLATES is frozen AND the constructor copies into a new object,
-      // mutations are impossible. We verify the templates are stable across instances.
+    it('modifications via registerBuiltin on one instance do not affect new instances', () => {
       const registry1 = createRegistry();
       const template1 = registry1.resolveTemplate('architect', 'provider');
 
       // Modify via registerBuiltin on registry1
       registry1.registerBuiltin('architect', 'Modified architect');
+      expect(registry1.resolveTemplate('architect', 'provider')).toBe('Modified architect');
 
       // A new registry should still have the original template
       const registry2 = createRegistry();
       const template2 = registry2.resolveTemplate('architect', 'provider');
       expect(template2).toBe(template1);
+    });
+  });
+
+  describe('resolution chain priority - comprehensive priority tests', () => {
+    it('level 1 takes priority over levels 2-6', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'my-provider': 'Level 3 prompt' },
+          systemPrompt: 'Level 4 prompt',
+        },
+        roles: {
+          architect: {
+            providerPrompts: { 'my-provider': 'Level 1 prompt' },
+            systemPrompt: 'Level 2 prompt',
+          },
+        },
+      });
+      expect(registry.resolveTemplate('architect', 'my-provider')).toBe('Level 1 prompt');
+    });
+
+    it('level 2 takes priority over levels 3-6 when level 1 misses', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'my-provider': 'Level 3 prompt' },
+          systemPrompt: 'Level 4 prompt',
+        },
+        roles: {
+          architect: {
+            providerPrompts: { 'other-provider': 'Level 1 for other' },
+            systemPrompt: 'Level 2 prompt',
+          },
+        },
+      });
+      expect(registry.resolveTemplate('architect', 'my-provider')).toBe('Level 2 prompt');
+    });
+
+    it('level 3 takes priority over levels 4-6 when levels 1-2 miss', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'my-provider': 'Level 3 prompt' },
+          systemPrompt: 'Level 4 prompt',
+        },
+      });
+      expect(registry.resolveTemplate('architect', 'my-provider')).toBe('Level 3 prompt');
+    });
+
+    it('level 4 takes priority over levels 5-6 when levels 1-3 miss', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          providerPrompts: { 'other-provider': 'Level 3 for other' },
+          systemPrompt: 'Level 4 prompt',
+        },
+      });
+      expect(registry.resolveTemplate('architect', 'my-provider')).toBe('Level 4 prompt');
+    });
+
+    it('level 5 takes priority over level 6 when levels 1-4 miss', () => {
+      const registry = createRegistry({
+        defaults: {
+          providerChain: [],
+          // no providerPrompts, no systemPrompt
+        },
+      });
+      const result = registry.resolveTemplate('architect', 'my-provider');
+      expect(result).not.toBe(GENERIC_FALLBACK_TEXT);
+      expect(result).toContain('You are analyzing a GitHub issue');
     });
   });
 });
