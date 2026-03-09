@@ -4,7 +4,7 @@
  */
 
 // Main client
-export { MCPClient, createMCPClient, type MCPClientOptions } from './client.js';
+export { MCPClient, createMCPClient, type MCPClientOptions, type MCPClientLogger } from './client.js';
 
 // Types
 export type {

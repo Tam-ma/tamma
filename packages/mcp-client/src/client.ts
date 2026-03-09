@@ -51,6 +51,7 @@ import {
 import { AuditLogger, type AuditLoggerOptions } from './audit.js';
 import { type StreamingToolResult, createNonStreamingResult } from './streaming.js';
 import { paginateArray, type PaginationOptions, type PaginatedResult } from './pagination.js';
+import type { ToolInterceptorChain } from './interceptors.js';
 
 /**
  * MCP Client implementation
@@ -59,6 +60,15 @@ import { paginateArray, type PaginationOptions, type PaginatedResult } from './p
  * interface for tool invocation and resource access.
  */
 /**
+ * Logger interface for MCPClient internal warnings and debug messages.
+ * Kept minimal to avoid coupling to a specific logging framework.
+ */
+export interface MCPClientLogger {
+  warn(msg: string, context?: Record<string, unknown>): void;
+  debug?(msg: string, context?: Record<string, unknown>): void;
+}
+
+/**
  * MCP Client options
  */
 export interface MCPClientOptions {
@@ -66,6 +76,10 @@ export interface MCPClientOptions {
   enableAuditLog?: boolean;
   /** Audit logger options */
   auditLogOptions?: AuditLoggerOptions;
+  /** Optional interceptor chain for pre/post tool call transformations (F04) */
+  interceptorChain?: ToolInterceptorChain;
+  /** Optional logger for interceptor warnings and debug messages */
+  logger?: MCPClientLogger;
 }
 
 export class MCPClient implements IMCPClient {
@@ -80,6 +94,8 @@ export class MCPClient implements IMCPClient {
   private readonly rateLimiters: RateLimiterRegistry;
   private readonly eventEmitter: EventEmitter;
   private readonly auditLogger?: AuditLogger;
+  private readonly logger?: MCPClientLogger;
+  private interceptorChain?: ToolInterceptorChain;
   private initialized = false;
 
   // Resource subscriptions
@@ -99,6 +115,16 @@ export class MCPClient implements IMCPClient {
     // Initialize audit logger if enabled
     if (options?.enableAuditLog !== false) {
       this.auditLogger = new AuditLogger(options?.auditLogOptions);
+    }
+
+    // Set interceptor chain if provided via options (F04)
+    if (options?.interceptorChain) {
+      this.interceptorChain = options.interceptorChain;
+    }
+
+    // Set logger if provided
+    if (options?.logger) {
+      this.logger = options.logger;
     }
 
     // Set up connection pool event handling
@@ -312,16 +338,26 @@ export class MCPClient implements IMCPClient {
       throw new MCPRateLimitError(serverName, rateLimiter.getTimeUntilNextToken());
     }
 
-    this.eventEmitter.emit('tool:invoked', { serverName, toolName, args: argsWithDefaults });
+    // Run pre-interceptors after validation, before execution (F04, F14)
+    let finalArgs = argsWithDefaults;
+    if (this.interceptorChain) {
+      const { args: intercepted, warnings: preWarnings } = await this.interceptorChain.runPre(toolName, argsWithDefaults);
+      finalArgs = intercepted;
+      if (preWarnings.length > 0) {
+        this.logger?.warn('Pre-interceptor warnings', { toolName, warnings: preWarnings });
+      }
+    }
+
+    this.eventEmitter.emit('tool:invoked', { serverName, toolName, args: finalArgs });
 
     // Audit log the invocation
-    const auditId = this.auditLogger?.logToolInvoke(serverName, toolName, argsWithDefaults);
+    const auditId = this.auditLogger?.logToolInvoke(serverName, toolName, finalArgs);
 
     try {
-      // Execute with retry
+      // Execute with retry using intercepted args
       const result = await withRetry(
         async () => {
-          return connection.invokeTool(toolName, argsWithDefaults, options?.timeout);
+          return connection.invokeTool(toolName, finalArgs, options?.timeout);
         },
         {
           maxAttempts: this.config?.retryAttempts ?? 3,
@@ -351,10 +387,20 @@ export class MCPClient implements IMCPClient {
         },
       };
 
+      // Run post-interceptors after result construction, before events (F04, F14)
+      let finalResult = toolResult;
+      if (this.interceptorChain) {
+        const { result: intercepted, warnings: postWarnings } = await this.interceptorChain.runPost(toolName, toolResult);
+        finalResult = intercepted;
+        if (postWarnings.length > 0) {
+          this.logger?.warn('Post-interceptor warnings', { toolName, warnings: postWarnings });
+        }
+      }
+
       this.eventEmitter.emit('tool:completed', {
         serverName,
         toolName,
-        success: toolResult.success,
+        success: finalResult.success,
         latencyMs,
       });
 
@@ -364,13 +410,13 @@ export class MCPClient implements IMCPClient {
           auditId,
           serverName,
           toolName,
-          toolResult.success,
+          finalResult.success,
           latencyMs,
-          toolResult.error
+          finalResult.error
         );
       }
 
-      return toolResult;
+      return finalResult;
     } catch (error) {
       const latencyMs = Date.now() - startTime;
 
@@ -617,6 +663,14 @@ export class MCPClient implements IMCPClient {
    */
   getAuditLogger(): AuditLogger | undefined {
     return this.auditLogger;
+  }
+
+  /**
+   * Set the interceptor chain for pre/post tool call transformations.
+   * This is the setter-based alternative to passing the chain via MCPClientOptions (F04).
+   */
+  setInterceptorChain(chain: ToolInterceptorChain): void {
+    this.interceptorChain = chain;
   }
 
   /**
