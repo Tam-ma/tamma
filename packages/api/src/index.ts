@@ -8,6 +8,8 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { registerKnowledgeBaseRoutes, createKBServices } from './routes/knowledge-base/index.js';
 import type { KBServices } from './routes/knowledge-base/index.js';
+import { registerSettingsRoutes, createSettingsServices } from './routes/settings/index.js';
+import type { SettingsServices } from './routes/settings/index.js';
 import { registerEngineRoutes } from './routes/engine/index.js';
 import type { EngineRouteOptions } from './routes/engine/index.js';
 import { registerAuthPlugin } from './auth/index.js';
@@ -34,6 +36,8 @@ export {
   registerWorkflowRoutes,
   registerDashboardRoutes,
   InMemoryWorkflowStore,
+  registerSettingsRoutes,
+  createSettingsServices,
 };
 
 export type {
@@ -46,6 +50,7 @@ export type {
   IWorkflowStore,
   WorkflowDefinition,
   WorkflowInstance,
+  SettingsServices,
 };
 
 /** Options for creating the Fastify app with optional engine support. */
@@ -60,6 +65,8 @@ export interface CreateAppOptions {
   workflowStore?: IWorkflowStore;
   /** Engine registry for multi-engine support (optional). */
   engineRegistry?: EngineRegistry;
+  /** Settings services for config, health, and diagnostics (optional). */
+  settingsServices?: SettingsServices;
   /** Enable Fastify logger (boolean or pino options object). */
   logger?: boolean | object;
 }
@@ -94,6 +101,9 @@ export async function createApp(options?: CreateAppOptions) {
 
   // Knowledge Base Management routes
   await registerKnowledgeBaseRoutes(app, options?.kbServices);
+
+  // Settings routes (config, health, diagnostics)
+  await registerSettingsRoutes(app, options?.settingsServices);
 
   // Engine routes (if an engine is provided)
   if (options?.engine !== undefined) {
