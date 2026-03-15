@@ -4,3 +4,5 @@ export type { IWorkflowEngine, WorkflowInstanceStatus } from './workflow-engine.
 export { ElsaClient } from './elsa-client.js';
 export { InProcessTransport } from './transports/in-process.js';
 export { RemoteTransport } from './transports/remote.js';
+export { SaaSCoordinator } from './saas-coordinator.js';
+export type { SaaSCoordinatorOptions, ICoordinatorInstallationStore } from './saas-coordinator.js';

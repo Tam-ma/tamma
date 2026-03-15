@@ -1,4 +1,5 @@
 import { Octokit } from '@octokit/rest';
+import { createAppAuth } from '@octokit/auth-app';
 import type { IGitPlatform } from '../types/git-platform.interface.js';
 import type { GitPlatformConfig } from '../types/config.js';
 import type {
@@ -45,10 +46,22 @@ export class GitHubPlatform implements IGitPlatform {
   }
 
   async initialize(config: GitPlatformConfig): Promise<void> {
-    this.octokit = new Octokit({
-      auth: config.token,
-      ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
-    });
+    if (config.type === 'app') {
+      this.octokit = new Octokit({
+        authStrategy: createAppAuth,
+        auth: {
+          appId: config.appId,
+          privateKey: config.privateKey,
+          installationId: config.installationId,
+        },
+        ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+      });
+    } else {
+      this.octokit = new Octokit({
+        auth: config.token,
+        ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
+      });
+    }
   }
 
   async dispose(): Promise<void> {

@@ -31,6 +31,7 @@ function createE2EConfig(): TammaConfig {
     mode: 'standalone',
     logLevel: 'debug',
     github: {
+      authMode: 'pat' as const,
       token: TOKEN,
       owner: OWNER,
       repo: REPO,
@@ -83,7 +84,7 @@ describeE2E('TammaEngine E2E', () => {
 
   beforeAll(async () => {
     platform = new GitHubPlatform();
-    await platform.initialize({ token: TOKEN });
+    await platform.initialize({ type: 'pat', token: TOKEN });
   });
 
   afterEach(async () => {

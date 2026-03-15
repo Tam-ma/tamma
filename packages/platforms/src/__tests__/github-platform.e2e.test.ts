@@ -24,7 +24,7 @@ describeE2E('GitHubPlatform E2E', () => {
 
   beforeAll(async () => {
     platform = new GitHubPlatform();
-    await platform.initialize({ token: TOKEN });
+    await platform.initialize({ type: 'pat', token: TOKEN });
   });
 
   afterEach(async () => {

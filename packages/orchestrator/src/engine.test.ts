@@ -29,6 +29,7 @@ function createMockConfig(): TammaConfig {
     mode: 'standalone',
     logLevel: 'debug',
     github: {
+      authMode: 'pat' as const,
       token: 'test-token',
       owner: 'test-owner',
       repo: 'test-repo',

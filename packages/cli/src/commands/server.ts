@@ -30,7 +30,7 @@ import type { IRoleBasedAgentResolver } from '@tamma/providers';
 import { GitHubPlatform } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
 import { createCostTracker, FileStore } from '@tamma/cost-monitor';
-import { loadConfig, validateConfig, normalizeAgentsConfig } from '../config.js';
+import { loadConfig, validateConfig, normalizeAgentsConfig, buildPlatformConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
 
 export interface ServerOptions extends CLIOptions {
@@ -55,9 +55,15 @@ export async function serverCommand(options: ServerOptions): Promise<void> {
 
   const logger = createLogger('tamma-server', config.logLevel);
 
-  // Platform
+  // SaaS mode is not supported in the server command — use the API server
+  if (config.github.authMode === 'saas') {
+    console.error('SaaS mode is not supported in the CLI server command. Use the standalone API server.');
+    process.exit(1);
+  }
+
+  // Platform with PAT or App auth
   const platform = new GitHubPlatform();
-  await platform.initialize({ token: config.github.token });
+  await platform.initialize(buildPlatformConfig(config.github));
 
   // Config-driven agent setup
   const agentsConfig = normalizeAgentsConfig(config);

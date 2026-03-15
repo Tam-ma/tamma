@@ -19,7 +19,7 @@ import type { Issue } from '@tamma/platforms';
 import { createLogger } from '@tamma/observability';
 import { createCostTracker, FileStore } from '@tamma/cost-monitor';
 import type { CostTracker } from '@tamma/cost-monitor';
-import { loadConfig, validateConfig, normalizeAgentsConfig } from '../config.js';
+import { loadConfig, validateConfig, normalizeAgentsConfig, buildPlatformConfig } from '../config.js';
 import type { CLIOptions } from '../config.js';
 import type { ILogger } from '@tamma/shared/contracts';
 import { writeLockfile, removeLockfile } from '../state.js';
@@ -147,9 +147,15 @@ export async function startCommand(options: CLIOptions): Promise<void> {
     config.engine.approvalMode = 'auto';
   }
 
-  // Set up platform
+  // SaaS mode is not supported in the CLI — use the API server
+  if (config.github.authMode === 'saas') {
+    console.error('SaaS mode is not supported in the CLI. Use the API server instead.');
+    process.exit(1);
+  }
+
+  // Set up platform with PAT or App auth
   const platform = new GitHubPlatform();
-  await platform.initialize({ token: config.github.token });
+  await platform.initialize(buildPlatformConfig(config.github));
 
   // ---- Service mode: headless, no TUI, auto-approval, JSON logging ----
   if (options.mode === 'service') {

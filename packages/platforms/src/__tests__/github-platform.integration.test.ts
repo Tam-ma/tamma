@@ -11,7 +11,7 @@ describe.skipIf(!hasGithub)('GitHubPlatform Integration', () => {
 
   beforeAll(async () => {
     platform = new GitHubPlatform();
-    await platform.initialize({ token: token! });
+    await platform.initialize({ type: 'pat', token: token! });
   });
 
   afterAll(async () => {

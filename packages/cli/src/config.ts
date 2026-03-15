@@ -1,7 +1,18 @@
 import { readFileSync } from 'node:fs';
 import * as fs from 'node:fs';
 import * as path from 'node:path';
-import type { TammaConfig, GitHubConfig, AgentConfig, EngineConfig, SecurityConfig } from '@tamma/shared';
+import type {
+  TammaConfig,
+  GitHubConfig,
+  GitHubPATConfig,
+  GitHubAppConfig,
+  GitHubSaaSConfig,
+  GitHubRepoConfig,
+  AgentConfig,
+  EngineConfig,
+  SecurityConfig,
+} from '@tamma/shared';
+import type { GitPlatformConfig } from '@tamma/platforms';
 
 // Re-export normalizeAgentsConfig from @tamma/shared for CLI import convenience
 export { normalizeAgentsConfig } from '@tamma/shared';
@@ -42,6 +53,7 @@ const DEFAULT_CONFIG: TammaConfig = {
   mode: 'standalone',
   logLevel: 'info',
   github: {
+    authMode: 'pat' as const,
     token: '',
     owner: '',
     repo: '',
@@ -89,24 +101,66 @@ function loadEnvConfig(): Partial<TammaConfig> {
   const env = process.env;
   const config: Partial<TammaConfig> = {};
 
-  // GitHub config from env — support Docker secret files
-  const githubToken = readSecretOrEnv('GITHUB_TOKEN') ?? readSecretOrEnv('TAMMA_GITHUB_TOKEN');
+  // GitHub auth mode
+  const authMode = env['TAMMA_GITHUB_AUTH_MODE'] ?? 'pat';
+
+  // Common GitHub fields from env
   const githubOwner = env['TAMMA_GITHUB_OWNER'];
   const githubRepo = env['TAMMA_GITHUB_REPO'];
   const botUsername = env['TAMMA_BOT_USERNAME'];
   const issueLabels = env['TAMMA_ISSUE_LABELS'];
   const excludeLabels = env['TAMMA_EXCLUDE_LABELS'];
 
-  const githubOverrides: Partial<GitHubConfig> = {};
-  if (githubToken !== undefined) githubOverrides.token = githubToken;
-  if (githubOwner !== undefined) githubOverrides.owner = githubOwner;
-  if (githubRepo !== undefined) githubOverrides.repo = githubRepo;
-  if (botUsername !== undefined) githubOverrides.botUsername = botUsername;
-  if (issueLabels !== undefined) githubOverrides.issueLabels = issueLabels.split(',').map((s) => s.trim());
-  if (excludeLabels !== undefined) githubOverrides.excludeLabels = excludeLabels.split(',').map((s) => s.trim());
+  if (authMode === 'app') {
+    const appId = env['TAMMA_GITHUB_APP_ID'];
+    const privateKeyPath = env['TAMMA_GITHUB_PRIVATE_KEY_PATH'];
+    const installationId = env['TAMMA_GITHUB_INSTALLATION_ID'];
 
-  if (Object.keys(githubOverrides).length > 0) {
-    config.github = githubOverrides as GitHubConfig;
+    const githubOverrides: Partial<GitHubAppConfig> = { authMode: 'app' };
+    if (appId !== undefined) githubOverrides.appId = parseInt(appId, 10);
+    if (privateKeyPath !== undefined) githubOverrides.privateKeyPath = privateKeyPath;
+    if (installationId !== undefined) githubOverrides.installationId = parseInt(installationId, 10);
+    if (githubOwner !== undefined) githubOverrides.owner = githubOwner;
+    if (githubRepo !== undefined) githubOverrides.repo = githubRepo;
+    if (botUsername !== undefined) githubOverrides.botUsername = botUsername;
+    if (issueLabels !== undefined) githubOverrides.issueLabels = issueLabels.split(',').map((s) => s.trim());
+    if (excludeLabels !== undefined) githubOverrides.excludeLabels = excludeLabels.split(',').map((s) => s.trim());
+
+    if (Object.keys(githubOverrides).length > 1) {
+      config.github = githubOverrides as GitHubAppConfig;
+    }
+  } else if (authMode === 'saas') {
+    const appId = env['TAMMA_GITHUB_APP_ID'];
+    const privateKeyPath = env['TAMMA_GITHUB_PRIVATE_KEY_PATH'];
+    const webhookSecret = env['TAMMA_GITHUB_WEBHOOK_SECRET'];
+
+    const githubOverrides: Partial<GitHubSaaSConfig> = { authMode: 'saas' };
+    if (appId !== undefined) githubOverrides.appId = parseInt(appId, 10);
+    if (privateKeyPath !== undefined) githubOverrides.privateKeyPath = privateKeyPath;
+    if (webhookSecret !== undefined) githubOverrides.webhookSecret = webhookSecret;
+    if (botUsername !== undefined) githubOverrides.botUsername = botUsername;
+    if (issueLabels !== undefined) githubOverrides.issueLabels = issueLabels.split(',').map((s) => s.trim());
+    if (excludeLabels !== undefined) githubOverrides.excludeLabels = excludeLabels.split(',').map((s) => s.trim());
+    // SaaS: owner/repo come from installations DB but can be set for testing
+    if (githubOwner !== undefined) githubOverrides.owner = githubOwner;
+    if (githubRepo !== undefined) githubOverrides.repo = githubRepo;
+
+    config.github = githubOverrides as GitHubSaaSConfig;
+  } else {
+    // Default: PAT mode
+    const githubToken = readSecretOrEnv('GITHUB_TOKEN') ?? readSecretOrEnv('TAMMA_GITHUB_TOKEN');
+
+    const githubOverrides: Partial<GitHubPATConfig> = { authMode: 'pat' };
+    if (githubToken !== undefined) githubOverrides.token = githubToken;
+    if (githubOwner !== undefined) githubOverrides.owner = githubOwner;
+    if (githubRepo !== undefined) githubOverrides.repo = githubRepo;
+    if (botUsername !== undefined) githubOverrides.botUsername = botUsername;
+    if (issueLabels !== undefined) githubOverrides.issueLabels = issueLabels.split(',').map((s) => s.trim());
+    if (excludeLabels !== undefined) githubOverrides.excludeLabels = excludeLabels.split(',').map((s) => s.trim());
+
+    if (Object.keys(githubOverrides).length > 1) {
+      config.github = githubOverrides as GitHubPATConfig;
+    }
   }
 
   // Agent config from env
@@ -226,10 +280,28 @@ export function loadConfig(cliOptions: CLIOptions): TammaConfig {
 }
 
 function mergeConfig(base: TammaConfig, override: Partial<TammaConfig>): TammaConfig {
+  // GitHub config: if override provides a different authMode, take it wholesale.
+  // Otherwise shallow-merge within the same authMode shape.
+  let mergedGithub: GitHubConfig;
+  if (override.github !== undefined) {
+    const overrideAuthMode = (override.github as Partial<GitHubConfig>).authMode;
+    if (overrideAuthMode !== undefined && overrideAuthMode !== base.github.authMode) {
+      // Different auth mode — use override as base, fill missing shared fields from base
+      mergedGithub = {
+        ...base.github,
+        ...override.github,
+      } as GitHubConfig;
+    } else {
+      mergedGithub = { ...base.github, ...override.github } as GitHubConfig;
+    }
+  } else {
+    mergedGithub = base.github;
+  }
+
   const result: TammaConfig = {
     mode: override.mode ?? base.mode,
     logLevel: override.logLevel ?? base.logLevel,
-    github: { ...base.github, ...override.github },
+    github: mergedGithub,
     agent: { ...base.agent, ...override.agent },
     engine: { ...base.engine, ...override.engine },
   };
@@ -275,18 +347,67 @@ function mergeConfig(base: TammaConfig, override: Partial<TammaConfig>): TammaCo
  */
 export function validateConfig(config: TammaConfig): string[] {
   const errors: string[] = [];
+  const gh = config.github;
 
-  if (!config.github.token) {
-    errors.push('GitHub token is required (set GITHUB_TOKEN or TAMMA_GITHUB_TOKEN)');
-  }
-  if (!config.github.owner) {
-    errors.push('GitHub owner is required (set TAMMA_GITHUB_OWNER or use tamma.config.json)');
-  }
-  if (!config.github.repo) {
-    errors.push('GitHub repo is required (set TAMMA_GITHUB_REPO or use tamma.config.json)');
+  if (gh.authMode === 'pat') {
+    if (!gh.token) {
+      errors.push('GitHub token is required (set GITHUB_TOKEN or TAMMA_GITHUB_TOKEN)');
+    }
+    if (!gh.owner) {
+      errors.push('GitHub owner is required (set TAMMA_GITHUB_OWNER or use tamma.config.json)');
+    }
+    if (!gh.repo) {
+      errors.push('GitHub repo is required (set TAMMA_GITHUB_REPO or use tamma.config.json)');
+    }
+  } else if (gh.authMode === 'app') {
+    if (!gh.appId) {
+      errors.push('GitHub App ID is required (set TAMMA_GITHUB_APP_ID)');
+    }
+    if (!gh.privateKeyPath) {
+      errors.push('GitHub App private key path is required (set TAMMA_GITHUB_PRIVATE_KEY_PATH)');
+    }
+    if (!gh.installationId) {
+      errors.push('GitHub installation ID is required (set TAMMA_GITHUB_INSTALLATION_ID)');
+    }
+    if (!gh.owner) {
+      errors.push('GitHub owner is required (set TAMMA_GITHUB_OWNER)');
+    }
+    if (!gh.repo) {
+      errors.push('GitHub repo is required (set TAMMA_GITHUB_REPO)');
+    }
+  } else if (gh.authMode === 'saas') {
+    if (!gh.appId) {
+      errors.push('GitHub App ID is required (set TAMMA_GITHUB_APP_ID)');
+    }
+    if (!gh.privateKeyPath) {
+      errors.push('GitHub App private key path is required (set TAMMA_GITHUB_PRIVATE_KEY_PATH)');
+    }
+    if (!gh.webhookSecret) {
+      errors.push('GitHub webhook secret is required (set TAMMA_GITHUB_WEBHOOK_SECRET)');
+    }
   }
 
   return errors;
+}
+
+/**
+ * Build a platform-level GitPlatformConfig from the app-level GitHubRepoConfig.
+ * Reads the private key file for App mode.
+ */
+export function buildPlatformConfig(gh: GitHubRepoConfig): GitPlatformConfig {
+  if (gh.authMode === 'app') {
+    const privateKey = readFileSync(gh.privateKeyPath, 'utf-8');
+    return {
+      type: 'app',
+      appId: gh.appId,
+      privateKey,
+      installationId: gh.installationId,
+    };
+  }
+  return {
+    type: 'pat',
+    token: gh.token,
+  };
 }
 
 /**
@@ -306,6 +427,7 @@ export function generateConfigFile(answers: {
     mode: 'standalone',
     logLevel: 'info',
     github: {
+      authMode: 'pat' as const,
       token: '',
       owner: answers.owner,
       repo: answers.repo,
@@ -394,10 +516,21 @@ export function generateEnvExample(): string {
   return `# Tamma Environment Variables
 # Copy this file to .env and fill in the values.
 
-# GitHub — required
+# GitHub auth mode: pat (default), app, or saas
+# TAMMA_GITHUB_AUTH_MODE=pat
+
+# GitHub — required for PAT mode
 GITHUB_TOKEN=
 TAMMA_GITHUB_OWNER=
 TAMMA_GITHUB_REPO=
+
+# GitHub — required for App mode
+# TAMMA_GITHUB_APP_ID=
+# TAMMA_GITHUB_PRIVATE_KEY_PATH=
+# TAMMA_GITHUB_INSTALLATION_ID=
+
+# GitHub — required for SaaS mode
+# TAMMA_GITHUB_WEBHOOK_SECRET=
 
 # GitHub — optional
 TAMMA_BOT_USERNAME=tamma-bot
