@@ -1,0 +1,4 @@
+# Require owner approval for workflow and secret-related changes
+/.github/workflows/ @meywd
+/.github/CODEOWNERS @meywd
+/docker/ @meywd

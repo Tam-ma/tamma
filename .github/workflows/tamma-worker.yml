@@ -1,0 +1,88 @@
+name: Tamma Worker
+
+on:
+  workflow_dispatch:
+    inputs:
+      installation_id:
+        description: 'GitHub App installation ID'
+        required: true
+        type: string
+      issue_number:
+        description: 'Issue number to process'
+        required: true
+        type: string
+      callback_url:
+        description: 'Orchestrator callback URL'
+        required: true
+        type: string
+      workflow_id:
+        description: 'Tamma workflow ID for status tracking'
+        required: false
+        type: string
+
+permissions:
+  contents: write
+  issues: write
+  pull-requests: write
+
+jobs:
+  process-issue:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    concurrency:
+      group: tamma-issue-${{ github.event.inputs.issue_number }}
+      cancel-in-progress: false
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: Get GitHub App Token
+        id: app-token
+        uses: actions/create-github-app-token@v1
+        with:
+          app-id: ${{ vars.TAMMA_APP_ID }}
+          private-key: ${{ secrets.TAMMA_APP_PRIVATE_KEY }}
+
+      - name: Install Tamma
+        run: npm install -g @tamma/cli
+
+      - name: Process Issue
+        env:
+          GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAMMA_API_KEY: ${{ secrets.TAMMA_API_KEY }}
+          TAMMA_API_URL: ${{ vars.TAMMA_API_URL || 'https://app.tamma.dev' }}
+          TAMMA_INSTALLATION_ID: ${{ github.event.inputs.installation_id }}
+          TAMMA_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
+          TAMMA_WORKFLOW_ID: ${{ github.event.inputs.workflow_id }}
+        run: |
+          tamma process-issue \
+            --issue "$TAMMA_ISSUE_NUMBER" \
+            --installation-id "$TAMMA_INSTALLATION_ID"
+
+      - name: Report Result
+        if: always()
+        env:
+          TAMMA_API_KEY: ${{ secrets.TAMMA_API_KEY }}
+          TAMMA_API_URL: ${{ vars.TAMMA_API_URL || 'https://app.tamma.dev' }}
+        run: |
+          STATUS="${{ job.status }}"
+          if [ "$STATUS" = "success" ]; then
+            RESULT="success"
+          elif [ "$STATUS" = "cancelled" ]; then
+            RESULT="skipped"
+          else
+            RESULT="failure"
+          fi
+
+          curl -sf -X POST \
+            "${TAMMA_API_URL}/api/v1/workflows/${{ github.event.inputs.workflow_id }}/result" \
+            -H "Authorization: Bearer ${TAMMA_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "{\"status\":\"${RESULT}\",\"issueNumber\":${{ github.event.inputs.issue_number }},\"installationId\":${{ github.event.inputs.installation_id }}}" \
+            || echo "Warning: Failed to report result to orchestrator"
