@@ -11,6 +11,7 @@ import { statusCommand } from './commands/status.js';
 import { initCommand } from './commands/init.js';
 import { serverCommand } from './commands/server.js';
 import { upgradeCommand } from './commands/upgrade.js';
+import { processIssueCommand } from './commands/process-issue.js';
 import { checkForUpdates } from './update-check.js';
 import { printBanner } from './components/Banner.js';
 
@@ -105,6 +106,30 @@ program
       port: parseInt(opts.port as string, 10),
       host: (opts.host as string | undefined) ?? '127.0.0.1',
     });
+  });
+
+program
+  .command('process-issue')
+  .description('Process a single issue (designed for CI/worker environments)')
+  .requiredOption('--issue <number>', 'Issue number to process')
+  .requiredOption('--installation-id <id>', 'GitHub App installation ID')
+  .option('--config <path>', 'Path to tamma.config.json', './tamma.config.json')
+  .action(async (opts) => {
+    const issueNumber = parseInt(opts.issue as string, 10);
+    if (Number.isNaN(issueNumber) || issueNumber <= 0) {
+      console.error('Invalid issue number. Must be a positive integer.');
+      process.exit(1);
+    }
+    const configPath = opts.config as string | undefined;
+    const processOpts: Parameters<typeof processIssueCommand>[0] = {
+      issue: issueNumber,
+      installationId: opts.installationId as string,
+    };
+    if (configPath !== undefined) {
+      processOpts.config = configPath;
+    }
+    const exitCode = await processIssueCommand(processOpts);
+    process.exit(exitCode);
   });
 
 program

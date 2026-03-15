@@ -11,6 +11,7 @@ function createMockContext(overrides?: Partial<CommandContext>): CommandContext 
       mode: 'standalone',
       logLevel: 'info',
       github: {
+        authMode: 'pat' as const,
         token: 'test',
         owner: 'test-owner',
         repo: 'test-repo',

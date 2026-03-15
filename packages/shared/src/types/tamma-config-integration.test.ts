@@ -28,6 +28,7 @@ function createMinimalConfig(): TammaConfig {
     mode: 'standalone',
     logLevel: 'info',
     github: {
+      authMode: 'pat' as const,
       token: 'test-token',
       owner: 'test-owner',
       repo: 'test-repo',

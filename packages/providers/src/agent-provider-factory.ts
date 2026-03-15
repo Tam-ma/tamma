@@ -140,9 +140,7 @@ export function wrapAsAgent(llm: IAIProvider, model: string): IAgentProvider {
       try {
         const response: MessageResponse = await llm.sendMessageSync(request);
 
-        const isSuccess = response.finishReason === 'end_turn'
-          || response.finishReason === 'stop'
-          || response.finishReason === 'tool_use'
+        const isSuccess = response.finishReason === 'stop'
           || response.finishReason === 'tool_calls'
           || response.finishReason === 'length';
         return {

@@ -922,8 +922,13 @@ describe('createUrlValidationInterceptor', () => {
 
   it('checks multiple arg values', async () => {
     const validateUrl = vi.fn(createMockValidateUrl((url: string) => {
-      if (url.includes('evil.com')) {
-        return { valid: false, warnings: ['Suspicious domain'] };
+      try {
+        const parsed = new URL(url);
+        if (parsed.hostname === 'evil.com' || parsed.hostname.endsWith('.evil.com')) {
+          return { valid: false, warnings: ['Suspicious domain'] };
+        }
+      } catch {
+        // Not a valid URL, allow through
       }
       return { valid: true, warnings: [] };
     }));

@@ -33,6 +33,8 @@ so that system can operate both as autonomous coordinator and as CI/CD-invoked w
 4. Document specifies shared components (AI abstraction, Git abstraction, quality gates)
 5. Document defines state persistence strategy for graceful shutdown/restart
 6. Architecture reviewed and approved by technical lead
+7. Document defines GitHub Actions as a worker type: triggered via `workflow_dispatch`, using installation tokens for auth, reporting results back to orchestrator via HTTP callback
+8. Document includes sequence diagram for GitHub Actions worker flow: orchestrator dispatches `workflow_dispatch` → Actions runner starts → acquires installation token → runs `processOneIssue` → reports result via callback
 
 ## Tasks / Subtasks
 
@@ -78,7 +80,16 @@ so that system can operate both as autonomous coordinator and as CI/CD-invoked w
   - [ ] Subtask 6.4: Document configuration schema for both modes
   - [ ] Subtask 6.5: Create integration testing guidelines
 
-- [ ] Task 7: Architecture review and approval (AC: 6)
+- [ ] Task 7: GitHub Actions Worker Type Architecture (AC: 7, 8)
+  - [ ] Subtask 7.1: Document GitHub Actions as a worker type (alongside HTTP/WebSocket workers)
+  - [ ] Subtask 7.2: Define `workflow_dispatch` as the dispatch mechanism: orchestrator triggers workflow via GitHub API, passing `installation_id`, `issue_number`, and `callback_url` as inputs
+  - [ ] Subtask 7.3: Document installation token acquisition within Actions using `actions/create-github-app-token`
+  - [ ] Subtask 7.4: Define result callback protocol: worker POSTs result (success/failure/skipped) to orchestrator's callback endpoint
+  - [ ] Subtask 7.5: Create sequence diagram for Actions-based worker flow: SaaS Coordinator → workflow_dispatch → Actions runner → processOneIssue → callback → orchestrator updates state
+  - [ ] Subtask 7.6: Document differences between HTTP workers and Actions workers: lifecycle, auth, compute ownership, timeout behavior
+  - [ ] Subtask 7.7: Document concurrency control via GitHub Actions concurrency groups (one job per issue)
+
+- [ ] Task 8: Architecture review and approval (AC: 6)
   - [ ] Subtask 7.1: Conduct technical architecture review
   - [ ] Subtask 7.2: Validate against PRD requirements and constraints
   - [ ] Subtask 7.3: Review security and performance considerations
@@ -101,8 +112,19 @@ so that system can operate both as autonomous coordinator and as CI/CD-invoked w
 - Implements hybrid architecture pattern supporting both orchestrator (stateful coordinator) and worker (stateless executor) modes
 - Orchestrator mode: Fastify HTTP server, REST API, WebSocket streaming, PostgreSQL task queue, worker pool management
 - Worker mode: Stateless execution engine, task polling, local filesystem access, result reporting via HTTP callbacks
+- **GitHub Actions worker type**: Extends worker mode to run inside GitHub Actions, triggered via `workflow_dispatch`. The SaaS Coordinator dispatches work to user repos, Actions runners acquire installation tokens, execute `processOneIssue`, and report results back via HTTP callback. This enables SaaS deployment where compute runs on GitHub's infrastructure.
 - Shared components: Configuration loader, event emitter, logging infrastructure, health check endpoints
 - Integrates with AI provider abstraction from Stories 1.1-1.3 and Git platform abstraction from Stories 1.4-1.7
+
+### GitHub Actions Worker Type
+- **Dispatch mechanism**: `workflow_dispatch` API call from SaaS Coordinator
+- **Auth**: Installation tokens via `actions/create-github-app-token` (not PAT)
+- **Compute**: GitHub-hosted runners (user's Actions minutes)
+- **Communication**: One-way callback (worker → orchestrator) via HTTP POST
+- **Isolation**: Each installation runs in its own repo's Actions environment
+- **Concurrency**: GitHub Actions concurrency groups prevent duplicate issue processing
+- **Timeout**: Configurable per-workflow (default 30 minutes, max 6 hours)
+- **Related stories**: 1.5-11 (GitHub App auth), 1.5-12 (SaaS Coordinator), 1.5-13 (Actions worker implementation)
 
 ### Project Structure Notes
 - Implementation location: packages/orchestrator/ and packages/worker/

@@ -90,20 +90,18 @@ async function authPlugin(
   }
   const secret = jwtSecret || 'dev-secret-do-not-use-in-production';
 
-  // Register rate limiter (global: false — only applied to routes that opt in)
+  // Register rate limiter with global protection and stricter per-route auth limits
   const rlMax = rateLimitConfig?.max ?? 10;
   const rlWindow = rateLimitConfig?.windowMs ?? 60_000;
 
+  // Global rate limit applies to all routes (including JWT-verified requests)
+  // to prevent brute-force attacks. Auth routes override with stricter limits below.
   await fastify.register(rateLimit, {
-    global: false,
-    max: rlMax,
+    global: true,
+    max: rlMax * 10,
     timeWindow: rlWindow,
     keyGenerator: (request: FastifyRequest) => request.ip,
   });
-
-  const authRateLimit = {
-    config: { rateLimit: { max: rlMax, timeWindow: rlWindow } },
-  };
 
   // Register @fastify/jwt
   await fastify.register(await import('@fastify/jwt').then((m) => m.default ?? m), {
@@ -161,7 +159,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post<{ Body: LoginBody }>(
     '/api/auth/login',
-    authRateLimit,
+    { config: { rateLimit: { max: rlMax, timeWindow: rlWindow } } },
     async (request, reply) => {
       const { username, password } = request.body ?? {};
 
@@ -193,7 +191,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post<{ Body: RefreshBody }>(
     '/api/auth/refresh',
-    authRateLimit,
+    { config: { rateLimit: { max: rlMax, timeWindow: rlWindow } } },
     async (request, reply) => {
       const { refreshToken } = request.body ?? {};
 
@@ -231,7 +229,7 @@ async function authPlugin(
   // ------------------------------------------------------------------
   fastify.post<{ Body: ApiKeyBody }>(
     '/api/auth/api-key',
-    authRateLimit,
+    { config: { rateLimit: { max: rlMax, timeWindow: rlWindow } } },
     async (request, reply) => {
       const { apiKey } = request.body ?? {};
 

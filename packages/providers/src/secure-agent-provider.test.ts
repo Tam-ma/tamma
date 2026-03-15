@@ -135,10 +135,16 @@ describe('SecureAgentProvider', () => {
       });
       const sanitizer = createMockSanitizer({
         sanitize: vi.fn((input: string) => ({ result: input, warnings: [] })),
-        sanitizeOutput: vi.fn((output: string) => ({
-          result: output.replace(/<[^>]+>/g, ''),
-          warnings: [],
-        })),
+        sanitizeOutput: vi.fn((output: string) => {
+          // Use a loop to handle nested/overlapping tags safely
+          let sanitized = output;
+          let previous: string;
+          do {
+            previous = sanitized;
+            sanitized = sanitized.replace(/<[^>]+>/g, '');
+          } while (sanitized !== previous);
+          return { result: sanitized, warnings: [] };
+        }),
       });
 
       const provider = new SecureAgentProvider(inner, sanitizer);
@@ -394,9 +400,19 @@ describe('SecureAgentProvider', () => {
   describe('full round-trip', () => {
     it('sanitizes input prompt, output, and error in a complete cycle', async () => {
       // Simulate a sanitizer that strips HTML tags
+      // Use a loop to fully remove nested/overlapping tags (avoids CodeQL js/incomplete-multi-character-sanitization)
+      const stripHtmlTags = (str: string): string => {
+        let result = str;
+        let previous: string;
+        do {
+          previous = result;
+          result = result.replace(/<[^>]+>/g, '');
+        } while (result !== previous);
+        return result;
+      };
       const sanitizer: IContentSanitizer = {
         sanitize: vi.fn((input: string) => {
-          const result = input.replace(/<[^>]+>/g, '');
+          const result = stripHtmlTags(input);
           const warnings: string[] = [];
           if (input !== result) {
             warnings.push('HTML tags removed from input');
@@ -404,7 +420,7 @@ describe('SecureAgentProvider', () => {
           return { result, warnings };
         }),
         sanitizeOutput: vi.fn((output: string) => {
-          const result = output.replace(/<[^>]+>/g, '');
+          const result = stripHtmlTags(output);
           const warnings: string[] = [];
           if (output !== result) {
             warnings.push('HTML tags removed from output');

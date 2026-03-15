@@ -3,6 +3,12 @@ import * as fs from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { loadConfig, validateConfig, generateConfigFile, generateEnvExample, generateEnvFile, mergeIntoEnvFile, readSecretOrEnv } from './config.js';
 import type { CLIOptions } from './config.js';
+import type { GitHubPATConfig } from '@tamma/shared';
+
+/** Helper to access PAT-specific fields in tests that use PAT mode (default). */
+function asPAT(config: ReturnType<typeof loadConfig>): GitHubPATConfig {
+  return config.github as GitHubPATConfig;
+}
 
 vi.mock('node:fs');
 
@@ -42,9 +48,9 @@ describe('loadConfig', () => {
     }));
 
     const config = loadConfig({});
-    expect(config.github.token).toBe('file-token');
-    expect(config.github.owner).toBe('file-owner');
-    expect(config.github.repo).toBe('file-repo');
+    expect(asPAT(config).token).toBe('file-token');
+    expect(asPAT(config).owner).toBe('file-owner');
+    expect(asPAT(config).repo).toBe('file-repo');
   });
 
   it('should override file config with env vars', () => {
@@ -61,9 +67,9 @@ describe('loadConfig', () => {
     process.env['TAMMA_GITHUB_OWNER'] = 'env-owner';
 
     const config = loadConfig({});
-    expect(config.github.token).toBe('env-token');
-    expect(config.github.owner).toBe('env-owner');
-    expect(config.github.repo).toBe('file-repo'); // not overridden
+    expect(asPAT(config).token).toBe('env-token');
+    expect(asPAT(config).owner).toBe('env-owner');
+    expect(asPAT(config).repo).toBe('file-repo'); // not overridden
   });
 
   it('should apply CLI options over everything', () => {
@@ -86,7 +92,7 @@ describe('loadConfig', () => {
     }));
 
     const config = loadConfig({ config: '/custom/path.json' });
-    expect(config.github.token).toBe('custom-token');
+    expect(asPAT(config).token).toBe('custom-token');
   });
 
   it('should parse comma-separated issue labels from env', () => {
@@ -98,14 +104,14 @@ describe('loadConfig', () => {
   it('should parse TAMMA_GITHUB_TOKEN env var', () => {
     process.env['TAMMA_GITHUB_TOKEN'] = 'tamma-specific-token';
     const config = loadConfig({});
-    expect(config.github.token).toBe('tamma-specific-token');
+    expect(asPAT(config).token).toBe('tamma-specific-token');
   });
 
   it('should prefer GITHUB_TOKEN over TAMMA_GITHUB_TOKEN', () => {
     process.env['GITHUB_TOKEN'] = 'generic-token';
     process.env['TAMMA_GITHUB_TOKEN'] = 'specific-token';
     const config = loadConfig({});
-    expect(config.github.token).toBe('generic-token');
+    expect(asPAT(config).token).toBe('generic-token');
   });
 
   it('should parse TAMMA_LOG_LEVEL', () => {
@@ -377,7 +383,7 @@ describe('loadConfig with Docker secret files', () => {
     process.env['TAMMA_GITHUB_REPO'] = 'repo';
 
     const config = loadConfig({});
-    expect(config.github.token).toBe('ghp_from_docker_secret');
+    expect(asPAT(config).token).toBe('ghp_from_docker_secret');
   });
 });
 

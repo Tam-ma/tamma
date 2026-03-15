@@ -50,13 +50,17 @@ vi.mock('@octokit/rest', () => ({
   Octokit: vi.fn(() => mockOctokit),
 }));
 
+vi.mock('@octokit/auth-app', () => ({
+  createAppAuth: vi.fn(),
+}));
+
 describe('GitHubPlatform', () => {
   let platform: GitHubPlatform;
 
   beforeEach(async () => {
     vi.clearAllMocks();
     platform = new GitHubPlatform();
-    await platform.initialize({ token: 'test-token' });
+    await platform.initialize({ type: 'pat', token: 'test-token' });
   });
 
   describe('platformName', () => {

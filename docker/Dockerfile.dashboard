@@ -21,6 +21,7 @@ COPY tsconfig.json ./
 COPY packages/shared packages/shared
 COPY packages/dashboard packages/dashboard
 
+RUN pnpm --filter @tamma/shared run build
 RUN pnpm --filter @tamma/dashboard run build
 
 # ---- Stage 2: Runtime (nginx) ----

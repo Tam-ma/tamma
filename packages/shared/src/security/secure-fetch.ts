@@ -202,7 +202,8 @@ export async function secureFetch(
                 safeHeaders[k] = v;
               }
             }
-            options = { ...options, headers: Object.keys(safeHeaders).length > 0 ? safeHeaders : undefined };
+            const newHeaders = Object.keys(safeHeaders).length > 0 ? safeHeaders : undefined;
+            options = newHeaders !== undefined ? { ...options, headers: newHeaders } : { ...options };
           }
         }
       } catch {

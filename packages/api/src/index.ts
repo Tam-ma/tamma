@@ -8,6 +8,8 @@ import cors from '@fastify/cors';
 import helmet from '@fastify/helmet';
 import { registerKnowledgeBaseRoutes, createKBServices } from './routes/knowledge-base/index.js';
 import type { KBServices } from './routes/knowledge-base/index.js';
+import { registerSettingsRoutes, createSettingsServices } from './routes/settings/index.js';
+import type { SettingsServices } from './routes/settings/index.js';
 import { registerEngineRoutes } from './routes/engine/index.js';
 import type { EngineRouteOptions } from './routes/engine/index.js';
 import { registerAuthPlugin } from './auth/index.js';
@@ -24,6 +26,34 @@ import type {
   WorkflowDefinition,
   WorkflowInstance,
 } from './persistence/workflow-store.js';
+import { registerGitHubCallbackRoute } from './routes/github/github-callback.js';
+import type { GitHubCallbackOptions } from './routes/github/github-callback.js';
+import { registerGitHubWebhookRoute } from './routes/github/github-webhook.js';
+import type { GitHubWebhookOptions } from './routes/github/github-webhook.js';
+import { registerSaaSRoutes } from './routes/saas/index.js';
+import type { SaaSRouteOptions } from './routes/saas/index.js';
+import { InMemoryInstallationStore } from './persistence/installation-store.js';
+import type { IGitHubInstallationStore, GitHubInstallation, GitHubInstallationRepo } from './persistence/installation-store.js';
+import { PgInstallationStore } from './persistence/pg-installation-store.js';
+import { InMemoryUserStore } from './persistence/user-store.js';
+import type { IUserStore, User, UserInstallation } from './persistence/user-store.js';
+import { PgUserStore } from './persistence/pg-user-store.js';
+import { generateApiKey, hashApiKey, getApiKeyPrefix } from './auth/api-key.js';
+import { registerApiKeyAuthPlugin } from './auth/api-key-auth.js';
+import type { InstallationContext, ApiKeyAuthConfig } from './auth/api-key-auth.js';
+import { GitHubSecretsProvisioner } from './services/github-secrets-provisioner.js';
+import type { ProvisionResult } from './services/github-secrets-provisioner.js';
+import { InstallationRouter } from './services/installation-router.js';
+import type { InstallationResolveResult, InstallationRouterOptions } from './services/installation-router.js';
+import { InMemoryTaskQueue } from './services/in-memory-task-queue.js';
+import type { InMemoryTaskQueueOptions } from './services/in-memory-task-queue.js';
+import type {
+  ITask,
+  ITaskQueue,
+  EnqueueTaskInput,
+  DequeueOptions,
+  ListTasksOptions,
+} from './services/task-queue.js';
 
 export {
   registerKnowledgeBaseRoutes,
@@ -34,6 +64,22 @@ export {
   registerWorkflowRoutes,
   registerDashboardRoutes,
   InMemoryWorkflowStore,
+  registerSettingsRoutes,
+  createSettingsServices,
+  registerGitHubCallbackRoute,
+  registerGitHubWebhookRoute,
+  registerSaaSRoutes,
+  InMemoryInstallationStore,
+  PgInstallationStore,
+  InMemoryUserStore,
+  PgUserStore,
+  generateApiKey,
+  hashApiKey,
+  getApiKeyPrefix,
+  registerApiKeyAuthPlugin,
+  GitHubSecretsProvisioner,
+  InstallationRouter,
+  InMemoryTaskQueue,
 };
 
 export type {
@@ -46,6 +92,27 @@ export type {
   IWorkflowStore,
   WorkflowDefinition,
   WorkflowInstance,
+  SettingsServices,
+  GitHubCallbackOptions,
+  GitHubWebhookOptions,
+  SaaSRouteOptions,
+  IGitHubInstallationStore,
+  GitHubInstallation,
+  GitHubInstallationRepo,
+  IUserStore,
+  User,
+  UserInstallation,
+  InstallationContext,
+  ApiKeyAuthConfig,
+  ProvisionResult,
+  InstallationResolveResult,
+  InstallationRouterOptions,
+  InMemoryTaskQueueOptions,
+  ITask,
+  ITaskQueue,
+  EnqueueTaskInput,
+  DequeueOptions,
+  ListTasksOptions,
 };
 
 /** Options for creating the Fastify app with optional engine support. */
@@ -60,6 +127,14 @@ export interface CreateAppOptions {
   workflowStore?: IWorkflowStore;
   /** Engine registry for multi-engine support (optional). */
   engineRegistry?: EngineRegistry;
+  /** Settings services for config, health, and diagnostics (optional). */
+  settingsServices?: SettingsServices;
+  /** GitHub App callback options (optional; enables /api/github/callback). */
+  githubCallback?: GitHubCallbackOptions;
+  /** GitHub App webhook options (optional; enables /api/github/webhooks). */
+  githubWebhook?: GitHubWebhookOptions;
+  /** SaaS API route options (optional; enables /api/v1/* routes). */
+  saas?: SaaSRouteOptions;
   /** Enable Fastify logger (boolean or pino options object). */
   logger?: boolean | object;
 }
@@ -95,6 +170,9 @@ export async function createApp(options?: CreateAppOptions) {
   // Knowledge Base Management routes
   await registerKnowledgeBaseRoutes(app, options?.kbServices);
 
+  // Settings routes (config, health, diagnostics)
+  await registerSettingsRoutes(app, options?.settingsServices);
+
   // Engine routes (if an engine is provided)
   if (options?.engine !== undefined) {
     await app.register(
@@ -110,6 +188,29 @@ export async function createApp(options?: CreateAppOptions) {
     await app.register(
       async (instance) => {
         await registerWorkflowRoutes(instance, { store: options.workflowStore! });
+      },
+      { prefix: '' },
+    );
+  }
+
+  // GitHub App routes
+  if (options?.githubCallback !== undefined) {
+    await registerGitHubCallbackRoute(app, options.githubCallback);
+  }
+  if (options?.githubWebhook !== undefined) {
+    await app.register(
+      async (instance) => {
+        await registerGitHubWebhookRoute(instance, options.githubWebhook!);
+      },
+      { prefix: '' },
+    );
+  }
+
+  // SaaS API routes (protected by API key auth)
+  if (options?.saas !== undefined) {
+    await app.register(
+      async (instance) => {
+        await registerSaaSRoutes(instance, options.saas!);
       },
       { prefix: '' },
     );

@@ -68,22 +68,33 @@ Analysis of all Epic technical specifications (1-5) reveals **27 features explic
 
 ## 2. Multi-Tenancy & Enterprise Features (3 items)
 
-**Status**: Single-tenant deployment assumed for alpha
+**Status**: ✅ **SaaS decision made** — GitHub App SaaS integration actively under development
 **Priority**: HIGH (enterprise adoption blocker)
+
+### SaaS Decision (Decided: 2026-03)
+
+The SaaS deployment model has been **decided and is in progress**. Stories 1.5-11 through 1.5-14 implement the foundational multi-tenancy layer using GitHub App installations as the tenant boundary:
+
+- **Story 1.5-11**: GitHub App Authentication & Installation Management — dual auth (PAT + App), installation DB, callback flow
+- **Story 1.5-12**: SaaS Coordinator — multi-installation engine discovery, `workflow_dispatch` to GitHub Actions workers, reconciliation loop
+- **Story 1.5-13**: GitHub Actions Worker Mode — `workflow_dispatch`-triggered workers in user repos with callback reporting
+- **Story 1.5-14**: Multi-Tenant Task Queue & Webhook Routing — `installation_id` partitioning, per-tenant isolation, cached routing
+
+These stories cover the **orchestrator-level multi-tenancy** using GitHub App `installation_id` as the tenant key. The remaining items below track deeper isolation at the event store and observability layers.
 
 ### Items
 
-1. **Multi-Tenant Orchestrator** (Epic 2)
-   - **Current State**: Single orchestrator instance serves one team/organization
-   - **Deferred Capability**: Multiple organizations sharing orchestrator with data isolation
-   - **Architectural Impact**: Requires tenant ID in all database tables, workflow state, agent pools, approval queues
-   - **Effort**: 4-6 weeks (data model refactor + tenant isolation + RBAC)
+1. **Multi-Tenant Orchestrator** (Epic 1.5 — **IN PROGRESS**)
+   - **Current State**: Stories 1.5-11 through 1.5-14 implement GitHub App-based multi-tenant orchestration
+   - **Remaining Work**: RBAC per-installation, approval queue isolation, billing per-tenant
+   - **Architectural Impact**: Core tenant routing via `installation_id` is addressed by Stories 1.5-11–1.5-14. Remaining work is incremental.
+   - **Effort**: 2-3 weeks for remaining RBAC + billing (down from 4-6 weeks, since core is covered)
    - **User Demand**: HIGH for SaaS deployment, LOW for self-hosted
 
 2. **Multi-Tenancy Event Isolation** (Epic 4)
    - **Current State**: Single event stream for all workflows
    - **Deferred Capability**: Per-tenant event streams with cross-tenant query prevention
-   - **Architectural Impact**: Requires tenant ID in event store schema, query API filtering, replay isolation
+   - **Architectural Impact**: Requires tenant ID in event store schema, query API filtering, replay isolation. Story 1.5-14 adds `installation_id` to task queue — similar pattern needed for event store.
    - **Effort**: 2-3 weeks (schema migration + query isolation + tests)
    - **User Demand**: HIGH for SaaS, LOW for self-hosted
 
@@ -96,12 +107,13 @@ Analysis of all Epic technical specifications (1-5) reveals **27 features explic
 
 ### Recommendation
 
-**Decision Point**: Determine if Tamma will be offered as **SaaS** or **self-hosted only**.
+**Decision Point**: ✅ **Decided — SaaS model adopted.**
 
-- **If SaaS planned**: Multi-tenancy is **Phase 1 priority** (Months 1-2) - required for launch
-- **If self-hosted only**: Defer multi-tenancy to **Phase 3+** (Month 6+) - only if community requests shared hosting
+- Stories 1.5-11 through 1.5-14 provide the foundational SaaS capability using GitHub App installations
+- **Remaining Phase 1 work**: Event isolation (Epic 4) and observability isolation (Epic 5) — estimated 4-6 weeks total
+- **Phase 2**: RBAC, billing integration, and advanced tenant management
 
-**Estimated Total Effort**: 8-12 weeks for full multi-tenancy across all epics
+**Estimated Remaining Effort**: 6-9 weeks for full multi-tenancy across all epics (reduced from 8-12 weeks due to Stories 1.5-11–1.5-14)
 
 ---
 

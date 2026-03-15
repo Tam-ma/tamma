@@ -58,6 +58,59 @@ export interface LocalAIProviderConfig extends AIProviderConfig {
 /** Merge strategy used when merging pull requests. */
 export type MergeMethod = 'squash' | 'merge' | 'rebase';
 
+// --- GitHub Config Variants ---
+
+/** PAT-based GitHub authentication (self-hosted or personal use). */
+export interface GitHubPATConfig {
+  authMode: 'pat';
+  token: string;
+  owner: string;
+  repo: string;
+  issueLabels: string[];
+  excludeLabels: string[];
+  botUsername: string;
+}
+
+/** GitHub App installation authentication (self-hosted with App). */
+export interface GitHubAppConfig {
+  authMode: 'app';
+  appId: number;
+  privateKeyPath: string;
+  installationId: number;
+  owner: string;
+  repo: string;
+  issueLabels: string[];
+  excludeLabels: string[];
+  botUsername: string;
+}
+
+/**
+ * SaaS mode — owner/repo are populated by the coordinator per-repo
+ * from the installations DB, not from the config file.
+ */
+export interface GitHubSaaSConfig {
+  authMode: 'saas';
+  appId: number;
+  privateKeyPath: string;
+  webhookSecret: string;
+  owner: string;
+  repo: string;
+  issueLabels: string[];
+  excludeLabels: string[];
+  botUsername: string;
+}
+
+/**
+ * Discriminated union for GitHub authentication modes.
+ * - `pat`: Personal access token (legacy, self-hosted)
+ * - `app`: GitHub App installation (self-hosted with App)
+ * - `saas`: SaaS mode with multi-tenant installations
+ */
+export type GitHubConfig = GitHubPATConfig | GitHubAppConfig | GitHubSaaSConfig;
+
+/** Config variants that target a specific repo (not SaaS). */
+export type GitHubRepoConfig = GitHubPATConfig | GitHubAppConfig;
+
 // --- Configuration ---
 
 export interface TammaConfig {
@@ -78,15 +131,6 @@ export interface TammaConfig {
   agents?: AgentsConfig;
   /** Security settings for content sanitization, URL validation, and action gating */
   security?: SecurityConfig;
-}
-
-export interface GitHubConfig {
-  token: string;
-  owner: string;
-  repo: string;
-  issueLabels: string[];
-  excludeLabels: string[];
-  botUsername: string;
 }
 
 export interface AgentConfig {

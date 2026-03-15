@@ -1,0 +1,96 @@
+import { useState } from 'react';
+import type { FormEvent } from 'react';
+import type { IProviderChainEntry } from '@tamma/shared';
+
+interface ProviderEntryFormProps {
+  onAdd: (entry: IProviderChainEntry) => void;
+  onCancel: () => void;
+}
+
+const KNOWN_PROVIDERS = [
+  'claude-code',
+  'opencode',
+  'openrouter',
+  'zen-mcp',
+  'anthropic',
+  'openai',
+  'gemini',
+  'github-copilot',
+];
+
+export function ProviderEntryForm({ onAdd, onCancel }: ProviderEntryFormProps): JSX.Element {
+  const [provider, setProvider] = useState('');
+  const [model, setModel] = useState('');
+  const [apiKeyRef, setApiKeyRef] = useState('');
+
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    if (!provider.trim()) return;
+
+    const entry: IProviderChainEntry = { provider: provider.trim() };
+    if (model.trim()) {
+      entry.model = model.trim();
+    }
+    if (apiKeyRef.trim()) {
+      entry.apiKeyRef = apiKeyRef.trim();
+    }
+    onAdd(entry);
+  };
+
+  return (
+    <form onSubmit={handleSubmit} className="p-3 bg-blue-50 rounded-md border border-blue-200 space-y-3">
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Provider</label>
+        <input
+          type="text"
+          value={provider}
+          onChange={(e) => setProvider(e.target.value)}
+          list="known-providers"
+          placeholder="e.g., claude-code"
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+          required
+        />
+        <datalist id="known-providers">
+          {KNOWN_PROVIDERS.map((p) => (
+            <option key={p} value={p} />
+          ))}
+        </datalist>
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">Model (optional)</label>
+        <input
+          type="text"
+          value={model}
+          onChange={(e) => setModel(e.target.value)}
+          placeholder="e.g., claude-sonnet-4-5"
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      <div>
+        <label className="block text-sm font-medium text-gray-700 mb-1">API Key Ref (optional)</label>
+        <input
+          type="text"
+          value={apiKeyRef}
+          onChange={(e) => setApiKeyRef(e.target.value)}
+          placeholder="e.g., ANTHROPIC_API_KEY"
+          className="w-full px-3 py-1.5 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+        />
+      </div>
+      <div className="flex gap-2">
+        <button
+          type="submit"
+          className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 rounded-md"
+        >
+          Add
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className="px-3 py-1.5 text-sm font-medium text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-md"
+        >
+          Cancel
+        </button>
+      </div>
+    </form>
+  );
+}

@@ -353,7 +353,7 @@ So that I can make data-driven decisions about agent optimization and measure RO
 
 **MVP Optional:** Story 1.5-10 (Kubernetes deployment) deferred to post-MVP.
 
-**Estimated Stories:** 10 stories (9 MVP critical, 1 optional)
+**Estimated Stories:** 15 stories (14 MVP critical, 1 optional)
 
 ---
 
@@ -454,6 +454,8 @@ So that I can deploy Tamma with containers alongside PostgreSQL and workers.
 6. Health checks configured (HEALTHCHECK instruction in Dockerfile)
 7. Restart policies configured (`restart: unless-stopped`)
 8. Docker Compose `docker-compose up` starts full Tamma stack
+9. CD workflow deploys to VPS via SSH after Docker images are built on `main` — syncs compose files, pulls GHCR images, runs migrations, health checks
+10. Deploy supports manual trigger with environment selection (production/staging)
 
 **Prerequisites:** Story 1.5-4 (web server for orchestrator)
 
@@ -562,6 +564,113 @@ So that I can deploy Tamma in a Kubernetes cluster with auto-scaling and high av
 9. Helm values.yaml with configurable options (replicas, resources, database URL)
 
 **Prerequisites:** Story 1.5-5 (Docker images must exist)
+
+---
+
+### **Story 1.5-11: GitHub App Authentication & Installation Management** ⭐ **MVP CRITICAL (SaaS)**
+
+As a **platform operator deploying Tamma as a SaaS service**,
+I want GitHub App authentication with installation lifecycle management,
+so that multiple organizations can install Tamma from the GitHub Marketplace without sharing personal access tokens.
+
+**Acceptance Criteria:**
+
+1. GitHub platform supports dual auth modes: PAT (existing) and GitHub App (new), selected via configuration
+2. GitHub App auth generates JWT signed with RSA private key using `@octokit/auth-app`
+3. Installation tokens auto-refreshed before expiration (configurable buffer, default 5 minutes)
+4. Installation callback endpoint (`GET /api/github/callback`) handles post-install redirect and persists installation
+5. Installation database schema stores: `installation_id`, `account_login`, `account_type`, `app_id`, `permissions`, `repository_selection`, timestamps
+6. Private key provided via env var (`GITHUB_APP_PRIVATE_KEY`) or file path (`GITHUB_APP_PRIVATE_KEY_PATH`)
+7. Platform factory creates correct platform instance based on auth mode
+8. Unit tests cover JWT generation, token refresh, persistence, callback, config validation
+9. Integration tests cover end-to-end installation callback flow
+10. GitHub App config validated at startup with clear error messages for missing fields
+
+**Prerequisites:** Story 1-5 (GitHub platform), Story 1.5-4 (web server for callback endpoint)
+
+---
+
+### **Story 1.5-12: SaaS Coordinator — Multi-Installation Engine Orchestration** ⭐ **MVP CRITICAL (SaaS)**
+
+As a **SaaS platform operator**,
+I want a coordinator that discovers GitHub App installations and dispatches work to GitHub Actions runners,
+so that Tamma can serve multiple organizations from a single orchestrator instance.
+
+**Acceptance Criteria:**
+
+1. Coordinator discovers active installations from database on startup
+2. Coordinator dispatches `workflow_dispatch` events to user repositories for GitHub Actions workers
+3. Handles installation lifecycle: new → start engines, removed → prune engines, suspended → pause
+4. Reconciliation loop runs on configurable interval (default 60s)
+5. Uses installation-scoped tokens for per-installation API calls
+6. Emits DCB events for lifecycle actions: `INSTALLATION.ENGINE_STARTED`, `ENGINE_STOPPED`, `SUSPENDED`, `REMOVED`
+7. Graceful shutdown with 30s timeout for in-flight dispatches
+8. Unit and integration tests cover discovery, dispatch, reconciliation, and lifecycle
+
+**Prerequisites:** Story 1.5-11 (GitHub App auth and installation store)
+
+---
+
+### **Story 1.5-13: GitHub Actions Worker Mode** ⭐ **MVP CRITICAL (SaaS)**
+
+As a **GitHub App user who has installed Tamma**,
+I want autonomous development workflows to execute in my repository's GitHub Actions runners,
+so that issue processing runs in my own CI/CD environment with proper isolation.
+
+**Acceptance Criteria:**
+
+1. GitHub Actions workflow template (`tamma.yml`) triggered via `workflow_dispatch` with inputs
+2. Worker acquires installation token using `actions/create-github-app-token`
+3. Worker executes `tamma processOneIssue --issue <number>` with installation token
+4. Worker reports result to orchestrator via HTTP POST callback
+5. Correct exit codes: `0` (success), `1` (failure), `78` (skip)
+6. Workflow includes timeout (default 30m), concurrency control, error handling
+7. Token re-acquisition for long-running jobs
+8. Unit and integration tests cover worker entry point, callback, exit codes
+
+**Prerequisites:** Story 1.5-12 (SaaS Coordinator dispatches work), Story 1.5-11 (App credentials)
+
+---
+
+### **Story 1.5-14: Multi-Tenant Task Queue & Webhook Routing** ⭐ **MVP CRITICAL (SaaS)**
+
+As a **SaaS platform operator**,
+I want webhook events and task queue entries tagged and routed by installation ID,
+so that each GitHub App installation's work is isolated and correctly routed.
+
+**Acceptance Criteria:**
+
+1. All webhook events from GitHub App installations include `installation_id` in task payload
+2. Task queue entries partitioned by `installation_id`
+3. Webhook routing resolves `installation_id` → engine via coordinator's registry
+4. Installation lookup < 10ms (cached)
+5. Per-tenant task isolation: no cross-tenant task leakage
+6. Task queue schema includes `installation_id` column with index
+7. Backward compatible: self-hosted mode uses null `installation_id`
+8. Unit and integration tests cover routing, isolation, and backward compatibility
+
+**Prerequisites:** Story 1.5-6 (webhooks), Story 1.5-11 (installation store), Story 1.5-12 (engine registry)
+
+---
+
+### **Story 1.5-15: SaaS API Key Provisioning & GitHub Secrets Setup** ⭐ **MVP CRITICAL (SaaS)**
+
+As a **user who has installed the Tamma GitHub App**,
+I want Tamma to automatically provision an API key into my repository's GitHub Actions secrets,
+so that my Actions workers can authenticate to the Tamma API for LLM access and workflow updates without any manual key configuration.
+
+**Acceptance Criteria:**
+
+1. Installation callback generates a per-installation API key (256-bit, base64url) and stores its SHA-256 hash
+2. API key written as `TAMMA_API_KEY` to every repo's GitHub Actions secrets via libsodium sealed-box encryption
+3. When repos are added to installation, `TAMMA_API_KEY` provisioned to new repos automatically
+4. SaaS API endpoints authenticated by API key: LLM proxy (`/api/v1/llm/chat`), workflow status, result callback
+5. LLM proxy uses SaaS operator's provider keys — users never need LLM API keys
+6. API key rotation endpoint re-provisions all repo secrets and invalidates old key
+7. GitHub App requires `secrets: write` permission
+8. Unit and integration tests cover key generation, encryption, provisioning, auth, and LLM proxy
+
+**Prerequisites:** Story 1.5-11 (GitHub App auth), Story 1.5-13 (Actions worker uses the key)
 
 ---
 

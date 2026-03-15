@@ -22,9 +22,18 @@ public class MentorshipService : IMentorshipService
         _logger = logger;
     }
 
+    /// <summary>
+    /// Sanitize a string for safe logging by removing newlines and control characters.
+    /// </summary>
+    private static string SanitizeForLog(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return input ?? string.Empty;
+        return input.Replace("\n", "").Replace("\r", "").Replace("\t", "");
+    }
+
     public async Task<MentorshipSession> CreateSessionAsync(string storyId, string juniorId)
     {
-        _logger.LogInformation("Creating session for story {StoryId} and junior {JuniorId}", storyId, juniorId);
+        _logger.LogInformation("Creating session for story {StoryId} and junior {JuniorId}", SanitizeForLog(storyId), SanitizeForLog(juniorId));
 
         var session = new MentorshipSession
         {
