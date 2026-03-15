@@ -63,26 +63,14 @@ jobs:
       - name: Determine image tag
         id: tag
         run: |
+          # Always use immutable SHA tag for deployments
           if [ "${{ github.event_name }}" = "workflow_run" ]; then
-            # Get the PR number or branch from the triggering workflow
-            HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
-            if [[ "$HEAD_BRANCH" == "main" ]]; then
-              echo "tag=main" >> "$GITHUB_OUTPUT"
-            else
-              # For PRs, extract PR number from the head ref
-              PR_NUM=$(gh pr list --head "$HEAD_BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
-              if [ -n "$PR_NUM" ]; then
-                echo "tag=pr-${PR_NUM}" >> "$GITHUB_OUTPUT"
-              else
-                echo "tag=sha-$(echo '${{ github.event.workflow_run.head_sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
-              fi
-            fi
+            SHA="${{ github.event.workflow_run.head_sha }}"
           else
-            echo "tag=main" >> "$GITHUB_OUTPUT"
+            SHA="${{ github.sha }}"
           fi
-          echo "Image tag: $(cat "$GITHUB_OUTPUT")"
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          echo "tag=sha-$(echo "$SHA" | cut -c1-7)" >> "$GITHUB_OUTPUT"
+          echo "Deploying image tag: sha-$(echo "$SHA" | cut -c1-7)"
 
       - name: Configure SSH
         run: |
