@@ -17,6 +17,15 @@ public class ElsaWorkflowService : IElsaWorkflowService
     private static volatile bool _healthChecked;
     private static readonly object _healthCheckLock = new();
 
+    /// <summary>
+    /// Sanitize a string for safe logging by removing newlines and control characters.
+    /// </summary>
+    private static string SanitizeForLog(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return input ?? string.Empty;
+        return input.Replace("\n", "").Replace("\r", "").Replace("\t", "");
+    }
+
     public ElsaWorkflowService(
         IHttpClientFactory httpClientFactory,
         IConfiguration configuration,
@@ -72,7 +81,7 @@ public class ElsaWorkflowService : IElsaWorkflowService
     /// </summary>
     public async Task<string> StartWorkflowAsync(string workflowName, Dictionary<string, object> input)
     {
-        _logger.LogInformation("Starting workflow {WorkflowName} with input: {@Input}", workflowName, input);
+        _logger.LogInformation("Starting workflow {WorkflowName} with input: {@Input}", SanitizeForLog(workflowName), input);
 
         await EnsureHealthyAsync();
 

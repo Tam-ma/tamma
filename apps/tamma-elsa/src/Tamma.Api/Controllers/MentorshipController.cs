@@ -29,6 +29,15 @@ public class MentorshipController : ControllerBase
     }
 
     /// <summary>
+    /// Sanitize a string for safe logging by removing newlines and control characters.
+    /// </summary>
+    private static string SanitizeForLog(string? input)
+    {
+        if (string.IsNullOrEmpty(input)) return input ?? string.Empty;
+        return input.Replace("\n", "").Replace("\r", "").Replace("\t", "");
+    }
+
+    /// <summary>
     /// Start a new mentorship session
     /// </summary>
     [HttpPost("start")]
@@ -66,7 +75,7 @@ public class MentorshipController : ControllerBase
 
             _logger.LogInformation(
                 "Started mentorship session {SessionId} for story {StoryId} and junior {JuniorId}",
-                session.Id, request.StoryId, request.JuniorId);
+                session.Id, SanitizeForLog(request.StoryId), SanitizeForLog(request.JuniorId));
 
             return Ok(new MentorshipStartResponse
             {
