@@ -138,6 +138,9 @@ async function handleInstallationEvent(
       appId: options.appId,
       permissions: (installation['permissions'] ?? {}) as Record<string, string>,
       suspendedAt: null,
+      apiKeyHash: null,
+      apiKeyPrefix: null,
+      apiKeyEncrypted: null,
     });
 
     // Store repos from the installation event

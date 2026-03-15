@@ -62,6 +62,7 @@ vi.mock('../config.js', () => ({
     mode: 'standalone',
     logLevel: 'info',
     github: {
+      authMode: 'pat',
       token: 'test-token',
       owner: 'test-owner',
       repo: 'test-repo',
@@ -85,6 +86,7 @@ vi.mock('../config.js', () => ({
   }),
   validateConfig: vi.fn().mockReturnValue([]),
   normalizeAgentsConfig: vi.fn().mockReturnValue({}),
+  buildPlatformConfig: vi.fn().mockReturnValue({ type: 'pat', token: 'test-token' }),
 }));
 
 vi.mock('../error-handler.js', () => ({

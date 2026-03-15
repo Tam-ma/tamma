@@ -120,11 +120,15 @@ program
       console.error('Invalid issue number. Must be a positive integer.');
       process.exit(1);
     }
-    const exitCode = await processIssueCommand({
+    const configPath = opts.config as string | undefined;
+    const processOpts: Parameters<typeof processIssueCommand>[0] = {
       issue: issueNumber,
       installationId: opts.installationId as string,
-      config: opts.config as string | undefined,
-    });
+    };
+    if (configPath !== undefined) {
+      processOpts.config = configPath;
+    }
+    const exitCode = await processIssueCommand(processOpts);
     process.exit(exitCode);
   });
 

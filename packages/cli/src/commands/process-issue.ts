@@ -25,7 +25,7 @@ import {
   createDiagnosticsProcessor,
 } from '@tamma/providers';
 import { createCostTracker, FileStore } from '@tamma/cost-monitor';
-import { loadConfig, validateConfig, normalizeAgentsConfig } from '../config.js';
+import { loadConfig, validateConfig, normalizeAgentsConfig, buildPlatformConfig } from '../config.js';
 import { formatErrorWithSuggestions } from '../error-handler.js';
 import { WorkerResultCallback } from '../worker/result-callback.js';
 
@@ -149,10 +149,14 @@ export async function processIssueCommand(options: ProcessIssueOptions): Promise
     await callback.reportStatus(workflowId, 'running', 'initializing');
   }
 
-  // Set up platform
+  // Set up platform — worker always uses PAT mode (GITHUB_TOKEN from Actions)
   actionsGroup('Platform initialization');
   const platform = new GitHubPlatform();
-  await platform.initialize({ token: config.github.token });
+  if (config.github.authMode === 'saas') {
+    throw new Error('process-issue cannot run in SaaS auth mode — use PAT or App mode');
+  }
+  const platformConfig = buildPlatformConfig(config.github);
+  await platform.initialize(platformConfig);
   actionsEndGroup();
 
   // Set up agent resolver (same pattern as start command)

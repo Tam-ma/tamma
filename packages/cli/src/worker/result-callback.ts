@@ -26,6 +26,7 @@ export interface WorkerFailureData {
 
 /** Status update sent during processing. */
 export interface WorkerStatusData {
+  [key: string]: unknown;
   status: string;
   step: string;
   issueNumber?: number;
