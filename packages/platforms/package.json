@@ -17,10 +17,11 @@
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
-    "@tamma/shared": "workspace:*",
-    "@tamma/observability": "workspace:*",
+    "@gitbeaker/rest": "^43.7.0",
+    "@octokit/auth-app": "^7.1.1",
     "@octokit/rest": "^21.0.2",
-    "@gitbeaker/rest": "^43.7.0"
+    "@tamma/observability": "workspace:*",
+    "@tamma/shared": "workspace:*"
   },
   "devDependencies": {
     "typescript": "~5.7.2"
