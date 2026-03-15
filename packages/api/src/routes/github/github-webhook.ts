@@ -71,7 +71,11 @@ export async function registerGitHubWebhookRoute(
     },
   );
 
-  app.post('/api/github/webhooks', async (request, reply) => {
+  app.post('/api/github/webhooks', {
+    config: {
+      rateLimit: { max: 300, timeWindow: '1 minute' },
+    },
+  }, async (request, reply) => {
     const signatureHeader = request.headers['x-hub-signature-256'];
     const event = request.headers['x-github-event'] as string | undefined;
     const rawBody = request.body as string;
