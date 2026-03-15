@@ -1,15 +1,14 @@
 # =============================================================================
 # Deploy to VPS
 #
-# Deploys Tamma to a VPS via SSH after Docker images are built and pushed.
-# Runs automatically after the Docker publish workflow succeeds on main/tags,
-# or can be triggered manually.
+# Syncs repo to VPS, builds Docker images locally, runs migrations.
+# Triggers on push to main, PRs to main, or manual dispatch.
 #
 # Required secrets:
 #   VPS_HOST              — Server hostname or IP
-#   VPS_USER              — SSH username (e.g., deploy)
+#   VPS_USER              — SSH username (e.g., root)
 #   VPS_SSH_KEY           — Private SSH key for authentication
-#   VPS_DEPLOY_PATH       — Path to docker-compose project on VPS (e.g., /opt/tamma)
+#   VPS_DEPLOY_PATH       — Path on VPS (e.g., /opt/tamma)
 #   TAMMA_APP_PRIVATE_KEY — GitHub App private key (PEM)
 #   TAMMA_DOTENV          — Full .env file contents for docker-compose
 #
@@ -44,16 +43,21 @@ concurrency:
   group: deploy-${{ github.event.inputs.environment || 'production' }}
   cancel-in-progress: false
 
+env:
+  SSH_OPTS: -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}
+  SSH_TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
+  DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
+
 jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    timeout-minutes: 15
 
     environment: ${{ github.event.inputs.environment || 'production' }}
 
     steps:
-      - name: Checkout (for docker-compose files)
+      - name: Checkout
         uses: actions/checkout@v4
 
       - name: Configure SSH
@@ -65,75 +69,60 @@ jobs:
 
       - name: Setup VPS (idempotent)
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+          ssh $SSH_OPTS $SSH_TARGET \
             'if ! command -v docker &>/dev/null; then
                echo "Installing Docker..."
                curl -fsSL https://get.docker.com | sh
              fi
-             mkdir -p ${{ secrets.VPS_DEPLOY_PATH }}/{secrets,database/migrations}'
-
-      - name: Sync docker-compose files
-        run: |
-          rsync -avz --delete \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}" \
-            docker/ \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/docker/
+             mkdir -p '"$DEPLOY_PATH"'/{secrets,database/migrations}'
 
       - name: Write secrets to VPS
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "mkdir -p ${{ secrets.VPS_DEPLOY_PATH }}/secrets"
           echo '${{ secrets.TAMMA_APP_PRIVATE_KEY }}' | \
-            ssh -i ~/.ssh/deploy_key \
-              -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "cat > ${{ secrets.VPS_DEPLOY_PATH }}/secrets/private-key.pem && chmod 600 ${{ secrets.VPS_DEPLOY_PATH }}/secrets/private-key.pem"
+            ssh $SSH_OPTS $SSH_TARGET \
+              "cat > $DEPLOY_PATH/secrets/private-key.pem && chmod 600 $DEPLOY_PATH/secrets/private-key.pem"
           echo '${{ secrets.TAMMA_DOTENV }}' | \
-            ssh -i ~/.ssh/deploy_key \
-              -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-              "cat > ${{ secrets.VPS_DEPLOY_PATH }}/.env && chmod 600 ${{ secrets.VPS_DEPLOY_PATH }}/.env"
+            ssh $SSH_OPTS $SSH_TARGET \
+              "cat > $DEPLOY_PATH/.env && chmod 600 $DEPLOY_PATH/.env"
 
-      - name: Sync database migrations
+      - name: Sync repo to VPS
         run: |
-          rsync -avz --delete \
-            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}" \
-            database/ \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/database/
+          rsync -az --delete \
+            --exclude='.git' \
+            --exclude='node_modules' \
+            --exclude='dist' \
+            --exclude='.claude' \
+            -e "ssh $SSH_OPTS" \
+            ./ \
+            $SSH_TARGET:$DEPLOY_PATH/repo/
 
-      - name: Deploy
+      - name: Build and deploy
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "cd ${{ secrets.VPS_DEPLOY_PATH }} && \
-             docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml pull && \
-             docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --remove-orphans && \
-             echo 'Waiting for health checks...' && \
-             sleep 10 && \
-             docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps"
+          ssh $SSH_OPTS $SSH_TARGET "
+            cd $DEPLOY_PATH/repo && \
+            cp ../. .env 2>/dev/null || true && \
+            ln -sf $DEPLOY_PATH/.env $DEPLOY_PATH/repo/.env && \
+            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build --parallel && \
+            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --remove-orphans && \
+            echo 'Waiting for health checks...' && \
+            sleep 15 && \
+            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
+          "
 
       - name: Run database migrations
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
-            "cd ${{ secrets.VPS_DEPLOY_PATH }} && \
-             for f in database/migrations/*.sql; do \
-               echo \"Running migration: \$f\" && \
-               docker compose -f docker/docker-compose.yml exec -T postgres \
-                 psql -U \${POSTGRES_USER:-tamma} -d \${POSTGRES_DB:-tamma} -f /dev/stdin < \"\$f\" 2>&1 || true; \
-             done"
+          ssh $SSH_OPTS $SSH_TARGET "
+            cd $DEPLOY_PATH/repo && \
+            for f in database/migrations/*.sql; do
+              echo \"Running migration: \$f\" && \
+              docker compose -f docker/docker-compose.yml exec -T postgres \
+                psql -U \${POSTGRES_USER:-tamma} -d \${POSTGRES_DB:-tamma} -f /dev/stdin < \"\$f\" 2>&1 || true
+            done
+          "
 
       - name: Health check
         run: |
-          ssh -i ~/.ssh/deploy_key \
-            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
-            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+          ssh $SSH_OPTS $SSH_TARGET \
             "curl -sf http://localhost:3100/api/health && echo ' API OK' || echo 'API health check failed'"
 
       - name: Cleanup SSH
