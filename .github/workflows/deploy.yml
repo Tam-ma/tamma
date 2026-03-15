@@ -1,8 +1,8 @@
 # =============================================================================
 # Deploy to VPS
 #
-# Syncs repo to VPS, builds Docker images locally, runs migrations.
-# Triggers on push to main, PRs to main, or manual dispatch.
+# Pulls pre-built Docker images from GHCR and deploys to VPS.
+# Runs after Docker images are built, or via manual dispatch.
 #
 # Required secrets:
 #   VPS_HOST              — Server hostname or IP
@@ -19,11 +19,9 @@
 name: Deploy
 
 on:
-  push:
-    branches: [main]
-
-  pull_request:
-    branches: [main]
+  workflow_run:
+    workflows: ["Build & Publish Docker Images"]
+    types: [completed]
 
   workflow_dispatch:
     inputs:
@@ -43,22 +41,48 @@ concurrency:
   group: deploy-${{ github.event.inputs.environment || 'production' }}
   cancel-in-progress: false
 
-env:
-  SSH_OPTS: -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}
-  SSH_TARGET: ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}
-  DEPLOY_PATH: ${{ secrets.VPS_DEPLOY_PATH }}
-
 jobs:
   deploy:
     name: Deploy to VPS
     runs-on: ubuntu-latest
     timeout-minutes: 15
 
+    # Only run if images were built successfully (or manual trigger)
+    if: >
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+
     environment: ${{ github.event.inputs.environment || 'production' }}
 
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Determine image tag
+        id: tag
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_run" ]; then
+            # Get the PR number or branch from the triggering workflow
+            HEAD_BRANCH="${{ github.event.workflow_run.head_branch }}"
+            if [[ "$HEAD_BRANCH" == "main" ]]; then
+              echo "tag=main" >> "$GITHUB_OUTPUT"
+            else
+              # For PRs, extract PR number from the head ref
+              PR_NUM=$(gh pr list --head "$HEAD_BRANCH" --json number --jq '.[0].number' 2>/dev/null || echo "")
+              if [ -n "$PR_NUM" ]; then
+                echo "tag=pr-${PR_NUM}" >> "$GITHUB_OUTPUT"
+              else
+                echo "tag=sha-$(echo '${{ github.event.workflow_run.head_sha }}' | cut -c1-7)" >> "$GITHUB_OUTPUT"
+              fi
+            fi
+          else
+            echo "tag=main" >> "$GITHUB_OUTPUT"
+          fi
+          echo "Image tag: $(cat "$GITHUB_OUTPUT")"
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Configure SSH
         run: |
@@ -69,60 +93,114 @@ jobs:
 
       - name: Setup VPS (idempotent)
         run: |
-          ssh $SSH_OPTS $SSH_TARGET \
+          ssh -i ~/.ssh/deploy_key \
+            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             'if ! command -v docker &>/dev/null; then
                echo "Installing Docker..."
                curl -fsSL https://get.docker.com | sh
              fi
-             mkdir -p '"$DEPLOY_PATH"'/{secrets,database/migrations}'
+             mkdir -p ${{ secrets.VPS_DEPLOY_PATH }}/{secrets,database/migrations}'
 
       - name: Write secrets to VPS
         run: |
           echo '${{ secrets.TAMMA_APP_PRIVATE_KEY }}' | \
-            ssh $SSH_OPTS $SSH_TARGET \
-              "cat > $DEPLOY_PATH/secrets/private-key.pem && chmod 600 $DEPLOY_PATH/secrets/private-key.pem"
+            ssh -i ~/.ssh/deploy_key \
+              -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "cat > ${{ secrets.VPS_DEPLOY_PATH }}/secrets/private-key.pem && chmod 600 ${{ secrets.VPS_DEPLOY_PATH }}/secrets/private-key.pem"
           echo '${{ secrets.TAMMA_DOTENV }}' | \
-            ssh $SSH_OPTS $SSH_TARGET \
-              "cat > $DEPLOY_PATH/.env && chmod 600 $DEPLOY_PATH/.env"
+            ssh -i ~/.ssh/deploy_key \
+              -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+              ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
+              "cat > ${{ secrets.VPS_DEPLOY_PATH }}/.env && chmod 600 ${{ secrets.VPS_DEPLOY_PATH }}/.env"
 
-      - name: Sync repo to VPS
+      - name: Sync docker + database files
         run: |
           rsync -az --delete \
-            --exclude='.git' \
-            --exclude='node_modules' \
-            --exclude='dist' \
-            --exclude='.claude' \
-            -e "ssh $SSH_OPTS" \
-            ./ \
-            $SSH_TARGET:$DEPLOY_PATH/repo/
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}" \
+            docker/ \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/docker/
+          rsync -az --delete \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}" \
+            database/ \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/database/
 
-      - name: Build and deploy
+      - name: Create docker-compose override for GHCR images
         run: |
-          ssh $SSH_OPTS $SSH_TARGET "
-            cd $DEPLOY_PATH/repo && \
-            cp ../. .env 2>/dev/null || true && \
-            ln -sf $DEPLOY_PATH/.env $DEPLOY_PATH/repo/.env && \
-            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml build --parallel && \
-            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml up -d --remove-orphans && \
-            echo 'Waiting for health checks...' && \
-            sleep 15 && \
-            docker compose -f docker/docker-compose.yml -f docker/docker-compose.prod.yml ps
-          "
+          IMAGE_TAG="${{ steps.tag.outputs.tag }}"
+          OWNER="${{ github.repository_owner }}"
+
+          cat > /tmp/docker-compose.images.yml << YAML
+          services:
+            tamma-api:
+              image: ghcr.io/${OWNER}/tamma-api:${IMAGE_TAG}
+              build: !reset null
+            tamma-engine:
+              image: ghcr.io/${OWNER}/tamma-engine:${IMAGE_TAG}
+              build: !reset null
+            tamma-dashboard:
+              image: ghcr.io/${OWNER}/tamma-dashboard:${IMAGE_TAG}
+              build: !reset null
+            elsa-server:
+              image: ghcr.io/${OWNER}/tamma-elsa:${IMAGE_TAG}
+              build: !reset null
+            tamma-api-dotnet:
+              image: ghcr.io/${OWNER}/tamma-api-dotnet:${IMAGE_TAG}
+              build: !reset null
+          YAML
+
+          rsync -az \
+            -e "ssh -i ~/.ssh/deploy_key -p ${{ secrets.VPS_SSH_PORT || 22 }}" \
+            /tmp/docker-compose.images.yml \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }}:${{ secrets.VPS_DEPLOY_PATH }}/docker/docker-compose.images.yml
+
+      - name: Deploy
+        run: |
+          ssh -i ~/.ssh/deploy_key \
+            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "
+              cd ${{ secrets.VPS_DEPLOY_PATH }}/docker && \
+              docker login ghcr.io -u ${{ github.actor }} --password-stdin <<< '${{ secrets.GITHUB_TOKEN }}' && \
+              docker compose \
+                -f docker-compose.yml \
+                -f docker-compose.prod.yml \
+                -f docker-compose.images.yml \
+                --env-file ../.env \
+                pull && \
+              docker compose \
+                -f docker-compose.yml \
+                -f docker-compose.prod.yml \
+                -f docker-compose.images.yml \
+                --env-file ../.env \
+                up -d --remove-orphans && \
+              echo 'Waiting for health checks...' && \
+              sleep 15 && \
+              docker compose \
+                -f docker-compose.yml \
+                -f docker-compose.prod.yml \
+                -f docker-compose.images.yml \
+                ps
+            "
 
       - name: Run database migrations
         run: |
-          ssh $SSH_OPTS $SSH_TARGET "
-            cd $DEPLOY_PATH/repo && \
-            for f in database/migrations/*.sql; do
-              echo \"Running migration: \$f\" && \
-              docker compose -f docker/docker-compose.yml exec -T postgres \
-                psql -U \${POSTGRES_USER:-tamma} -d \${POSTGRES_DB:-tamma} -f /dev/stdin < \"\$f\" 2>&1 || true
-            done
-          "
+          ssh -i ~/.ssh/deploy_key \
+            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} "
+              cd ${{ secrets.VPS_DEPLOY_PATH }} && \
+              for f in database/migrations/*.sql; do
+                echo \"Running migration: \$f\" && \
+                docker compose -f docker/docker-compose.yml exec -T postgres \
+                  psql -U \${POSTGRES_USER:-tamma} -d \${POSTGRES_DB:-tamma} -f /dev/stdin < \"\$f\" 2>&1 || true
+              done
+            "
 
       - name: Health check
         run: |
-          ssh $SSH_OPTS $SSH_TARGET \
+          ssh -i ~/.ssh/deploy_key \
+            -p ${{ secrets.VPS_SSH_PORT || 22 }} \
+            ${{ secrets.VPS_USER }}@${{ secrets.VPS_HOST }} \
             "curl -sf http://localhost:3100/api/health && echo ' API OK' || echo 'API health check failed'"
 
       - name: Cleanup SSH
