@@ -7,6 +7,14 @@ export default defineConfig({
   build: {
     outDir: 'dist',
     sourcemap: true,
+    rollupOptions: {
+      // Prevent Node.js built-ins from being bundled — @tamma/shared
+      // re-exports server-side modules (event-store, etc.) that import
+      // node:crypto. The dashboard only uses type imports from shared,
+      // but Vite's bundler follows the barrel export. Mark these as
+      // external so Rollup skips them.
+      external: [/^node:/],
+    },
   },
   server: {
     port: 3000,
