@@ -48,7 +48,7 @@ export function createUserInstallation(
 
 /** A set of test repos for an installation. */
 export function createTestRepos(
-  installationId: number = 12345,
+  _installationId: number = 12345,
 ): Omit<GitHubInstallationRepo, 'installationId' | 'isActive'>[] {
   return [
     { repoId: 100, owner: 'test-org', name: 'repo-alpha', fullName: 'test-org/repo-alpha' },

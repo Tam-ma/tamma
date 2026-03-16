@@ -49,8 +49,8 @@ vi.mock('@octokit/auth-app', () => ({
 vi.mock('../../../services/github-secrets-provisioner.js', () => ({
   GitHubSecretsProvisioner: vi.fn().mockImplementation(() => ({
     provisionApiKey: vi.fn().mockResolvedValue([
-      { repo: 'test-org/repo-alpha', success: true },
-      { repo: 'test-org/repo-beta', success: true },
+      { owner: 'test-org', repo: 'repo-alpha', success: true },
+      { owner: 'test-org', repo: 'repo-beta', success: true },
     ]),
   })),
 }));

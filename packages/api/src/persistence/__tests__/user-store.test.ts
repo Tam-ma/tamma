@@ -33,8 +33,8 @@ describe('InMemoryUserStore', () => {
       expect(user.githubLogin).toBe('test-user');
       expect(user.email).toBe('test@example.com');
       expect(user.role).toBe('member');
-      expect(user.createdAt).toBeDefined();
-      expect(user.updatedAt).toBeDefined();
+      expect(user.createdAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(user.updatedAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
     });
 
     it('updates an existing user by githubId', async () => {

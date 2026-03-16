@@ -17,8 +17,21 @@ import type { VectorDocument, SearchQuery } from '../../interfaces.js';
 
 // Skip these tests in CI or when PostgreSQL is not available
 const SKIP_INTEGRATION = process.env['SKIP_INTEGRATION_TESTS'] === 'true';
-const CONNECTION_STRING =
-  process.env['PGVECTOR_TEST_CONNECTION_STRING'] ?? 'postgresql://localhost:5432/tamma_test';
+
+function buildConnectionString(): string {
+  if (process.env['PGVECTOR_TEST_CONNECTION_STRING']) {
+    return process.env['PGVECTOR_TEST_CONNECTION_STRING'];
+  }
+  const host = process.env['PG_TEST_HOST'] ?? 'localhost';
+  const port = process.env['PG_TEST_PORT'] ?? '5432';
+  const user = process.env['PG_TEST_USER'] ?? 'postgres';
+  const password = process.env['PG_TEST_PASSWORD'] ?? '';
+  const db = process.env['PG_TEST_DB'] ?? 'tamma_test';
+  const auth = password ? `${user}:${password}` : user;
+  return `postgresql://${auth}@${host}:${port}/${db}`;
+}
+
+const CONNECTION_STRING = buildConnectionString();
 
 describe.skipIf(SKIP_INTEGRATION)('pgvector Integration Tests', () => {
   let store: PgVectorStore;

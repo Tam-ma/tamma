@@ -112,8 +112,7 @@ describe('InMemoryWorkflowStore', () => {
 
     it('auto-generates id if empty', async () => {
       const instance = await store.createInstance(createInstance({ id: '' }));
-      expect(instance.id).toBeTruthy();
-      expect(instance.id).not.toBe('');
+      expect(instance.id).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/);
     });
 
     it('auto-sets timestamps if zero', async () => {

@@ -83,6 +83,7 @@ describe('SaaS Flow E2E', () => {
       async (instance) => {
         await registerGitHubWebhookRoute(instance, {
           webhookSecret: WEBHOOK_SECRET,
+          appId: 99,
           installationStore,
           taskQueue,
           installationRouter,
@@ -259,7 +260,7 @@ describe('SaaS Flow E2E', () => {
     expect(rotateResponse.statusCode).toBe(200);
     const rotateBody = rotateResponse.json();
     expect(rotateBody.ok).toBe(true);
-    expect(rotateBody.keyPrefix).toBeDefined();
+    expect(rotateBody.keyPrefix).toMatch(/^tamma_sk_/);
 
     // Old key should now fail (hash has been replaced)
     await workflowStore.createInstance({

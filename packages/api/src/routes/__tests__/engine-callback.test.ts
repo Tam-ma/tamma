@@ -73,12 +73,13 @@ describe('Engine Callback Routes', () => {
     });
 
     it('includes analysisType in prompt when provided', async () => {
-      await app.inject({
+      const response = await app.inject({
         method: 'POST',
         url: '/api/engine/execute-task',
         payload: { prompt: 'Do something', analysisType: 'security-review' },
       });
 
+      expect(response.statusCode).toBe(200);
       expect(mockAgent.executeTask).toHaveBeenCalledWith(
         expect.objectContaining({
           prompt: expect.stringContaining('[Analysis Type: security-review]'),

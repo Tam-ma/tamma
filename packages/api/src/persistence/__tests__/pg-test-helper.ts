@@ -51,12 +51,9 @@ export async function runMigrations(pool: pg.Pool): Promise<void> {
  * Called between tests to ensure isolation.
  */
 export async function truncateTables(pool: pg.Pool): Promise<void> {
-  await pool.query(`
-    TRUNCATE TABLE user_installations CASCADE;
-    TRUNCATE TABLE users CASCADE;
-    TRUNCATE TABLE github_installation_repos CASCADE;
-    TRUNCATE TABLE github_installations CASCADE;
-  `);
+  await pool.query(
+    'TRUNCATE TABLE user_installations, users, github_installation_repos, github_installations CASCADE',
+  );
 }
 
 /**

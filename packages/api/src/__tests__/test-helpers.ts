@@ -97,12 +97,14 @@ export async function injectWithAuth(
   payload?: unknown,
 ) {
   const options: InjectOptions = {
-    method,
     url,
     headers: { authorization: `Bearer ${apiKey}` },
   };
+  if (method !== undefined) {
+    options.method = method;
+  }
   if (payload !== undefined) {
-    options.payload = payload;
+    options.payload = payload as NonNullable<InjectOptions['payload']>;
   }
   return app.inject(options);
 }

@@ -87,7 +87,7 @@ describe('Engine Routes', () => {
       expect(engine.dispose).toHaveBeenCalled();
     });
 
-    it('accepts pause command', async () => {
+    it('accepts pause command without calling dispose', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/engine/command',
@@ -96,6 +96,8 @@ describe('Engine Routes', () => {
 
       expect(response.statusCode).toBe(200);
       expect(response.json().type).toBe('pause');
+      // Pause must NOT call dispose — that would tear down resources
+      expect(engine.dispose).not.toHaveBeenCalled();
     });
 
     it('accepts resume command', async () => {
@@ -125,7 +127,7 @@ describe('Engine Routes', () => {
       }
     });
 
-    it('accepts reject command with feedback', async () => {
+    it('accepts reject command with feedback without 400', async () => {
       const response = await app.inject({
         method: 'POST',
         url: '/api/engine/command',
@@ -133,6 +135,10 @@ describe('Engine Routes', () => {
       });
 
       expect(response.statusCode).toBe(200);
+      const body = response.json();
+      expect(body.type).toBe('reject');
+      // Verify feedback field in payload doesn't cause validation error
+      expect(body.ok).toBe(false); // Not yet wired
     });
 
     it('rejects invalid command type (400)', async () => {
