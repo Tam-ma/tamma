@@ -50,6 +50,86 @@ public sealed class GitHubPlatformClientTests
         """;
 
     // ================================================================
+    // Story 40-1 AC7 — atomic multi-file commit (Git Data API)
+    // ================================================================
+
+    private static void ScriptCommitFlow(FakeHttpMessageHandler handler, HttpStatusCode refUpdate = HttpStatusCode.OK)
+    {
+        handler.EnqueueJson(HttpMethod.Get, $"{Api}/repos/o/r/git/ref/heads/tamma/runner", HttpStatusCode.OK,
+            """{ "ref": "refs/heads/tamma/runner", "object": { "sha": "parentsha" } }""");
+        handler.EnqueueJson(HttpMethod.Get, $"{Api}/repos/o/r/git/commits/parentsha", HttpStatusCode.OK,
+            """{ "sha": "parentsha", "tree": { "sha": "basetree" } }""");
+        handler.EnqueueJson(HttpMethod.Post, $"{Api}/repos/o/r/git/blobs", HttpStatusCode.Created, """{ "sha": "blob1" }""");
+        handler.EnqueueJson(HttpMethod.Post, $"{Api}/repos/o/r/git/blobs", HttpStatusCode.Created, """{ "sha": "blob2" }""");
+        handler.EnqueueJson(HttpMethod.Post, $"{Api}/repos/o/r/git/trees", HttpStatusCode.Created, """{ "sha": "newtree" }""");
+        handler.EnqueueJson(HttpMethod.Post, $"{Api}/repos/o/r/git/commits", HttpStatusCode.Created,
+            """{ "sha": "newcommit", "html_url": "https://github.com/o/r/commit/newcommit", "tree": { "sha": "newtree" } }""");
+        handler.EnqueueJson(new HttpMethod("PATCH"), $"{Api}/repos/o/r/git/refs/heads/tamma/runner", refUpdate,
+            refUpdate == HttpStatusCode.OK
+                ? """{ "ref": "refs/heads/tamma/runner", "object": { "sha": "newcommit" } }"""
+                : """{ "message": "Update is not a fast forward" }""");
+    }
+
+    private static CommitFilesRequest TwoFiles() => new("o", "r", "tamma/runner", "install runner",
+    [
+        new CommitFileChange(".github/workflows/tamma-agent.yml", "name: x\n"u8.ToArray()),
+        new CommitFileChange(".github/tamma/scripts/run.sh", "#!/bin/sh\n"u8.ToArray(), Executable: true),
+    ]);
+
+    [Test]
+    public async Task CommitFiles_builds_one_commit_and_fast_forwards_the_branch()
+    {
+        var (client, handler) = Build();
+        ScriptCommitFlow(handler);
+
+        var result = await client.CommitFilesAsync(TwoFiles());
+
+        var commit = result.Should().BeOfType<PlatformResult<FileCommit>.Ok>().Subject.Value;
+        commit.Should().Be(new FileCommit("newcommit", "https://github.com/o/r/commit/newcommit"));
+
+        var blobs = handler.Requests.Where(r => r.Url.EndsWith("/git/blobs", StringComparison.Ordinal)).ToList();
+        blobs.Should().HaveCount(2);
+        blobs[0].Body.Should().Contain("\"encoding\":\"base64\"")
+            .And.Contain(Convert.ToBase64String("name: x\n"u8.ToArray()));
+
+        var tree = handler.Requests.Single(r => r.Url.EndsWith("/git/trees", StringComparison.Ordinal)).Body!;
+        tree.Should().Contain("\"base_tree\":\"basetree\"");
+        tree.Should().Contain("\"mode\":\"100644\"").And.Contain("\"mode\":\"100755\"");
+
+        var newCommit = handler.Requests.Single(r => r.Method == HttpMethod.Post
+            && r.Url.EndsWith("/git/commits", StringComparison.Ordinal)).Body!;
+        newCommit.Should().Contain("\"parents\":[\"parentsha\"]").And.Contain("\"tree\":\"newtree\"");
+
+        var refUpdate = handler.Requests.Single(r => r.Method.Method == "PATCH").Body!;
+        refUpdate.Should().Contain("\"sha\":\"newcommit\"").And.Contain("\"force\":false");
+    }
+
+    [Test]
+    public async Task CommitFiles_non_fast_forward_ref_update_is_a_typed_failure()
+    {
+        var (client, handler) = Build();
+        ScriptCommitFlow(handler, HttpStatusCode.UnprocessableEntity);
+
+        var result = await client.CommitFilesAsync(TwoFiles());
+
+        result.Should().BeOfType<PlatformResult<FileCommit>.Failed>();
+    }
+
+    [Test]
+    public async Task CommitFiles_missing_branch_fails_before_any_write()
+    {
+        var (client, handler) = Build();
+        handler.EnqueueJson(HttpMethod.Get, $"{Api}/repos/o/r/git/ref/heads/tamma/runner",
+            HttpStatusCode.NotFound, """{ "message": "Not Found" }""");
+
+        var result = await client.CommitFilesAsync(TwoFiles());
+
+        result.Should().BeOfType<PlatformResult<FileCommit>.Failed>()
+            .Which.Error.Should().BeOfType<PlatformError.NotFound>();
+        handler.Requests.Should().OnlyContain(r => r.Method == HttpMethod.Get);
+    }
+
+    // ================================================================
     // Repo / branch / file reads
     // ================================================================
 

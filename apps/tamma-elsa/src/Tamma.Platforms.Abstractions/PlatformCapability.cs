@@ -150,4 +150,11 @@ public enum PlatformCapability
     /// have to lie in either direction.
     /// </summary>
     PrReviewCommentRead = 16,
+
+    /// <summary>
+    /// Story 40-1 AC7 — driver implements the atomic multi-file commit
+    /// (<see cref="IGitPlatformClient.CommitFilesAsync"/>). GitHub only today
+    /// (Git Data API); the other drivers answer capability_unsupported.
+    /// </summary>
+    FileWrites = 17,
 }

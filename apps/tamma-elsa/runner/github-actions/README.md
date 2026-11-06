@@ -20,6 +20,25 @@ half-upgraded install fails loud instead of running a mismatched contract.
 
 ## Install (SaaS / GitHub App)
 
+Tamma can install it for you through the GitHub App (story 40-1 AC7):
+
+```
+GET  /api/v1/repos/{owner}/{repo}/runner           # state: absent | current | drifted | customized
+POST /api/v1/repos/{owner}/{repo}/runner/install   # body: { "upgrade"?: bool, "force"?: bool }
+```
+
+The install never pushes to your default branch. It commits the three files as
+one commit on a `tamma/runner-<version>` branch and opens a pull request; the
+runner is live once you merge it (`workflow_dispatch` only sees workflows on the
+default branch). The same no-clobber rule as the script applies: `drifted` needs
+`upgrade`, `customized` needs `force`, and both answer `409` otherwise. Repeating
+the call reuses the branch and the open PR. The GitHub App needs the
+**Workflows: write** permission to create files under `.github/workflows/`.
+Status is any tenant member; install needs `platforms:manage` (tenant owner/admin).
+Every install call emits one `RUNNER.SCAFFOLD.{INSTALLED,UPGRADED,SKIPPED,FAILED}` event.
+
+Or install it yourself:
+
 ```bash
 # from a checkout of Tamma
 apps/tamma-elsa/runner/github-actions/install-runner.sh --repo /path/to/your/repo

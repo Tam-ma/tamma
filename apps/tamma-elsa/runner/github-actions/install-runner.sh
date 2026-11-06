@@ -15,8 +15,9 @@
 #   drifted     → needs --upgrade  (version marker differs)  (exit 3)
 #   customized  → needs --force    (same version, edited)    (exit 4)
 #
-# SaaS users: Tamma can do this for you through the GitHub App once the
-# server-side scaffold endpoint lands; until then this script is the install path.
+# SaaS users: Tamma can do this for you through the GitHub App —
+# POST /api/v1/repos/{owner}/{repo}/runner/install opens a PR with the same set
+# (same states, same no-clobber rule). This script is the self-serve path.
 # Single-user (self-hosted, no GitHub App): you do not need this file at all —
 # the engine runs the agent locally. See README.md § single-user.
 

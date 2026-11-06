@@ -55,6 +55,8 @@ public class ActionWirePinTests
             "git.pull-request.close", "git.pull-request.reopen", "git.pull-request.comment",
             "git.pull-request.review-comment", "git.pull-request.request-reviewers",
             "git.pull-request.label", "git.pull-request.set-draft",
+            // 40-1 AC7 — the runner scaffold install, declared right after set-draft.
+            "git.runner.install",
             "git.issue.patch", "jira.ticket.patch",
             // 31-13 — the 4 formerly-ungoverned issue callbacks (issue-tracking),
             // declared immediately after jira.ticket.patch.

@@ -115,8 +115,9 @@ services:
 
   tamma-api:
     build:
-      context: ./src/Tamma.Api
-      dockerfile: Dockerfile
+      # Story 40-1 AC7 — context includes runner/ (embedded by Tamma.Api).
+      context: .
+      dockerfile: src/Tamma.Api/Dockerfile
     ports:
       - '3000:3000'
     environment:

@@ -330,7 +330,9 @@ jobs:
             context: apps/tamma-elsa
             dockerfile: apps/tamma-elsa/src/Tamma.ElsaServer/Dockerfile
           - name: tamma-api
-            context: apps/tamma-elsa/src
+            # Story 40-1 AC7 — widened from apps/tamma-elsa/src so the image can
+            # embed apps/tamma-elsa/runner/ (see the Dockerfile header).
+            context: apps/tamma-elsa
             dockerfile: apps/tamma-elsa/src/Tamma.Api/Dockerfile
           - name: tamma-studio
             context: apps/tamma-elsa/src

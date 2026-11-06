@@ -51,7 +51,7 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void ExternalEffect_has_61_members()
+    public void ExternalEffect_has_62_members()
     {
         // Derivation: grep 'RequireAuthorization("EngineServiceOnly")'
         // src/Tamma.Api/Program.cs → 26 routes, 17 MUTATING (5 engine-group
@@ -99,7 +99,10 @@ public class ActionVocabularyCountTests
         // llm.task.execute (POST /api/engine/execute-task). Both are DISTINCT from
         // their mediation-route twins (ci.tests.trigger, llm.call) because an effect
         // binds at exactly one site; same effect class, so same levels (30, 20).
-        Enum.GetValues<ExternalEffect>().Should().HaveCount(61);
+        // 61 -> 62 (Story 40-1 AC7): git.runner.install — the tenant-admin runner
+        // scaffold route (POST /api/v1/repos/{owner}/{repo}/runner/install), born
+        // bound + enforced.
+        Enum.GetValues<ExternalEffect>().Should().HaveCount(62);
     }
 
     [Test]
@@ -160,8 +163,10 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void TotalCatalogMembers_is_225()
+    public void TotalCatalogMembers_is_226()
     {
+        // 96 + 17 + 8 + 62 + 35 + 8 = 226 — was 225 (effect 61): Story 40-1 AC7
+        // minted effect:git.runner.install (see ExternalEffect_has_62_members).
         // 96 + 17 + 8 + 61 + 35 + 8 = 225 — was 223 (automation 33): 2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper. Both are IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.
         // 96 + 17 + 8 + 61 + 33 + 8 = 223 — was 222 (automation 32): Epic 31 P4
         // M3 (2026-08-08) added the single-user startup webhook-registration
@@ -196,7 +201,7 @@ public class ActionVocabularyCountTests
         // (80 + 10 + 22 + 26 + …); the agent-action plane grew by 16 (Story
         // 41-1a), the document-type plane by 6 (Story 41-1b), and
         // effect/automation by 3 + 1 (Story 41-30).
-        ActionCatalog.All.Should().HaveCount(225);
-        ActionCatalog.ByKey.Should().HaveCount(225);
+        ActionCatalog.All.Should().HaveCount(226);
+        ActionCatalog.ByKey.Should().HaveCount(226);
     }
 }

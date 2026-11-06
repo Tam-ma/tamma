@@ -53,6 +53,8 @@ public static class PlatformKindCapabilityMatrix
                 PlatformCapability.Releases,
                 PlatformCapability.CommitReads,
                 PlatformCapability.PrReviewCommentRead,
+                // Story 40-1 AC7 — atomic multi-file commit via the Git Data API.
+                PlatformCapability.FileWrites,
             }.ToFrozenSet(),
 
             [PlatformKind.Gitea] = new[]

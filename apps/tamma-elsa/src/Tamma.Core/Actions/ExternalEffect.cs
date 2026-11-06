@@ -130,6 +130,14 @@ public enum ExternalEffect
     /// <summary><c>PUT /api/v1/git/{owner}/{repo}/pull-requests/{n:int}/draft</c> — <c>GitEndpoints.SetPullRequestDraft</c>.</summary>
     [Wire("git.pull-request.set-draft")] GitPullRequestSetDraft,
 
+    // ── Story 40-1 AC7 — the runner scaffold (install/upgrade the agent runner workflow) ──
+
+    /// <summary><c>POST /api/v1/repos/{owner}/{repo}/runner/install</c> —
+    /// <c>RunnerScaffoldEndpoints.Install</c>. Commits the canonical runner set onto
+    /// a <c>tamma/runner-*</c> branch and opens a PR (never a direct push to the
+    /// default branch).</summary>
+    [Wire("git.runner.install")] GitRunnerInstall,
+
     /// <summary><c>PATCH /api/v1/git/{owner}/{repo}/issues/{n}</c> — <c>GitEndpoints.UpdateIssue</c>.</summary>
     [Wire("git.issue.patch")] GitIssuePatch,
 
