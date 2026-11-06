@@ -260,22 +260,77 @@ public class SingleIssueCycleRoutingTests
     }
 
     // ================================================================
-    // Story 19-5 AC-6 — ExecuteAgentActivity replaces tdd-cycle dispatch
+    // Story 19-5 AC-6 — mode-aware agent node replaces tdd-cycle dispatch;
+    // Story 40-2 — that node is now the durable WaitForAgentRunActivity
     // ================================================================
 
     [Test]
-    public void TddForTask_IsExecuteAgentActivity_NotDispatchWorkflow()
+    public void TddForTask_IsWaitForAgentRunActivity_NotDispatchWorkflow()
     {
-        // AC-6: The per-task agent invocation must go through the
-        // mode-aware ExecuteAgentActivity so the workflow works identically
-        // in CLI / self-hosted / SaaS deployments.
+        // 40-2 AC7: the per-task agent run suspends on a durable bookmark
+        // (WaitForAgentRunActivity), still mode-aware via AgentExecutorFactory.
         var tddForTask = _flowchart.Activities
             .FirstOrDefault(a => a.Id == "TddForTask");
 
         tddForTask.Should().NotBeNull("TddForTask activity must exist in the flowchart");
-        tddForTask.Should().BeOfType<ExecuteAgentActivity>(
-            "TddForTask must be an ExecuteAgentActivity (not a DispatchWorkflow to tdd-cycle) " +
-            "so LocalExecutor vs GitHubActionsExecutor is selected by AgentExecutorFactory at runtime");
+        tddForTask.Should().BeOfType<WaitForAgentRunActivity>(
+            "TddForTask must be the durable WaitForAgentRunActivity (not the inline ExecuteAgentActivity, " +
+            "not a DispatchWorkflow to tdd-cycle)");
+    }
+
+    [Test]
+    public void TddForTask_ThreadsTheTenant()
+    {
+        var tddForTask = _flowchart.Activities.OfType<WaitForAgentRunActivity>().Single(a => a.Id == "TddForTask");
+        tddForTask.TenantId.Should().NotBeNull("the tenant is folded into the agent-run bookmark name");
+    }
+
+    [Test]
+    public void TddForTask_AllThreePriorDestinations_StillReachable()
+    {
+        // 40-2 AC7 (falsifiable): the swap must keep IncrementTask, NotifyTddRetry and
+        // DispatchTddRetry reachable from the loop node.
+        var reach = ReachableFrom("TddForTask");
+        reach.Should().Contain("IncrementTask");
+        reach.Should().Contain("NotifyTddRetry");
+        reach.Should().Contain("DispatchTddRetry");
+    }
+
+    [Test]
+    public void TddForTask_TimeoutAndFailed_Escalate_NotDebugRetry()
+    {
+        foreach (var port in new[] { "Timeout", "Failed" })
+        {
+            _flowchart.Connections.Any(c =>
+                c.Source.Activity.Id == "TddForTask" && c.Source.Port == port &&
+                c.Target.Activity.Id == "TddWaitEscalate")
+                .Should().BeTrue($"TddForTask '{port}' must escalate");
+            _flowchart.Connections.Any(c =>
+                c.Source.Activity.Id == "TddForTask" && c.Source.Port == port &&
+                c.Target.Activity.Id is "DispatchTddRetry" or "IncrementTask")
+                .Should().BeFalse($"TddForTask '{port}' must not retry or advance");
+        }
+
+        _flowchart.Connections.Any(c => c.Source.Activity.Id == "TddWaitEscalate" && c.Source.Port == "False"
+                                        && c.Target.Activity.Id == "NotifyTddFailed").Should().BeTrue();
+        _flowchart.Connections.Any(c => c.Source.Activity.Id == "TddWaitEscalate" && c.Source.Port == "False"
+                                        && c.Target.Activity.Id == "EmitStepFailed").Should().BeTrue();
+        _flowchart.Connections.Any(c => c.Source.Activity.Id == "TddWaitEscalate" && c.Source.Port == "True")
+            .Should().BeFalse("the escalation gate has no success leg");
+    }
+
+    private HashSet<string> ReachableFrom(string sourceId)
+    {
+        var seen = new HashSet<string>();
+        var queue = new Queue<string>();
+        queue.Enqueue(sourceId);
+        while (queue.Count > 0)
+        {
+            var id = queue.Dequeue();
+            foreach (var c in _flowchart.Connections.Where(c => c.Source.Activity.Id == id))
+                if (seen.Add(c.Target.Activity.Id)) queue.Enqueue(c.Target.Activity.Id);
+        }
+        return seen;
     }
 
     [Test]
@@ -291,7 +346,7 @@ public class SingleIssueCycleRoutingTests
         {
             var id = dispatch.Id;
             id.Should().NotBe("TddForTask",
-                "TddForTask must not be a DispatchWorkflow anymore — replaced by ExecuteAgentActivity");
+                "TddForTask must not be a DispatchWorkflow anymore — replaced by WaitForAgentRunActivity");
         }
     }
 
@@ -307,15 +362,19 @@ public class SingleIssueCycleRoutingTests
     }
 
     [Test]
-    public void TddForTask_Completed_ConnectsTo_IncrementTask()
+    public void TddForTask_ReceivedSuccess_ConnectsTo_IncrementTask()
     {
-        var hasConnection = _flowchart.Connections.Any(c =>
+        _flowchart.Connections.Any(c =>
             c.Source.Activity.Id == "TddForTask" &&
-            c.Source.Port == "Completed" &&
-            c.Target.Activity.Id == "IncrementTask");
+            c.Source.Port == "Received" &&
+            c.Target.Activity.Id == "TddResultOk")
+            .Should().BeTrue("TddForTask 'Received' must go through the result gate");
 
-        hasConnection.Should().BeTrue(
-            "TddForTask 'Completed' outcome must advance the task loop to IncrementTask");
+        _flowchart.Connections.Any(c =>
+            c.Source.Activity.Id == "TddResultOk" &&
+            c.Source.Port == "True" &&
+            c.Target.Activity.Id == "IncrementTask")
+            .Should().BeTrue("a successful agent run must advance the task loop to IncrementTask");
     }
 
     [Test]
@@ -324,19 +383,25 @@ public class SingleIssueCycleRoutingTests
         // Completeness audit Phase A §Missing #3 — the old silent advance
         // (Failed → IncrementTask) was the false-success hole and is now REMOVED.
         // A failed task must route through tdd-with-debug-retry instead.
+        // Story 40-2: the agent-failure leg is TddResultOk=False (Received with success=false).
         _flowchart.Connections.Any(c =>
-            c.Source.Activity.Id == "TddForTask" &&
-            c.Source.Port == "Failed" &&
+            c.Source.Activity.Id == "TddResultOk" &&
+            c.Source.Port == "False" &&
             c.Target.Activity.Id == "IncrementTask")
             .Should().BeFalse(
                 "a failed TDD task must NOT advance the loop silently (the false-success hole)");
 
         _flowchart.Connections.Any(c =>
-            c.Source.Activity.Id == "TddForTask" &&
-            c.Source.Port == "Failed" &&
+            c.Source.Activity.Id == "TddResultOk" &&
+            c.Source.Port == "False" &&
             c.Target.Activity.Id == "DispatchTddRetry")
             .Should().BeTrue(
                 "a failed TDD task must route through the bounded tdd-with-debug-retry sub-workflow");
+
+        _flowchart.Connections.Any(c =>
+            c.Source.Activity.Id == "TddForTask" &&
+            c.Target.Activity.Id == "IncrementTask")
+            .Should().BeFalse("no TddForTask outcome may advance the loop without the result gate");
     }
 
     [Test]
@@ -345,7 +410,7 @@ public class SingleIssueCycleRoutingTests
         // The per-task TDD iteration asks the agent to "implement" the slice.
         // Other task types (fix, debug, review) belong to different workflow sites.
         var tddForTask = _flowchart.Activities
-            .OfType<ExecuteAgentActivity>()
+            .OfType<WaitForAgentRunActivity>()
             .FirstOrDefault(a => a.Id == "TddForTask");
 
         tddForTask.Should().NotBeNull();
@@ -364,7 +429,7 @@ public class SingleIssueCycleRoutingTests
     public void TddForTask_AgentProvider_DefaultsToClaudeCode()
     {
         var tddForTask = _flowchart.Activities
-            .OfType<ExecuteAgentActivity>()
+            .OfType<WaitForAgentRunActivity>()
             .FirstOrDefault(a => a.Id == "TddForTask");
 
         tddForTask.Should().NotBeNull();
@@ -376,7 +441,7 @@ public class SingleIssueCycleRoutingTests
     public void TddForTask_TimeoutMinutes_IsConfigured()
     {
         var tddForTask = _flowchart.Activities
-            .OfType<ExecuteAgentActivity>()
+            .OfType<WaitForAgentRunActivity>()
             .FirstOrDefault(a => a.Id == "TddForTask");
 
         tddForTask.Should().NotBeNull();

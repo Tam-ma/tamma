@@ -1102,6 +1102,10 @@ builder.Services.AddOptions<Tamma.Api.Services.Provisioning.TenantMoveOptions>()
 
 // Factory + activity wrapper.
 builder.Services.AddScoped<Tamma.Activities.AgentDispatch.AgentExecutorFactory>();
+// Story 40-2 — early-completion buffer for WaitForAgentRunActivity: a completion
+// signal that finds no committed bookmark yet is recorded here and consumed by the
+// wait (before/after registering, and on its post-commit reconcile timer).
+builder.Services.AddSingleton<Tamma.Activities.AgentDispatch.PendingAgentRunCompletionBuffer>();
 
 // Engine lifecycle SSE bus (audit finding 012). In-process pub/sub that
 // fans workflow / task-queue / engine-registry events to dashboard

@@ -437,6 +437,10 @@ builder.Services.AddSingleton(_ =>
 builder.Services.AddScoped<Tamma.Activities.AgentDispatch.LocalExecutor>();
 builder.Services.AddScoped<Tamma.Activities.AgentDispatch.GitHubActionsExecutor>();
 builder.Services.AddScoped<Tamma.Activities.AgentDispatch.AgentExecutorFactory>();
+// Story 40-2 — early-completion buffer for WaitForAgentRunActivity: a completion
+// signal that finds no committed bookmark yet is recorded here and consumed by the
+// wait (before/after registering, and on its post-commit reconcile timer).
+builder.Services.AddSingleton<Tamma.Activities.AgentDispatch.PendingAgentRunCompletionBuffer>();
 
 // 2026-08-13 (engine-driven E2E run 39) — the self-merge race buffer: a
 // merged-PR webhook that arrives BEFORE WaitForPRMerged registers its bookmark

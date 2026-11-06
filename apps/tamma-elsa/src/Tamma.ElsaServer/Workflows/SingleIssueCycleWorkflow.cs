@@ -11,6 +11,7 @@ using Elsa.Workflows.Runtime.Activities;
 using Tamma.Activities.ADL;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Context;
+using Tamma.Core.Documents.Resume;
 using FlowEndpoint = Elsa.Workflows.Activities.Flowchart.Models.Endpoint;
 using FlowConnection = Elsa.Workflows.Activities.Flowchart.Models.Connection;
 
@@ -33,7 +34,12 @@ namespace Tamma.ElsaServer.Workflows;
 ///
 /// Every step inherits TammaActivity for automatic event emission.
 /// On any failure → Report to orchestrator → Finish.
+///
+/// <para><b>Resume behaviour (Story 40-2).</b> The per-task coding step suspends on the
+/// canonical <see cref="WaitForAgentRunActivity"/> bookmark, so the cycle declares
+/// <c>BookmarkSuspend</c>. Crash re-entry (40-4) and the final declaration (40-5) build on this.</para>
 /// </summary>
+[ResumeBehavior(ResumeMode.BookmarkSuspend, SuspendActivities = new[] { typeof(WaitForAgentRunActivity) })]
 public class SingleIssueCycleWorkflow : WorkflowBase
 {
     protected override void Build(IWorkflowBuilder builder)
@@ -106,6 +112,10 @@ public class SingleIssueCycleWorkflow : WorkflowBase
 
         // Sub-workflow results
         var subResult = builder.WithVariable<IDictionary<string, object>?>().Persisted();
+
+        // Story 40-2 — the per-task agent run's result (TddForTask outputs), read by TddResultOk.
+        var tddAgentSuccess = builder.WithVariable<bool>("TddAgentSuccess", false).Persisted();
+        var tddAgentError = builder.WithVariable<string>("TddAgentError", "").Persisted();
 
         // ================================================================
         // 0. Read workflow inputs into variables (no side effects in activity lambdas)
@@ -558,6 +568,13 @@ public class SingleIssueCycleWorkflow : WorkflowBase
         }, "ExtractCurrentTask", "Extract Current Task");
 
         // ────────────────────────────────────────────────────────────────
+        // Story 40-2: TddForTask is a WaitForAgentRunActivity — it dispatches the
+        // agent run and SUSPENDS on a durable bookmark (GitHub Actions mode) instead
+        // of holding the instance Running inside an inline monitor. Local mode runs
+        // to completion in place. Outcomes: Received (run finished — success or
+        // agent failure, split by TddResultOk), Timeout (durable deadline), Failed
+        // (dispatch never succeeded).
+        //
         // Story 19-5 AC-6: Replace direct tdd-cycle sub-workflow dispatch
         // with mode-aware ExecuteAgentActivity. The activity selects
         // LocalExecutor (CLI / self-hosted) or GitHubActionsExecutor (SaaS)
@@ -580,7 +597,7 @@ public class SingleIssueCycleWorkflow : WorkflowBase
         //   simply advances to the next task on either outcome (matches
         //   prior behaviour of the DispatchWorkflow which did not branch).
         // ────────────────────────────────────────────────────────────────
-        var tddForTask = new ExecuteAgentActivity
+        var tddForTask = new WaitForAgentRunActivity
         {
             Id = "TddForTask",
             Name = "TDD for Task (agent execution)",
@@ -596,8 +613,20 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             AgentConfigJson = new Input<string?>(ctx => conventions.Get(ctx)),
             TimeoutMinutes = new Input<int>(30),
             ModeOverride = new Input<string?>(_ => null),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Success = new Output<bool>(tddAgentSuccess),
+            ErrorMessage = new Output<string?>(tddAgentError),
         };
         tddForTask.SetDisplayText("TDD for Task (agent execution)");
+
+        // Story 40-2 — Received carries both agent success and agent-reported failure;
+        // this gate splits them (success → advance, failure → bounded debug-retry).
+        var tddResultOk = new FlowDecision(ctx => tddAgentSuccess.Get(ctx))
+        {
+            Id = "TddResultOk",
+            Name = "Agent Run Succeeded?",
+        };
+        tddResultOk.SetDisplayText("Agent Run Succeeded?");
 
         var incrementTask = Assign(currentTaskIndex, ctx =>
             (object)(currentTaskIndex.Get(ctx) + 1),
@@ -1049,6 +1078,14 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             "❌ A task could not converge in TDD. Needs human attention.",
             new[] { "tamma-error", "needs-human" }, new[] { "tamma-processing" });
 
+        // Story 40-2 — the agent-run wait timed out or never dispatched: escalate
+        // (needs-human), never the debug-retry leg. Always takes False; it only stamps
+        // the failed-step context for the shared CYCLE.STEP_FAILED sink.
+        var tddWaitEscalate = StepGate("TddWaitEscalate", "Agent Run Timed Out / Not Dispatched",
+            _ => false,
+            failedStepId, failedDetail, "tdd-agent-run",
+            ctx => tddAgentError.Get(ctx) ?? "the agent run timed out or could not be dispatched");
+
         // ================================================================
         // CI gate after the TDD loop, before approval (Phase A §Missing #4) —
         // dispatch the EXISTING ci-with-debug-retry sub-workflow (bounded CI
@@ -1162,6 +1199,7 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 createPR, extractPR, prOk,
                 createTestCases,
                 initTaskLoop, hasMoreTasks, extractCurrentTask, tddForTask, incrementTask,
+                tddResultOk, tddWaitEscalate,
                 dispatchTddRetry, tddRetryOk, notifyTddRetry, notifyTddFailed,
                 checkCiSupported, markCiSkipped, ciGate, ciUnsupportedRouter, ciOk, notifyCiPassed,
                 dispatchCodeReview, checkUndraftSupported, markPrReady, markDraftSkipped, mergeApprovalGate,
@@ -1300,16 +1338,23 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 Connect(initTaskLoop, hasMoreTasks),
 
                 // TDD Loop: more tasks? → extract task → TDD → (recover|advance) → loop
-                // Story 19-5 AC-6: ExecuteAgentActivity exposes Completed/Failed.
+                // Story 19-5 AC-6 (node now WaitForAgentRunActivity, Story 40-2).
                 // Completed → advance the loop. Failed → NO LONGER advances silently
                 // (the false-success hole, §Missing #3): it routes through the EXISTING
                 // tdd-with-debug-retry sub-workflow (bounded debug-retry). Recovered →
                 // advance; not converged → fail the cycle LOUD (needs-human sink).
                 ConnectOutcome(hasMoreTasks, "True", extractCurrentTask),
                 Connect(extractCurrentTask, tddForTask),
-                ConnectOutcome(tddForTask, "Completed", incrementTask),
-                ConnectOutcome(tddForTask, "Failed", notifyTddRetry),
-                ConnectOutcome(tddForTask, "Failed", dispatchTddRetry),
+                // Story 40-2: Received → TddResultOk (success → advance; agent failure →
+                // the same debug-retry leg as before). Timeout / Failed (no run) → escalate.
+                ConnectOutcome(tddForTask, WaitForAgentRunActivity.OutcomeReceived, tddResultOk),
+                ConnectOutcome(tddResultOk, "True", incrementTask),
+                ConnectOutcome(tddResultOk, "False", notifyTddRetry),
+                ConnectOutcome(tddResultOk, "False", dispatchTddRetry),
+                ConnectOutcome(tddForTask, WaitForAgentRunActivity.OutcomeTimeout, tddWaitEscalate),
+                ConnectOutcome(tddForTask, WaitForAgentRunActivity.OutcomeFailed, tddWaitEscalate),
+                ConnectOutcome(tddWaitEscalate, "False", notifyTddFailed),
+                ConnectOutcome(tddWaitEscalate, "False", emitStepFailed),
                 Connect(dispatchTddRetry, tddRetryOk),
                 ConnectOutcome(tddRetryOk, "True", incrementTask),
                 // Not converged → loud needs-human handoff (notify + the shared sink,

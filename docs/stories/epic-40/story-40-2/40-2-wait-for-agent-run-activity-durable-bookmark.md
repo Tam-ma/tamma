@@ -1,6 +1,6 @@
 # Story 40-2: `WaitForAgentRunActivity` — Durable Bookmark Suspend + `DelayFor` Timeout
 
-Status: drafted
+Status: review
 
 ## MANDATORY: Before You Code
 
@@ -227,9 +227,61 @@ suspending; the collect half (`IAgentResultCollectorService.CollectAsync`) runs 
 
 5-7 days
 
+## Delivery Record (2026-11-06)
+
+**Built**
+- `Tamma.Activities/AgentDispatch/WaitForAgentRunActivity.cs` — `[FlowNode("Received","Timeout","Failed")]`.
+  GHA: DI guard → dispatch → (fail ⇒ `Failed`, no bookmark) → result bookmark named
+  `LifecycleBookmarks.ForAgentRun(tenant, repo, branch, session)` + `DelayFor` deadline
+  (`max(35, TimeoutMinutes + 5)`) + a 30 s `DelayFor` reconcile timer. Resume collects via
+  `IAgentResultCollectorService` → `Received`; deadline → fail-closed sentinel → `Timeout`.
+  Local: runs the executor in place under the same deadline → `Received`/`Timeout`, no bookmark.
+  Outputs + `LastAgentExecutionResult` identical to `ExecuteAgentActivity`, plus `BookmarkName`.
+- `AgentRunCompletionSignal.cs` — the resume-input contract 40-3 must send (`Completed`,
+  `WorkflowRunId`, `Status`, `Conclusion`, `WorkflowRunUrl`, `ArtifactsUrl`, `DurationSeconds`),
+  read tolerantly (`ResumeInput.AsBool` / `ToString()`-parse), fail-closed.
+- `PendingAgentRunCompletionBuffer.cs` — early-completion buffer (the `PendingPrMergeBuffer`
+  pattern), registered singleton in both hosts.
+- `LifecycleBookmarks.ForAgentRun` + `CanonicalSuspendActivities[WaitForAgentRunActivity] = "agent-run"` (3 entries).
+- `AgentExecutorFactory.ResolveMode` (mode without building an executor).
+- `SingleIssueCycleWorkflow`: `TddForTask` → `WaitForAgentRunActivity` (same inputs + `TenantId`);
+  `Received → TddResultOk` (True → `IncrementTask`; False → `NotifyTddRetry` + `DispatchTddRetry`);
+  `Timeout`/`Failed → TddWaitEscalate` (stamps failed-step) → `NotifyTddFailed` + `EmitStepFailed`.
+
+**Deviations**
+- *Early-signal race.* Not in the ACs. A signal arriving between dispatch and the bookmark's
+  commit would be lost. The wait consumes the buffer before and after creating its bookmarks,
+  and again from the reconcile timer, which fires only after the suspended state is committed.
+  40-3's resume side must `Record` into the buffer on a bookmark miss (in-process); its
+  persisted row + reconciler cover cross-process.
+- *`[ResumeBehavior(BookmarkSuspend)]` declared on `SingleIssueCycleWorkflow` now, and its
+  `LegacyResumeAllowlist` entry removed.* Required: the gate's honesty clause
+  (`CanonicalSuspendNode_AppearsOnlyInDeclaredWorkflows`) fails once a registered canonical
+  suspend node sits in an undeclared workflow. 40-5 changes the mode to `Both`.
+- *Local hard timeout* is a linked `CancellationTokenSource`, not `DelayFor`: the activity
+  completes in the same burst, so a `DelayFor` bookmark would be burned before it could fire.
+- *Dispatch `Failed` now escalates* (per AC7) instead of entering the debug-retry leg as
+  `ExecuteAgentActivity`'s `Failed` did.
+- *`AGENT.EXECUTION.INFLIGHT` marker* not emitted — the wait is durable, so it no longer
+  covers a non-durable window.
+- `RunnerContractTests` pins the new activity as a seventh `tamma-agent.yml` site (40-1 D8 collapses them).
+
+**Tests** — `WaitForAgentRunActivityTests` (18, real Elsa in-process runner: dispatch fail/throw,
+DI guards, suspend shape, tenant-disjoint names, resume success/agent-failure/unreadable/collector-throws,
+deadline, early signal before Execute, buffered-after-suspend picked up by reconcile, reconcile tick
+keeps result + deadline bookmarks, input not mutated, local mode), `WaitForAgentRunReadBackTests`
+(AC5 matrix), `LifecycleBookmarksAgentRunTests` (AC2/AC6), updated `SingleIssueCycleRoutingTests` /
+`SafetyTests` (AC7: node type, all three prior destinations reachable, Timeout/Failed escalate).
+`Tamma.Activities.Tests`: 3811 passed, 0 failed.
+
+**Interim gap until 40-3 merges.** In GitHub Actions mode nothing resumes the result bookmark
+yet, so every coding run ends on the `Timeout` edge (~35 min) and escalates. Local mode is
+unaffected. Merge 40-3 close behind 40-2, or hold 40-2 for GHA-mode deployments.
+
 ## Change Log
 
 | Date       | Version | Changes                | Author |
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-23 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-24 | 1.1.0   | Code-verified revision: 39-10 recorded as LANDED (gate + shim struck); DECISION recorded that the new wait joins `LifecycleBookmarks.CanonicalSuspendActivities` rather than repeating `WaitForCIResultsActivity`'s ad-hoc `CIResultBookmarkPayload` scheme; AC8 rewritten from "Local parity retained" to an honest, falsifiable statement of what the local branch does, with 40-1 AC8 named as the blocking edge for the single-user end-to-end proof; AC6/AC7 made falsifiable | Claude |
+| 2026-11-06 | 1.2.0   | Implemented; delivery record added; Status → review | Claude |
