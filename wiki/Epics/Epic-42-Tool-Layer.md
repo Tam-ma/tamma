@@ -32,7 +32,7 @@ Today `IToolExecutor` is `{ ToolName, Description, InputSchema, ExecuteAsync }` 
 |---|---|---|---|
 | `Category` | `Native` \| `Mcp` \| `ProviderAbstracted` | Where the tool comes from; drives which registration path owns it | `Native` |
 | `PermissionClass` | `ReadOnly` \| `Mutating` \| `Command` \| `Destructive` | Governance tier | `Destructive` (deny-by-default) |
-| `AutonomyFloor` | `int` (70–100) | Minimum autonomy dial at which an `AgentRole` may invoke the tool directly; below it, routed to the orchestrator/human | `100` |
+| `AutonomyFloor` | `int` (within the dial range from `GET /api/actions/dial`) | Minimum autonomy dial at which an `AgentRole` may invoke the tool directly; below it, routed to the orchestrator/human | `100` |
 | `RequiredSecret` | `SecretRequirement?` | Declares the credential the tool needs (Epic 29 `SecretPurpose`) | `null` |
 | `Suspends` | `bool` | Tool may start a long external op and suspend the workflow (resumable-by-design) | `false` |
 

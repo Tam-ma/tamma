@@ -62,7 +62,7 @@ The three previously-forked review/verdict shapes are unified into the single `R
             |     |  concerns: notes -> REVISE (bounded rounds)    |
             |  ACCEPT (submit to the orchestrator -- always)       |
             |     |  publish AcceptanceRequest + suspend on gate;  |
-            |     |  orchestrator reads rules + autonomy (70-100)  |
+            |     |  orchestrator reads rules + autonomy dial       |
             |     |  and routes: decide itself, or assign to an    |
             |     |  eligible user's Task View                     |
             +-----|------------------------------------------------+
