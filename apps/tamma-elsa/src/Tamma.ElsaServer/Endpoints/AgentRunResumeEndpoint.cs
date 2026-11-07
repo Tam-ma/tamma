@@ -50,7 +50,9 @@ public static class AgentRunResumeEndpoint
         string? Conclusion,
         string? WorkflowRunUrl,
         string? ArtifactsUrl,
-        int DurationSeconds);
+        int DurationSeconds,
+        // Story 40-6 — how the completion was observed (webhook | poll). Absent ⇒ webhook.
+        string? WakePath = null);
 
     public static async Task<IResult> Resume(
         [FromBody] ResumeRequest request,
@@ -92,7 +94,8 @@ public static class AgentRunResumeEndpoint
             Conclusion: request.Conclusion ?? string.Empty,
             WorkflowRunUrl: request.WorkflowRunUrl ?? string.Empty,
             DurationSeconds: Math.Max(0, request.DurationSeconds),
-            ArtifactsUrl: request.ArtifactsUrl ?? string.Empty));
+            ArtifactsUrl: request.ArtifactsUrl ?? string.Empty),
+            AgentRunCompletionSignal.NormalizeWakePath(request.WakePath));
 
         var bookmarks = (await bookmarkStore
             .FindManyAsync(new BookmarkFilter { Name = name }, ct)

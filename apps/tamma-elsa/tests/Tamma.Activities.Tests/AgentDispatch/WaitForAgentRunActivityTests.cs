@@ -1,3 +1,5 @@
+using System.Net;
+using System.Text.Json;
 using Elsa.Extensions;
 using Elsa.Workflows;
 using Elsa.Workflows.Activities;
@@ -10,10 +12,12 @@ using Elsa.Workflows.State;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.AgentDispatch.Models;
+using Tamma.Activities.Core;
 using Tamma.Activities.Documents;
 using FlowConnection = Elsa.Workflows.Activities.Flowchart.Models.Connection;
 using FlowEndpoint = Elsa.Workflows.Activities.Flowchart.Models.Endpoint;
@@ -34,6 +38,8 @@ public class WaitForAgentRunActivityTests
     private const string Repo = "acme/widgets";
     private const string Branch = "tamma/issue-42";
     private const string Session = "adl-42-task-0";
+    private const int TaskIndexValue = 0;
+    private const string TaskIdValue = "T1";
 
     private static readonly string ExpectedBookmark = LifecycleBookmarks.ForAgentRun(Tenant, Repo, Branch, Session);
 
@@ -41,6 +47,7 @@ public class WaitForAgentRunActivityTests
     private Mock<IAgentResultCollectorService> _collector = null!;
     private PendingAgentRunCompletionBuffer _buffer = null!;
     private string _localWorkDir = null!;
+    private CapturingHandler _capture = null!;
 
     [SetUp]
     public void SetUp()
@@ -52,6 +59,7 @@ public class WaitForAgentRunActivityTests
         _collector.Setup(c => c.CollectAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<AgentMonitorResult>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((AgentExecutionRequest r, AgentMonitorResult m, CancellationToken _) => Collected(r, m));
         _buffer = new PendingAgentRunCompletionBuffer();
+        _capture = new CapturingHandler();
         _localWorkDir = Path.Combine(Path.GetTempPath(), "tamma-wait-agent-run-tests", Guid.NewGuid().ToString("N"));
         Directory.CreateDirectory(_localWorkDir);
     }
@@ -59,6 +67,7 @@ public class WaitForAgentRunActivityTests
     [TearDown]
     public void TearDown()
     {
+        _capture.Dispose();
         try { Directory.Delete(_localWorkDir, recursive: true); } catch { /* best effort */ }
     }
 
@@ -347,7 +356,148 @@ public class WaitForAgentRunActivityTests
         _dispatch.Verify(d => d.DispatchAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // ── Story 40-6: the AGENT_RUN.* wait events ─────────────────────────
+
+    [Test]
+    public async Task Suspend_EmitsWaitSuspended_TaggedForReEntry()
+    {
+        await using var sp = BuildProvider("github_actions");
+
+        await RunAsync(sp);
+
+        var e = WaitEvents().Should().ContainSingle().Subject;
+        Type(e).Should().Be(AgentRunWaitEventTypes.WaitSuspended);
+        e.GetProperty("status").GetString().Should().Be("started");
+        e.GetProperty("issueNumber").GetInt32().Should().Be(42);
+        var tags = e.GetProperty("tags");
+        tags.GetProperty("correlationId").GetString().Should().Be(Session);
+        tags.GetProperty("issueNumber").GetString().Should().Be("42");
+        tags.GetProperty("tenantId").GetString().Should().Be(Tenant);
+        tags.GetProperty("repository").GetString().Should().Be(Repo);
+        tags.GetProperty("branchName").GetString().Should().Be(Branch);
+        var data = e.GetProperty("data");
+        data.GetProperty("taskIndex").GetInt32().Should().Be(TaskIndexValue);
+        data.GetProperty("taskId").GetString().Should().Be(TaskIdValue);
+        data.GetProperty("bookmarkName").GetString().Should().Be(ExpectedBookmark);
+    }
+
+    [Test]
+    public async Task Resume_EmitsReceived_ViaWebhook_WithResultAndTaskIdentity()
+    {
+        await using var sp = BuildProvider("github_actions");
+        var (suspended, wf) = await RunAsync(sp);
+
+        await ResumeAsync(sp, wf, suspended.WorkflowState, ResultBookmarkId(suspended), Completion(101, "success"));
+
+        WaitEvents().Select(Type).Should().Equal(AgentRunWaitEventTypes.WaitSuspended, AgentRunWaitEventTypes.Received);
+        var data = WaitEvents()[1].GetProperty("data");
+        data.GetProperty("wakePath").GetString().Should().Be(AgentRunWaitEventTypes.WakePaths.Webhook);
+        data.GetProperty("success").GetBoolean().Should().BeTrue();
+        data.GetProperty("workflowRunId").GetInt64().Should().Be(101);
+        data.GetProperty("commitSha").GetString().Should().Be("sha-101");
+        data.GetProperty("taskIndex").GetInt32().Should().Be(TaskIndexValue);
+        data.GetProperty("taskId").GetString().Should().Be(TaskIdValue);
+    }
+
+    [Test]
+    public async Task Resume_RecordsThePollWakePath_WhenTheSignalSaysSo()
+    {
+        await using var sp = BuildProvider("github_actions");
+        var (suspended, wf) = await RunAsync(sp);
+        var input = AgentRunCompletionSignal.ToInput(
+            new AgentMonitorResult(105, "completed", "success", "u", 60, "a"), AgentRunWaitEventTypes.WakePaths.Poll);
+
+        await ResumeAsync(sp, wf, suspended.WorkflowState, ResultBookmarkId(suspended), input);
+
+        WaitEvents().Last().GetProperty("data").GetProperty("wakePath").GetString()
+            .Should().Be(AgentRunWaitEventTypes.WakePaths.Poll);
+    }
+
+    [Test]
+    public async Task AgentFailure_IsStillReceived_WithSuccessFalse()
+    {
+        await using var sp = BuildProvider("github_actions");
+        var (suspended, wf) = await RunAsync(sp);
+
+        await ResumeAsync(sp, wf, suspended.WorkflowState, ResultBookmarkId(suspended), Completion(102, "failure"));
+
+        var e = WaitEvents().Last();
+        Type(e).Should().Be(AgentRunWaitEventTypes.Received);
+        e.GetProperty("data").GetProperty("success").GetBoolean().Should().BeFalse();
+    }
+
+    [Test]
+    public async Task Deadline_EmitsTimedOut_AsAnErrorRow()
+    {
+        await using var sp = BuildProvider("github_actions");
+        var (suspended, wf) = await RunAsync(sp);
+
+        await ResumeAsync(sp, wf, suspended.WorkflowState, CallbackOf(suspended, "OnTimeoutAsync")!.Id,
+            new Dictionary<string, object>());
+
+        var e = WaitEvents().Last();
+        Type(e).Should().Be(AgentRunWaitEventTypes.TimedOut);
+        e.GetProperty("status").GetString().Should().Be("error");
+        e.GetProperty("error").GetString().Should().Contain("timed out");
+        WaitEvents().Select(Type).Should().NotContain(AgentRunWaitEventTypes.Received);
+    }
+
+    [Test]
+    public async Task EarlySignal_EmitsReceived_WithoutASuspend()
+    {
+        _buffer.Record(ExpectedBookmark, Completion(201, "success"));
+        await using var sp = BuildProvider("github_actions");
+
+        await RunAsync(sp);
+
+        WaitEvents().Select(Type).Should().Equal(AgentRunWaitEventTypes.Received);
+    }
+
+    [Test]
+    public async Task Reconcile_WithNothingBuffered_EmitsNothingNew()
+    {
+        await using var sp = BuildProvider("github_actions");
+        var (suspended, wf) = await RunAsync(sp);
+
+        await ResumeAsync(sp, wf, suspended.WorkflowState, CallbackOf(suspended, "OnReconcileAsync")!.Id,
+            new Dictionary<string, object>());
+
+        WaitEvents().Select(Type).Should().Equal(AgentRunWaitEventTypes.WaitSuspended);
+    }
+
+    [Test]
+    public async Task Local_EmitsReceived_ViaLocal()
+    {
+        await using var sp = BuildProvider("local");
+
+        await RunAsync(sp);
+
+        var e = WaitEvents().Should().ContainSingle().Subject;
+        Type(e).Should().Be(AgentRunWaitEventTypes.Received);
+        e.GetProperty("data").GetProperty("wakePath").GetString().Should().Be(AgentRunWaitEventTypes.WakePaths.Local);
+    }
+
+    [Test]
+    public async Task FailedDispatch_EmitsNoWaitEvent()
+    {
+        _dispatch.Setup(d => d.DispatchAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AgentDispatchResult(false, null, "422", DateTime.UtcNow));
+        await using var sp = BuildProvider("github_actions");
+
+        await RunAsync(sp);
+
+        WaitEvents().Should().BeEmpty("there was no run, so there was no wait");
+    }
+
     // ── Harness ─────────────────────────────────────────────────────────
+
+    private List<JsonElement> WaitEvents() =>
+        _capture.Bodies
+            .SelectMany(b => JsonDocument.Parse(b).RootElement.GetProperty("events").EnumerateArray().Select(e => e.Clone()))
+            .Where(e => Type(e)!.StartsWith("AGENT_RUN.", StringComparison.Ordinal))
+            .ToList();
+
+    private static string? Type(JsonElement e) => e.GetProperty("eventType").GetString();
 
     private static AgentExecutionResult Collected(AgentExecutionRequest r, AgentMonitorResult m)
         => m.Conclusion == "success"
@@ -375,12 +525,23 @@ public class WaitForAgentRunActivityTests
     {
         var services = new ServiceCollection();
         services.AddLogging();
-        services.AddElsa(elsa => elsa.AddActivity<WaitForAgentRunActivity>());
+        services.AddElsa(elsa =>
+        {
+            elsa.AddActivity<WaitForAgentRunActivity>();
+            elsa.UseWorkflows(w => w.UseTammaEventPersistence());
+        });
 
         var config = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Agent:ExecutorMode"] = mode })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Agent:ExecutorMode"] = mode,
+                ["Tamma:ApiUrl"] = "http://tamma.test",
+            })
             .Build();
         services.AddSingleton<IConfiguration>(config);
+        var capture = _capture;
+        services.AddSingleton(_ => new Tamma.Activities.LlmCall.TammaApiClient(
+            new HttpClient(capture), NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance, config));
 
         if (registerFactory) services.AddScoped<AgentExecutorFactory>();
         if (registerDispatch) services.AddSingleton(_dispatch.Object);
@@ -428,6 +589,8 @@ public class WaitForAgentRunActivityTests
             IssueNumber = new Input<int>(42),
             SessionId = new Input<string>(Session),
             TenantId = new Input<string?>(_ => tenant),
+            TaskIndex = new Input<int?>(_ => TaskIndexValue),
+            TaskId = new Input<string?>(_ => TaskIdValue),
             ModeOverride = new Input<string?>(_ => null),
             AgentConfigJson = new Input<string?>(_ => null),
             Success = new Output<bool>(success),
@@ -470,6 +633,22 @@ public class WaitForAgentRunActivityTests
             },
         };
         return new Workflow(flowchart);
+    }
+
+    private sealed class CapturingHandler : HttpMessageHandler
+    {
+        public List<string> Bodies { get; } = new();
+
+        protected override async Task<HttpResponseMessage> SendAsync(
+            HttpRequestMessage request, CancellationToken cancellationToken)
+        {
+            if (request.Content is not null)
+                Bodies.Add(await request.Content.ReadAsStringAsync(cancellationToken));
+            return new HttpResponseMessage(HttpStatusCode.Created)
+            {
+                Content = new StringContent("{\"ok\":true,\"persisted\":1}"),
+            };
+        }
     }
 
     /// <summary>Stub process runner: plays the local CLI by writing a successful result file.</summary>
