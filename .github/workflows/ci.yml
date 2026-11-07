@@ -210,7 +210,7 @@ jobs:
   # Now: Tamma.Api.Tests is split by test CLASS into API_SHARDS balanced shards
   # (.github/scripts/dotnet-test-shard.py, weights in dotnet-test-weights.json),
   # and every other project runs in one more slice. Target: each slice's tests
-  # take under ~2.5 min, so a whole job finishes in about 5. When a slice grows
+  # take under ~2 min, so a whole job (~2.5 min of setup + tests) stays under 5. When a slice grows
   # past that, raise API_SHARDS (and the matrix list) or regenerate the weights.
   dotnet-tests-slice:
     name: .NET Tests (${{ matrix.slice }})
@@ -222,9 +222,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8]
+        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8, api-9, api-10, api-11, api-12]
     env:
-      API_SHARDS: 8
+      API_SHARDS: 12
     defaults:
       run:
         working-directory: apps/tamma-elsa
