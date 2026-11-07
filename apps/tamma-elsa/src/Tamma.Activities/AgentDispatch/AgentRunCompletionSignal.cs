@@ -42,10 +42,19 @@ public static class AgentRunCompletionSignal
     public const string DurationSeconds = "DurationSeconds";
 
     /// <summary>
+    /// Optional (Story 40-6). How the completion was observed — one of
+    /// <see cref="AgentRunWaitEventTypes.WakePaths"/>. Absent ⇒ <c>webhook</c>, the only
+    /// resume path that exists today.
+    /// </summary>
+    public const string WakePath = "WakePath";
+
+    /// <summary>
     /// Build a resume input from a monitor result — the shape the 40-3 resume side sends.
     /// </summary>
-    public static Dictionary<string, object> ToInput(AgentMonitorResult result) => new()
+    public static Dictionary<string, object> ToInput(
+        AgentMonitorResult result, string wakePath = AgentRunWaitEventTypes.WakePaths.Webhook) => new()
     {
+        [WakePath] = wakePath,
         [Completed] = true,
         [WorkflowRunId] = result.WorkflowRunId,
         [Status] = result.Status,
@@ -82,6 +91,22 @@ public static class AgentRunCompletionSignal
             ArtifactsUrl: Text(input, ArtifactsUrl) ?? string.Empty);
         return true;
     }
+
+    /// <summary>
+    /// The wake path a resume input carries. Unknown or missing values read as
+    /// <c>webhook</c> so a caller cannot write an arbitrary string into the audit row.
+    /// </summary>
+    public static string ReadWakePath(IDictionary<string, object>? input)
+        => NormalizeWakePath(input is null ? null : Text(input, WakePath));
+
+    /// <summary>Map a raw wake-path value onto a known one (default <c>webhook</c>).</summary>
+    public static string NormalizeWakePath(string? raw)
+        => raw?.Trim() switch
+        {
+            AgentRunWaitEventTypes.WakePaths.Poll => AgentRunWaitEventTypes.WakePaths.Poll,
+            AgentRunWaitEventTypes.WakePaths.Local => AgentRunWaitEventTypes.WakePaths.Local,
+            _ => AgentRunWaitEventTypes.WakePaths.Webhook,
+        };
 
     private static object? Get(IDictionary<string, object> input, string key)
         => input.TryGetValue(key, out var v) ? v : null;

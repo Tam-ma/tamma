@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http.Json;
 using System.Text.Json;
+using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Documents;
 using Tamma.Api.Services.Actions;
 using Tamma.Api.Services.PromptStore;
@@ -67,10 +68,10 @@ public sealed class AgentRunResumer : IAgentRunResumer
     internal const string ElsaClientName = Ci.CiCompletionPollerService.ElsaClientName;
     internal const string ResumePath = "/elsa/api/agent-runs/resume";
 
-    /// <summary>Placeholder pinned to Story 40-6's <c>AgentRunWaitEventTypes</c> (same wire strings).</summary>
-    internal const string ReceivedEventType = "AGENT_RUN.RECEIVED";
-    /// <summary>Placeholder pinned to Story 40-6's <c>AgentRunWaitEventTypes</c> (same wire strings).</summary>
-    internal const string ResumeUnresolvedEventType = "AGENT_RUN.RESUME_UNRESOLVED";
+    // Story 40-6: this side records only AGENT_RUN.RESUME_UNRESOLVED. AGENT_RUN.RECEIVED is
+    // recorded once, by the engine's WaitForAgentRunActivity when the wait actually wakes —
+    // it knows the task index/id and the collected result; this side does not.
+    private const string ResumeUnresolvedEventType = AgentRunWaitEventTypes.ResumeUnresolved;
 
     private readonly IAgentRunWaitRepository _waits;
     private readonly IInstallationRepository _installations;
@@ -156,6 +157,7 @@ public sealed class AgentRunResumer : IAgentRunResumer
                 workflowRunUrl = completion.WorkflowRunUrl,
                 artifactsUrl = completion.ArtifactsUrl,
                 durationSeconds = Math.Max(0, (int)(completion.UpdatedAt - completion.CreatedAt).TotalSeconds),
+                wakePath = AgentRunWaitEventTypes.WakePaths.Webhook,
             }, Json, ct).ConfigureAwait(false);
             status = response.StatusCode;
         }
@@ -182,8 +184,6 @@ public sealed class AgentRunResumer : IAgentRunResumer
                     "agent-run wait {WaitId} ({Bookmark}) {Action} by workflow_run {RunId} ({Conclusion})",
                     row.Id, row.BookmarkName, status == HttpStatusCode.OK ? "resumed" : "buffered",
                     completion.WorkflowRunId, LogSanitizer.Clean(completion.Conclusion));
-                await EmitAsync(ReceivedEventType, principal, row, completion,
-                    status == HttpStatusCode.OK ? "resumed" : "buffered", ct).ConfigureAwait(false);
                 return status == HttpStatusCode.OK ? AgentRunResumeOutcome.Resumed : AgentRunResumeOutcome.Buffered;
             }
 
@@ -246,21 +246,36 @@ public sealed class AgentRunResumer : IAgentRunResumer
         ct.ThrowIfCancellationRequested();
         try
         {
+            // Same tags as the engine's AGENT_RUN.* rows (Story 40-6 AC3). The row does not
+            // store the task id; the issue number and index come from the session id.
+            int? issueNumber = null, taskIndex = null;
+            if (TaskSessionId.TryParse(row.SessionId, out var issue, out var index))
+            {
+                issueNumber = issue;
+                taskIndex = index;
+            }
             await _events.AppendAsync(new DomainEvent
             {
                 Id = Guid.NewGuid(),
                 Type = type,
                 TenantId = principal.TenantId,
+                IssueNumber = issueNumber,
                 Tags = JsonSerializer.Serialize(new
                 {
                     tenantId = principal.TenantId?.ToString(),
                     userId = principal.UserId?.ToString(),
-                    repo = row.Repository,
-                    sessionId = row.SessionId,
+                    correlationId = row.SessionId,
+                    issueNumber = issueNumber?.ToString(System.Globalization.CultureInfo.InvariantCulture),
+                    repository = row.Repository,
+                    branchName = row.BranchName,
                 }),
                 Metadata = JsonSerializer.Serialize(new { workflowVersion = "1.0.0", eventSource = "system" }),
                 Data = JsonSerializer.Serialize(new
                 {
+                    issueNumber,
+                    sessionId = row.SessionId,
+                    taskIndex,
+                    taskId = (string?)null,
                     waitId = row.Id,
                     bookmarkName = row.BookmarkName,
                     workflowInstanceId = row.WorkflowInstanceId,

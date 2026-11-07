@@ -1,6 +1,18 @@
 # Story 40-6: Agent-Run Lifecycle Event Family + Re-Entry Feed
 
-Status: drafted
+Status: in-progress
+
+> **Progress 2026-11-07 (PR "40-6 part 1").** Shipped: AC1 (`AgentRunWaitEventTypes`, five frozen
+> strings + `WakePaths` + `StatusFor`), AC2 for 40-2/40-3 (`WaitForAgentRunActivity` emits
+> `WAIT_SUSPENDED` / `RECEIVED` / `TIMED_OUT`; `AgentRunResumer` emits `RESUME_UNRESOLVED`), AC3
+> (tags + `taskIndex`/`taskId`; `AgentRunWaitEventsQueryTests` proves the 4-7 query against real
+> Postgres), AC4, AC5, AC7 (analytics untouched), AC8 (byte-pin test).
+> **Decision:** `RECEIVED` is recorded ONCE, by the engine activity when the wait wakes (it knows
+> the task and the collected result). The API resumer used to emit it too; that copy is removed.
+> The wake path travels on the resume signal (`WakePath`, default `webhook`).
+> **Left for 40-4:** the `TASK_REENTERED` emission (AC2's last item) and AC6 (re-entry reads
+> this feed end to end) — both need 40-4's `TaskLoopReEntryService` / `ComputeTaskResumeIndexActivity`.
+> `TaskSessionId` (`adl-{issue}-task-{index}` build/parse) is shared with 40-4.
 
 ## MANDATORY: Before You Code
 

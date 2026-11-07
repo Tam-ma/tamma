@@ -150,6 +150,12 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
     [Input(Description = "Owning tenant id (folded into the bookmark name; empty in single-user mode)")]
     public Input<string?> TenantId { get; set; } = default!;
 
+    [Input(Description = "Position of this task in the cycle's task list (Story 40-6; recorded on AGENT_RUN.* events)")]
+    public Input<int?> TaskIndex { get; set; } = default!;
+
+    [Input(Description = "The task's PlanTask.id (Story 40-6; 40-4 checks it before trusting a resume index)")]
+    public Input<string?> TaskId { get; set; } = default!;
+
     // ─── Outputs (ExecuteAgentActivity's, plus BookmarkName) ─────────────
     [Output(Description = "Whether the agent completed successfully")]
     public Output<bool> Success { get; set; } = default!;
@@ -325,6 +331,11 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
             return;
         }
 
+        EmitWait(context, AgentRunWaitEventTypes.WaitSuspended, new()
+        {
+            ["bookmarkName"] = bookmarkName,
+            ["deadlineMinutes"] = waitMinutes,
+        });
         _logger?.LogInformation(
             "Agent run dispatched for {Repository}/{Branch} (session={SessionId}); suspended on {Bookmark}, deadline +{Minutes}min",
             request.Repository, request.BranchName, request.SessionId, bookmarkName, waitMinutes);
@@ -365,6 +376,7 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
             request.AgentProvider, ExecutionModeNames.GitHubActions);
         SetResult(context, sentinel);
         TammaEventEmitter.EmitFailure(context, this, this, _logger, Elapsed(context), sentinel.ErrorMessage!);
+        EmitWait(context, AgentRunWaitEventTypes.TimedOut, new() { ["deadlineMinutes"] = minutes }, sentinel.ErrorMessage);
         await context.CompleteActivityWithOutcomesAsync(OutcomeTimeout);
     }
 
@@ -377,7 +389,8 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
         var request = BuildRequest(context);
         AgentExecutionResult result;
 
-        if (!AgentRunCompletionSignal.TryRead(input, out var monitorResult))
+        var readable = AgentRunCompletionSignal.TryRead(input, out var monitorResult);
+        if (!readable)
         {
             _logger?.LogWarning("Unreadable agent-run completion payload for session {SessionId} — failing closed", request.SessionId);
             result = AgentExecutionResult.Failed(
@@ -410,6 +423,8 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
 
         SetResult(context, result);
         EmitEnd(context, result, Elapsed(context));
+        EmitReceived(context, result, AgentRunCompletionSignal.ReadWakePath(input),
+            readable ? monitorResult.WorkflowRunId : null, readable ? monitorResult.Conclusion : null);
         await context.CompleteActivityWithOutcomesAsync(OutcomeReceived);
     }
 
@@ -432,6 +447,7 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
                 $"Agent run timed out after {waitMinutes} minutes", request.AgentProvider, ExecutionModeNames.Local);
             SetResult(context, sentinel);
             TammaEventEmitter.EmitFailure(context, this, this, _logger, DateTime.UtcNow - startedAt, sentinel.ErrorMessage!);
+            EmitWait(context, AgentRunWaitEventTypes.TimedOut, new() { ["deadlineMinutes"] = waitMinutes }, sentinel.ErrorMessage);
             await context.CompleteActivityWithOutcomesAsync(OutcomeTimeout);
             return;
         }
@@ -443,6 +459,7 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
 
         SetResult(context, result);
         EmitEnd(context, result, DateTime.UtcNow - startedAt);
+        EmitReceived(context, result, AgentRunWaitEventTypes.WakePaths.Local, workflowRunId: null, conclusion: null);
         await context.CompleteActivityWithOutcomesAsync(OutcomeReceived);
     }
 
@@ -462,6 +479,82 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
             TammaEventEmitter.EmitSuccess(context, this, this, _logger, elapsed);
         else
             TammaEventEmitter.EmitFailure(context, this, this, _logger, elapsed, result.ErrorMessage ?? "unknown");
+    }
+
+    private void EmitReceived(
+        ActivityExecutionContext context, AgentExecutionResult result, string wakePath, long? workflowRunId, string? conclusion)
+        => EmitWait(context, AgentRunWaitEventTypes.Received, new()
+        {
+            ["wakePath"] = wakePath,
+            ["success"] = result.Success,
+            ["workflowRunId"] = workflowRunId,
+            ["conclusion"] = conclusion,
+            ["commitSha"] = result.CommitSha,
+            ["commitsCount"] = result.CommitsCount,
+            ["filesChanged"] = result.FilesChanged,
+        });
+
+    /// <summary>Story 40-6 — emit one <see cref="AgentRunWaitEventTypes"/> row for this wait.</summary>
+    private void EmitWait(
+        ActivityExecutionContext context, string type, Dictionary<string, object?> data, string? error = null)
+        => TammaEventEmitter.Emit(context, this, _logger, BuildWaitEvent(
+            type,
+            SessionId.Get(context),
+            IssueNumber.Get(context),
+            Repository.Get(context),
+            BranchName.Get(context),
+            DocumentEvents.ParseTenantId(TenantId.GetOrDefault(context)),
+            TaskIndex.GetOrDefault(context),
+            TaskId.GetOrDefault(context),
+            data,
+            error));
+
+    /// <summary>
+    /// Story 40-6 (AC3) — build one wait-lifecycle event. Pure; public so the save-and-query
+    /// test can push the exact engine row through the API. Tagged so the 4-7 query by
+    /// (tenant, type, issue) finds it, and correlated by the per-task session id that 40-4
+    /// joins on. The row's tenant scope is set when it is saved
+    /// (<see cref="EventPersistenceMiddleware"/>); the tag here is the same value.
+    /// </summary>
+    public static TammaEvent BuildWaitEvent(
+        string type,
+        string sessionId,
+        int issueNumber,
+        string repository,
+        string branchName,
+        Guid? tenantId,
+        int? taskIndex,
+        string? taskId,
+        IReadOnlyDictionary<string, object?>? extra = null,
+        string? error = null)
+    {
+        var tags = new Dictionary<string, object?>
+        {
+            ["correlationId"] = sessionId,
+            ["issueNumber"] = issueNumber.ToString(CultureInfo.InvariantCulture),
+            ["repository"] = repository,
+            ["branchName"] = branchName,
+        };
+        if (tenantId is Guid tid) tags["tenantId"] = tid.ToString("D");
+
+        var data = new Dictionary<string, object?>
+        {
+            ["issueNumber"] = issueNumber,
+            ["sessionId"] = sessionId,
+            ["taskIndex"] = taskIndex,
+            ["taskId"] = taskId,
+        };
+        if (extra is not null)
+            foreach (var kv in extra) data[kv.Key] = kv.Value;
+
+        return new TammaEvent
+        {
+            EventType = type,
+            Status = AgentRunWaitEventTypes.StatusFor(type),
+            Error = error,
+            Tags = tags,
+            Data = data,
+        };
     }
 
     private static TimeSpan Elapsed(ActivityExecutionContext context)

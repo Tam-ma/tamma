@@ -685,7 +685,7 @@ development_status:
   40-3b-agent-run-wait-reconciler: backlog   # ADDED 2026-11-06, split from 40-3 AC4: hosted sweep over every tenant schema + the CP for stale `pending` agent_run_waits (re-poll the run, resume or mark timed_out), with leader election. No story file yet.
   40-4-per-task-re-entry-from-git-and-events: drafted         # Re-entry keyed by adl-{issue}-task-{index}; also owns the ResumableStandardStructuralTests clause-(c) extension seam. Prereq: 40-2.
   40-5-resume-behavior-declaration-and-allowlist-burndown: drafted # [ResumeBehavior(Both)] on SingleIssueCycleWorkflow + remove its LegacyResumeAllowlist entry (a TEST-fixture edit). Prereq: 40-2 + 40-4.
-  40-6-agent-run-lifecycle-event-family: drafted              # AgentRunEventTypes consolidating the 40-2/3/4 placeholder pins. Prereq: 40-2/40-3/40-4.
+  40-6-agent-run-lifecycle-event-family: in-progress          # 2026-11-07: AgentRunWaitEventTypes + emissions for 40-2/40-3 shipped (AC1/3/4/5/7/8, AC2 minus TASK_REENTERED). RECEIVED now emitted once, engine-side. Left: TASK_REENTERED emission + AC6 — land with 40-4.
   40-7-crash-restart-mode-matrix-integration-proof: drafted   # Testcontainers composition proof (durable suspend/resume, cross-pod, crash re-entry, timeout, SaaS+local matrix). Prereq: 40-1..40-6.
   40-8-triage-outcome-dead-ends-and-the-create-issues-workflow: done   # DONE (PR #508). Evidence: CreateIssuesWorkflow.cs exists; the DEFER/SPLIT dead-ends now dispatch a real workflow.
   epic-40-retrospective: optional

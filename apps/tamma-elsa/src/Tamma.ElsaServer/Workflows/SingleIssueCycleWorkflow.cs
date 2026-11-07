@@ -608,12 +608,15 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             Task = new Input<string>("implement"),
             PlanJson = new Input<string>(ctx => currentTaskJson.Get(ctx)),
             SessionId = new Input<string>(ctx =>
-                $"adl-{issueNumber.Get(ctx)}-task-{currentTaskIndex.Get(ctx)}"),
+                TaskSessionId.For(issueNumber.Get(ctx), currentTaskIndex.Get(ctx))),
             AgentProvider = new Input<string>("claude-code"),
             AgentConfigJson = new Input<string?>(ctx => conventions.Get(ctx)),
             TimeoutMinutes = new Input<int>(30),
             ModeOverride = new Input<string?>(_ => null),
             TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            // Story 40-6 — recorded on the AGENT_RUN.* rows; 40-4 checks taskId per index.
+            TaskIndex = new Input<int?>(ctx => currentTaskIndex.Get(ctx)),
+            TaskId = new Input<string?>(ctx => ReadTaskId(currentTaskJson.Get(ctx))),
             Success = new Output<bool>(tddAgentSuccess),
             ErrorMessage = new Output<string?>(tddAgentError),
         };
@@ -1587,6 +1590,30 @@ public class SingleIssueCycleWorkflow : WorkflowBase
     /// implementation). Pass only when the payload parses to a JSON array with at least
     /// one element; an empty/blank/unparseable/non-array payload FAILS the cycle.
     /// </summary>
+    /// <summary>
+    /// Story 40-6 — the <c>id</c> of one task slice (<c>PlanTask.Id</c>), or <c>null</c> when
+    /// the slice has none or does not parse. Never throws: a missing id only means 40-4 cannot
+    /// verify the task and restarts the loop at 0.
+    /// </summary>
+    internal static string? ReadTaskId(string? taskJson)
+    {
+        if (string.IsNullOrWhiteSpace(taskJson)) return null;
+        try
+        {
+            using var doc = JsonDocument.Parse(taskJson);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object
+                || !doc.RootElement.TryGetProperty("id", out var id)
+                || id.ValueKind != JsonValueKind.String)
+                return null;
+            var value = id.GetString();
+            return string.IsNullOrWhiteSpace(value) ? null : value;
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
+
     internal static bool HasTasks(string? tasksJson)
     {
         if (string.IsNullOrWhiteSpace(tasksJson)) return false;
