@@ -266,8 +266,9 @@ instance with the 40-2 `AgentRunCompletionSignal` payload → the row moves `pen
   that is not `ForAgentRun` of the request is refused. Never throws: a missing row degrades to `Timeout`.
 - `Tamma.Api/Services/AgentDispatch/AgentRunResumer` — principal from the installation (SaaS) or the sole
   user (single-user); D2 pick (latest dispatched ≤ run `created_at`, tie ⇒ skip); stored-vs-recomputed
-  name guard; engine 200/202/404 ⇒ received, 409/5xx ⇒ stays pending. Emits `AGENT_RUN.RECEIVED` /
-  `AGENT_RUN.RESUME_UNRESOLVED` (local constants pinned to 40-6's `AgentRunWaitEventTypes`, same wire strings).
+  name guard; engine 200/202/404 ⇒ received, 409/5xx ⇒ stays pending. Emits only
+  `AGENT_RUN.RESUME_UNRESOLVED` (name drift, engine 409). `AGENT_RUN.RECEIVED` is recorded once, by the
+  engine's `WaitForAgentRunActivity` when the wait actually wakes (Story 40-6 moved it there).
 - `InstallationRouterService.HandleWorkflowRunEvent` → `HandleWorkflowRunEventAsync`: durable resume
   first-class, in-memory `PublishSignal` kept as a fast path; no longer skips when the registry is unwired.
 - `Tamma.ElsaServer/Endpoints/AgentRunResumeEndpoint` (`POST /elsa/api/agent-runs/resume`,
@@ -279,6 +280,22 @@ instance with the 40-2 `AgentRunCompletionSignal` payload → the row moves `pen
   `DispatchAgentRunRequest`; `AgentExecutionRequest` carries them; `WaitForAgentRunActivity` fills them.
 - AC6: `AgentMonitorService` Webhook mode without the registry now polls instead of `monitor_failed`;
   `WebhookSignalRegistry` / `IAgentDispatchMediationService` / `AgentDispatchEndpoints` docs updated.
+
+**Post-merge fixes (2026-11-07)**
+- **Only the agent's own run resumes the wait.** The resumer used to accept any completed `workflow_run`
+  on the agent's branch, so the repo's normal CI (triggered by the agent's push) finishing first was taken
+  as the agent's result. Rows now store the dispatched workflow file (`agent_run_waits.WorkflowFile`,
+  migrations `20261107203654_AddAgentRunWaitWorkflowFile` tenant / `20261107203659_…` control plane); the
+  webhook forwards `workflow_run.path` and `event`; the resumer requires a `workflow_dispatch` run of that
+  file, created no earlier than the dispatch (60s clock allowance) — also for a single row. The
+  reconciler's poll path gets the dispatch-time guard; its discovery still lists runs of any workflow on
+  the branch (see 40-3b).
+- **A buffered completion only satisfies its own dispatch.** Session ids repeat per issue + task, so a
+  re-dispatch within the buffer's hour could consume the previous run's buffered result. The activity
+  now calls `PendingAgentRunCompletionBuffer.Arm` with its dispatch start; entries recorded before it, or
+  for a run created before it (the resume request now carries `runCreatedAt`), are refused.
+- **Repository match is case-insensitive** (`AgentRunWaitRepository.Pending`), like
+  `InstallationRepository.GetByRepoFullNameAsync`.
 
 **Deviations**
 - **AC4 (hosted reconciler) split out — not built.** Per the story's own lever. Delivering it needs a

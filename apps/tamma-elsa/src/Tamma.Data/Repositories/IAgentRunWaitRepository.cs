@@ -14,7 +14,9 @@ public sealed record AgentRunWaitRegistration(
     string WorkflowInstanceId,
     string BookmarkName,
     Guid? BookmarkTenantId,
-    DateTime DispatchedAt);
+    DateTime DispatchedAt,
+    // The dispatched workflow file (the webhook matches workflow_run.path against it).
+    string? WorkflowFile = null);
 
 /// <summary>
 /// Story 40-3 — durable store for <see cref="AgentRunWait"/> rows. Two parallel

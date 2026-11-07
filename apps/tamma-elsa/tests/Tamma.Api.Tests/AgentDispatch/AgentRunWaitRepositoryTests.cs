@@ -290,6 +290,38 @@ public class AgentRunWaitRepositoryTests
         (await ops.ListPending(Installation, Repo, "main")).Should().BeEmpty();
     }
 
+    [TestCase(Plane.SaaS)]
+    [TestCase(Plane.SingleUser)]
+    public async Task Match_ignores_repository_case_but_not_branch_case(Plane plane)
+    {
+        var (repo, cp) = NewPod();
+        await using var _ = cp;
+        var ops = Ops(repo, plane, Guid.NewGuid());
+        var row = await ops.Upsert(Reg(plane)); // stored as "acme/widgets"
+
+        // The webhook sends GitHub's canonical full_name, which can differ in case from what
+        // the engine dispatched with.
+        (await ops.ListPending(Installation, "Acme/Widgets", Branch)).Should().ContainSingle()
+            .Which.Id.Should().Be(row.Id);
+        (await ops.ListPending(Installation, Repo, Branch.ToUpperInvariant())).Should().BeEmpty(
+            "git branch names are case-sensitive");
+    }
+
+    [TestCase(Plane.SaaS)]
+    [TestCase(Plane.SingleUser)]
+    public async Task The_dispatched_workflow_file_is_stored_and_rearmed(Plane plane)
+    {
+        var (repo, cp) = NewPod();
+        await using var _ = cp;
+        var ops = Ops(repo, plane, Guid.NewGuid());
+
+        var first = await ops.Upsert(Reg(plane) with { WorkflowFile = "custom-agent.yml" });
+        (await ops.Get(first.Id))!.WorkflowFile.Should().Be("custom-agent.yml");
+
+        await ops.Upsert(Reg(plane) with { WorkflowFile = "tamma-agent.yml" });
+        (await ops.Get(first.Id))!.WorkflowFile.Should().Be("tamma-agent.yml");
+    }
+
     // ── AC7: the planes never join ──
 
     [Test]
@@ -369,22 +401,33 @@ public class AgentRunWaitRepositoryTests
             Mock.Of<IInstallationSecretsPusher>(), Mock.Of<IApiKeyRepository>(),
             NullLogger<InstallationRouterService>.Instance, webhookSignals: null, agentRunResumer: resumer);
 
-        var payload = JsonDocument.Parse($$"""
+        JsonElement Run(long id, string path, string evt) => JsonDocument.Parse($$"""
             {
               "action": "completed",
               "workflow_run": {
-                "id": 991, "status": "completed", "conclusion": "success",
-                "html_url": "https://github.com/acme/widgets/actions/runs/991",
-                "artifacts_url": "https://api.github.com/repos/acme/widgets/actions/runs/991/artifacts",
+                "id": {{id}}, "status": "completed", "conclusion": "success",
+                "html_url": "https://github.com/acme/widgets/actions/runs/{{id}}",
+                "artifacts_url": "https://api.github.com/repos/acme/widgets/actions/runs/{{id}}/artifacts",
                 "head_branch": "{{Branch}}",
+                "path": "{{path}}",
+                "event": "{{evt}}",
                 "created_at": "{{DateTime.UtcNow.AddMinutes(1):O}}",
                 "updated_at": "{{DateTime.UtcNow.AddMinutes(6):O}}"
               },
-              "repository": { "full_name": "{{Repo}}" },
+              "repository": { "full_name": "Acme/Widgets" },
               "installation": { "id": {{Installation}} }
             }
             """).RootElement;
 
+        // The repo's own CI, triggered by the agent's push, finishes first: it must not resume
+        // the wait, and the row must stay pending for the agent's run.
+        var ci = await router.HandleWebhookAsync("workflow_run", Run(990, ".github/workflows/ci.yml", "push"));
+        ci.Skipped.Should().BeTrue();
+        engine.Bodies.Should().BeEmpty();
+        (await Ops(repoB, plane, userId).ListPending(Installation, Repo, Branch)).Should().ContainSingle();
+
+        // GitHub's canonical full_name ("Acme/Widgets") differs in case from the stored "acme/widgets".
+        var payload = Run(991, ".github/workflows/tamma-agent.yml", "workflow_dispatch");
         var result = await router.HandleWebhookAsync("workflow_run", payload);
 
         result.Skipped.Should().BeFalse();

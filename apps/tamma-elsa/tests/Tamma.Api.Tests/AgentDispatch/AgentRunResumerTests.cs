@@ -268,6 +268,120 @@ public class AgentRunResumerTests
         outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
     }
 
+    // ── Only the agent's own run resumes the wait ──
+
+    private static AgentRunCompletion Webhook(
+        string path = ".github/workflows/tamma-agent.yml", string evt = "workflow_dispatch", DateTime? createdAt = null)
+        => Completion() with
+        {
+            WorkflowPath = path,
+            Event = evt,
+            CreatedAt = createdAt ?? new DateTime(2026, 11, 1, 10, 1, 0, DateTimeKind.Utc),
+        };
+
+    [Test]
+    public async Task The_repos_own_CI_finishing_on_the_agent_branch_is_no_match_and_leaves_the_row_pending()
+    {
+        // The agent's push triggers the repo's normal CI on the same branch; that run finishing
+        // first must not be taken as the agent's result.
+        var row = Row(_tenantId, null, _tenantId);
+        TenantRows(row);
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook(".github/workflows/ci.yml", "push"));
+
+        outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
+        _engine.Calls.Should().BeEmpty();
+        _waits.Verify(w => w.TryMarkReceivedByTenantAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task The_runner_file_run_by_something_other_than_a_dispatch_is_no_match()
+    {
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook(evt: "push"));
+
+        outcome.Should().Be(AgentRunResumeOutcome.NoMatch, "Tamma only ever starts the runner by workflow_dispatch");
+        _engine.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task A_webhook_without_a_workflow_path_is_no_match()
+    {
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook(path: ""));
+
+        outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
+        _engine.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task The_agent_runner_dispatch_run_resumes()
+    {
+        var row = Row(_tenantId, null, _tenantId);
+        TenantRows(row);
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook());
+
+        outcome.Should().Be(AgentRunResumeOutcome.Resumed);
+        _waits.Verify(w => w.TryMarkReceivedByTenantAsync(_tenantId, row.Id, 991, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task The_workflow_file_stored_on_the_row_is_the_one_matched()
+    {
+        var row = Row(_tenantId, null, _tenantId);
+        row.WorkflowFile = "custom-agent.yml";
+        TenantRows(row);
+
+        (await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook()))
+            .Should().Be(AgentRunResumeOutcome.NoMatch, "the row was dispatched with custom-agent.yml");
+        (await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook(".github/workflows/custom-agent.yml")))
+            .Should().Be(AgentRunResumeOutcome.Resumed);
+    }
+
+    [Test]
+    public async Task A_single_row_dispatched_after_the_run_was_created_is_no_match()
+    {
+        // Dispatched 10:00; the run was created 09:50 — it cannot be this dispatch's run.
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        var webhook = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(
+            Webhook(createdAt: new DateTime(2026, 11, 1, 9, 50, 0, DateTimeKind.Utc)));
+        var poll = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Completion() with
+        {
+            CreatedAt = new DateTime(2026, 11, 1, 9, 50, 0, DateTimeKind.Utc),
+            WakePath = "poll",
+        });
+
+        webhook.Should().Be(AgentRunResumeOutcome.NoMatch);
+        poll.Should().Be(AgentRunResumeOutcome.NoMatch, "the reconciler's discovery is held to the same guard");
+        _engine.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task A_run_created_within_the_clock_skew_allowance_still_resumes()
+    {
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(
+            Webhook(createdAt: new DateTime(2026, 11, 1, 9, 59, 30, DateTimeKind.Utc)));
+
+        outcome.Should().Be(AgentRunResumeOutcome.Resumed);
+    }
+
+    [Test]
+    public async Task The_run_created_at_is_sent_to_the_engine()
+    {
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook());
+
+        _engine.Bodies.Single().GetProperty("runCreatedAt").GetDateTime()
+            .Should().Be(new DateTime(2026, 11, 1, 10, 1, 0, DateTimeKind.Utc));
+    }
+
     // ── doubles ──
 
     internal sealed class StubMode(TammaMode mode) : ITammaModeProvider { public TammaMode Mode { get; } = mode; }

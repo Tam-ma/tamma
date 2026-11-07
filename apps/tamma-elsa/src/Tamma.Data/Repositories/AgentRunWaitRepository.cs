@@ -154,13 +154,22 @@ public sealed class AgentRunWaitRepository(
         ? tenantId
         : throw new ArgumentException("A SaaS agent-run wait needs a non-empty tenant id.", nameof(tenantId));
 
+    /// <summary>
+    /// The webhook key match. Repository is compared case-insensitively: the webhook sends
+    /// GitHub's canonical <c>full_name</c>, the row stores what the engine dispatched with, and
+    /// GitHub names are case-insensitive (same lowercase-both-sides approach as
+    /// <c>InstallationRepository.GetByRepoFullNameAsync</c>). Branch names are case-sensitive.
+    /// </summary>
     private static IQueryable<AgentRunWait> Pending(
         IQueryable<AgentRunWait> principalRows, long? installationId, string repository, string branchName)
-        => principalRows.Where(w =>
+    {
+        var repo = repository.ToLowerInvariant();
+        return principalRows.Where(w =>
             w.Status == AgentRunWaitStatus.Pending
             && w.InstallationId == installationId
-            && w.Repository == repository
+            && w.Repository.ToLower() == repo
             && w.BranchName == branchName);
+    }
 
     /// <summary>Atomic CAS — one UPDATE with the status predicate; exactly one caller wins.</summary>
     private static async Task<bool> MarkReceivedAsync(
@@ -232,6 +241,7 @@ public sealed class AgentRunWaitRepository(
         w.BookmarkName = r.BookmarkName;
         w.BookmarkTenantId = r.BookmarkTenantId;
         w.DispatchedAt = r.DispatchedAt;
+        w.WorkflowFile = r.WorkflowFile;
         w.Status = AgentRunWaitStatus.Pending;
         w.WorkflowRunId = null;
         w.ReceivedAt = null;
