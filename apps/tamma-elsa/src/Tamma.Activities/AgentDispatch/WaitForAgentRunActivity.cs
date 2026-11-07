@@ -304,6 +304,10 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
 
         var buffer = context.GetService<PendingAgentRunCompletionBuffer>();
 
+        // Bind the buffer to THIS dispatch: a completion buffered for an earlier dispatch of the
+        // same task (same session id ⇒ same bookmark name) is dropped, never consumed below.
+        buffer?.Arm(bookmarkName, new DateTimeOffset(startedAt, TimeSpan.Zero));
+
         // Reconcile 1 — a signal that raced ahead of this activity.
         if (buffer is not null && buffer.TryConsume(bookmarkName, out var early))
         {

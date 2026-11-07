@@ -46,7 +46,7 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     // retries (a 5xx may mask an already-queued dispatch — review finding 4).
     private const int MaxRetries = 3;
     private static readonly int[] RetryDelaysMs = { 1000, 2000, 4000 };
-    private const string DefaultWorkflowFile = "tamma-agent.yml";
+    internal const string DefaultWorkflowFile = "tamma-agent.yml";
 
     /// <summary>The Actions driver's typed "dispatch accepted but the run
     /// could not be correlated" message prefix — the dispatch itself

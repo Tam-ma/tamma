@@ -75,6 +75,26 @@ public class AgentRunWaitRecorderTests
         _waits.Verify(w => w.UpsertPendingByUserAsync(It.IsAny<Guid>(), It.IsAny<AgentRunWaitRegistration>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [TestCase("custom-agent.yml", "custom-agent.yml")]
+    [TestCase("", "tamma-agent.yml")]
+    public async Task The_dispatched_workflow_file_is_recorded(string requested, string expected)
+    {
+        var body = new DispatchAgentRunRequest
+        {
+            Ref = Branch,
+            CorrelationId = Session,
+            WorkflowInstanceId = "wf-1",
+            BookmarkTenantId = _tenantId.ToString(),
+            BookmarkName = LifecycleBookmarks.ForAgentRun(_tenantId.ToString(), Repo, Branch, Session),
+            WorkflowFileName = requested,
+        };
+
+        await Sut(TammaMode.SaaS).RecordAsync(_tenantId, Repo, body, At);
+
+        _waits.Verify(w => w.UpsertPendingByTenantAsync(_tenantId,
+            It.Is<AgentRunWaitRegistration>(r => r.WorkflowFile == expected), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Test]
     public async Task Single_user_writes_a_user_row_with_a_null_tenant()
     {

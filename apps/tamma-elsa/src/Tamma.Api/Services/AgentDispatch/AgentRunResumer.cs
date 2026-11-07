@@ -24,7 +24,12 @@ public sealed record AgentRunCompletion(
     DateTime CreatedAt,
     DateTime UpdatedAt,
     // Story 40-3b — how the completion was observed: the webhook, or the reconciler's poll.
-    string WakePath = AgentRunWaitEventTypes.WakePaths.Webhook);
+    string WakePath = AgentRunWaitEventTypes.WakePaths.Webhook,
+    // workflow_run.path and workflow_run.event, as the webhook delivered them. The webhook
+    // always passes a value ("" when GitHub omitted it, which then matches nothing); null means
+    // the caller already identified the run (the reconciler's discovery).
+    string? WorkflowPath = null,
+    string? Event = null);
 
 /// <summary>Story 40-3 — what one resume attempt did.</summary>
 public enum AgentRunResumeOutcome
@@ -117,7 +122,20 @@ public sealed class AgentRunResumer : IAgentRunResumer
 
         if (rows.Count == 0) return AgentRunResumeOutcome.NoMatch;
 
-        var row = Pick(rows, completion.CreatedAt);
+        // Only the agent's own run may resume the wait: a run of the dispatched workflow file,
+        // started by a dispatch, created no earlier than the dispatch. The repo's normal CI
+        // (triggered by the agent's push to the same branch) never qualifies.
+        var candidates = rows.Where(r => IsAgentRunFor(r, completion)).ToList();
+        if (candidates.Count == 0)
+        {
+            _logger.LogInformation(
+                "workflow_run {RunId} on {Repo}@{Branch} is not the agent run for any of {Count} pending wait(s) — ignored",
+                completion.WorkflowRunId, LogSanitizer.Clean(completion.Repository),
+                LogSanitizer.Clean(completion.HeadBranch), rows.Count);
+            return AgentRunResumeOutcome.NoMatch;
+        }
+
+        var row = Pick(candidates, completion.CreatedAt);
         if (row is null)
         {
             _logger.LogError(
@@ -159,6 +177,8 @@ public sealed class AgentRunResumer : IAgentRunResumer
                 workflowRunUrl = completion.WorkflowRunUrl,
                 artifactsUrl = completion.ArtifactsUrl,
                 durationSeconds = Math.Max(0, (int)(completion.UpdatedAt - completion.CreatedAt).TotalSeconds),
+                // Lets the engine match a buffered completion to the dispatch it belongs to.
+                runCreatedAt = DateTime.SpecifyKind(completion.CreatedAt, DateTimeKind.Utc),
                 wakePath = AgentRunCompletionSignal.NormalizeWakePath(completion.WakePath),
             }, Json, ct).ConfigureAwait(false);
             status = response.StatusCode;
@@ -201,14 +221,58 @@ public sealed class AgentRunResumer : IAgentRunResumer
         }
     }
 
+    /// <summary>The runner file a row dispatched when it predates <see cref="AgentRunWait.WorkflowFile"/>.</summary>
+    internal const string DefaultWorkflowFile = AgentDispatchMediationService.DefaultWorkflowFile;
+
+    /// <summary>
+    /// Allowance between Tamma.Api's clock (<see cref="AgentRunWait.DispatchedAt"/>, taken just
+    /// before the dispatch call) and GitHub's (<c>created_at</c>). Matches the 60s window the
+    /// mediated run discovery uses.
+    /// </summary>
+    internal static readonly TimeSpan DispatchClockSkew = TimeSpan.FromSeconds(60);
+
+    /// <summary>
+    /// True when <paramref name="completion"/> can be the run <paramref name="row"/> dispatched:
+    /// created no earlier than the dispatch (less <see cref="DispatchClockSkew"/>) and — when the
+    /// caller reports the workflow (the webhook always does) — a <c>workflow_dispatch</c> run of
+    /// the row's workflow file.
+    /// </summary>
+    internal static bool IsAgentRunFor(AgentRunWait row, AgentRunCompletion completion)
+    {
+        if (completion.CreatedAt + DispatchClockSkew < row.DispatchedAt) return false;
+
+        if (completion.Event is not null
+            && !string.Equals(completion.Event, "workflow_dispatch", StringComparison.Ordinal))
+            return false;
+
+        if (completion.WorkflowPath is not null)
+        {
+            var expected = string.IsNullOrWhiteSpace(row.WorkflowFile) ? DefaultWorkflowFile : row.WorkflowFile;
+            if (!string.Equals(WorkflowFileName(completion.WorkflowPath), expected, StringComparison.Ordinal))
+                return false;
+        }
+        return true;
+    }
+
+    /// <summary><c>.github/workflows/{file}</c> (optionally <c>@ref</c>-suffixed) → <c>{file}</c>.</summary>
+    private static string WorkflowFileName(string path)
+    {
+        var at = path.IndexOf('@');
+        var trimmed = at >= 0 ? path[..at] : path;
+        var slash = trimmed.LastIndexOf('/');
+        return slash >= 0 ? trimmed[(slash + 1)..] : trimmed;
+    }
+
     /// <summary>
     /// D2 — normally one row. Otherwise the latest dispatched at or before the run's
-    /// creation; a tie (or nothing before it) is genuine ambiguity.
+    /// creation (within <see cref="DispatchClockSkew"/>); a tie (or nothing before it) is
+    /// genuine ambiguity. Callers pass only rows that passed <see cref="IsAgentRunFor"/>, so
+    /// even a single row has already been held to the dispatch-time guard.
     /// </summary>
     internal static AgentRunWait? Pick(IReadOnlyList<AgentRunWait> rows, DateTime runCreatedAt)
     {
-        if (rows.Count == 1) return rows[0];
-        var before = rows.Where(r => r.DispatchedAt <= runCreatedAt).OrderByDescending(r => r.DispatchedAt).ToList();
+        var before = rows.Where(r => r.DispatchedAt <= runCreatedAt + DispatchClockSkew)
+            .OrderByDescending(r => r.DispatchedAt).ToList();
         if (before.Count == 0) return null;
         if (before.Count > 1 && before[0].DispatchedAt == before[1].DispatchedAt) return null;
         return before[0];

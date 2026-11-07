@@ -442,6 +442,10 @@ public sealed class InstallationRouterService : IInstallationRouterService
         var htmlUrl = TryGetString(runEl, "html_url") ?? string.Empty;
         var artifactsUrl = TryGetString(runEl, "artifacts_url") ?? string.Empty;
         var headBranch = TryGetString(runEl, "head_branch");
+        // Which workflow ran and what started it. "" (never null) when absent, so the durable
+        // resume fails closed instead of treating the run as already identified.
+        var workflowPath = TryGetString(runEl, "path") ?? string.Empty;
+        var runEvent = TryGetString(runEl, "event") ?? string.Empty;
         var createdAt = TryGetDateTime(runEl, "created_at") ?? DateTime.UtcNow;
         var updatedAt = TryGetDateTime(runEl, "updated_at") ?? DateTime.UtcNow;
 
@@ -500,7 +504,9 @@ public sealed class InstallationRouterService : IInstallationRouterService
                     WorkflowRunUrl: htmlUrl,
                     CreatedAt: createdAt,
                     UpdatedAt: updatedAt,
-                    ArtifactsUrl: artifactsUrl)).ConfigureAwait(false);
+                    ArtifactsUrl: artifactsUrl,
+                    WorkflowPath: workflowPath,
+                    Event: runEvent)).ConfigureAwait(false);
             _logger.LogInformation(
                 "workflow_run.completed durable agent-run resume: repo={Repo} run={RunId} outcome={Outcome}",
                 LogSanitizer.Clean(repoFullName), runId, outcome);
