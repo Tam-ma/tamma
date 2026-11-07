@@ -1,6 +1,27 @@
 # Story 40-7: End-to-End Crash/Restart + Mode-Matrix Integration Proof
 
-Status: drafted
+Status: done
+
+> **Delivered 2026-11-07.** `SingleIssueCycleCrashReEntryTests` runs the REAL
+> `SingleIssueCycleWorkflow` on Elsa's runtime (stub sub-workflows for the non-coding stages, one
+> scripted HTTP stand-in for Tamma.Api, the real `AgentRunResumeEndpoint`, the real
+> `TaskLoopReEntryService` reading the AGENT_RUN.* rows the run itself wrote through the real
+> engine-events handler). It is NOT `[Explicit]`: it runs in the normal CI gate (~30 s).
+>
+> | AC | Status |
+> |---|---|
+> | 1 durable suspend/resume | Covered: every task suspends on its bookmark and is resumed through the resume endpoint (asserted "resumed", not "buffered"). In-memory Elsa store, not Postgres. |
+> | 2 cross-pod | **Partly.** A suspended instance cannot move between hosts here (no shared Elsa store). The durable path itself is covered by 40-3's `AgentRunResumeEndpointTests` / `AgentRunResumerTests`. |
+> | 3 crash re-entry | Covered: host A lands tasks 0–1, is disposed mid task 2; a fresh host resumes at 2, runs the STORED list although task-creation now returns it reordered, dispatches only task 2, gets past the loop. |
+> | 4 exactly-once | Covered: one successful RECEIVED per task across the crash. |
+> | 5 timeout | Covered: the durable deadline fires → TIMED_OUT → CYCLE.STEP_FAILED, merge gate never reached. |
+> | 6 inconsistency | Covered: branch loses task 0's file → loud CYCLE.STEP_FAILED (`task-reentry`), zero dispatches. |
+> | 7 mode matrix | Covered for re-entry: the same crash restarted in local mode runs only tasks 1–2. |
+> | 8 runner self-check | Referenced: 40-1's `RunnerContractTests`. |
+> | 9 flip | Done: `TaskReEntryRegistration.DisabledByDefault = false`; `Coding:TaskReEntryDisabled=true` still switches it off. |
+>
+> Mutation-checked: making the loop ignore the resume index fails the GitHub Actions and local
+> crash scenarios.
 
 ## MANDATORY: Before You Code
 
