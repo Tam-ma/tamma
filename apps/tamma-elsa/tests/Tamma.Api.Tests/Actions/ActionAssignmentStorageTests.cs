@@ -127,6 +127,23 @@ public class ActionAssignmentStorageTests
     }
 
     [Test]
+    public async Task GroupRow_MayOmitTheThreshold_ButAnActionRowStillMayNot()
+    {
+        // Story 43-6 (2026-11-07, migration RelaxGroupRowThreshold): a group row
+        // can hold only an enforce/enabled/roles opinion. Action rows are unchanged.
+        await ExecAsync(Insert("NULL", "@uid", "group", "deploy-control", "NULL"),
+            ("uid", Guid.NewGuid()));
+        await ExecAsync(Insert("NULL", "@uid", "group", "code-write", "90"),
+            ("uid", Guid.NewGuid()));
+
+        var actionWithoutThreshold = () => ExecAsync(
+            Insert("NULL", "@uid", "action", "tool:file_write", "NULL"), ("uid", Guid.NewGuid()));
+        var ex = (await actionWithoutThreshold.Should().ThrowAsync<PostgresException>()).Which;
+        ex.SqlState.Should().Be("23514");
+        ex.ConstraintName.Should().Be("ck_action_assignments_mode_row");
+    }
+
+    [Test]
     public async Task UnknownTargetKind_IsRejected()
     {
         var act = () => ExecAsync(Insert("NULL", "NULL", "namespace", "tool", "90"));

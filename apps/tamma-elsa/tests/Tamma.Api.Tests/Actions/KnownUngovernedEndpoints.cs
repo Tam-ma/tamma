@@ -278,7 +278,12 @@ internal static class KnownUngovernedEndpoints
     // a NEW in-scope mutating endpoint, BORN BOUND (git.runner.install) + enforcing —
     // the backlog (PinnedCount) does not move. New state: 208 baselined + 2
     // exceptions + 36 bound = 246.
-    internal const int PinnedInScopeCount = 246;
+    // Story 43-6 — 246 → 247 (2026-11-07): PUT /api/actions/policy/groups/{group}/enforce
+    // is a NEW in-scope mutating endpoint, BORN BOUND to the machinery member
+    // effect:governance.policy.group-enforce.set (not enforcing) — neither the backlog
+    // (PinnedCount) nor the D17 exception set moves. New state: 208 baselined + 2
+    // exceptions + 37 bound = 247.
+    internal const int PinnedInScopeCount = 247;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

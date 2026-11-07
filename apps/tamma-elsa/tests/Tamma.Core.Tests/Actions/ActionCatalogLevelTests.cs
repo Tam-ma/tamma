@@ -310,7 +310,8 @@ public class ActionCatalogLevelTests
         // 47 → 49 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper — both IHostedService classes in Tamma.ElsaServer, machinery by class like every hosted service.) The dial-row count above stays 176:
         // 225 catalog rows − 49 machinery, both sides growing by two.
         // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(50);
+        // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to — machinery, so the dial-row count stays 177).
+        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(51);
         ActionCatalog.All.Where(d => d.IsMachinery).Select(d => d.Key.ToWire())
             .Should().OnlyContain(k => !LevelTable.ContainsKey(k));
     }

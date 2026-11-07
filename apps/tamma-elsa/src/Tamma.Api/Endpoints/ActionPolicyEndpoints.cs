@@ -709,6 +709,62 @@ public static class ActionPolicyEndpoints
         return Results.Ok(new { group = g.ToWire(), minAutonomy });
     }
 
+    /// <summary>
+    /// Story 43-6 AC1 — <c>PUT /policy/groups/{group}/enforce</c>: write the
+    /// <c>enforce</c> field on the principal's GROUP-scope row. The evaluator
+    /// reads it as <c>principalAction?.Enforce ?? principalGroup?.Enforce</c>, so
+    /// it reaches every member that has no per-action enforce opinion.
+    ///
+    /// <para><b>The threshold is never moved.</b> A NEW group row is written with
+    /// a NULL <c>MinAutonomy</c> (legal for group rows since
+    /// <c>RelaxGroupRowThreshold</c>, 2026-11-07): the evaluator treats a group
+    /// threshold as optional, so every member keeps resolving exactly as before.
+    /// An EXISTING row is upserted with a null threshold, which
+    /// <c>UpsertAsync</c>'s per-field independence leaves untouched.</para>
+    /// </summary>
+    public static async Task<IResult> PutGroupEnforce(
+        string group, SetActionEnforceRequest body,
+        IActionAssignmentRepository repository,
+        IGovernancePolicySnapshotProvider snapshots,
+        ActionGateEventsService events,
+        ISoleUserProvider soleUser,
+        ClaimsPrincipal principal,
+        ITenantContext tenantContext,
+        ITammaModeProvider modeProvider)
+    {
+        if (!TryResolveGroup(group, out var g, out var error)) return error!;
+        if (body?.Enforce is not bool enforce) return MissingField("enforce");
+        if (!GroupHasDialMembers(g))
+        {
+            return Results.BadRequest(new
+            {
+                error = $"every enforceable member of group '{g.ToWire()}' is machinery "
+                    + "(Story 43-13: never dial-governed, always reported Enforced=false), "
+                    + "so a group enforce flag here could govern nothing.",
+                code = MachineryNotDialGovernedCode,
+            });
+        }
+
+        var (tid, uid, resolveError) = await ResolvePrincipalKeysAsync(
+            soleUser, principal, tenantContext, modeProvider);
+        if (resolveError is not null) return resolveError;
+
+        var wire = g.ToWire();
+        await repository.UpsertAsync(
+            tid, uid, "group", wire, minAutonomy: null, enforce, null, null, null,
+            principal.GetUserId());
+        await snapshots.RefreshAsync();
+        await events.EmitAssignmentChangedAsync(
+            tid, uid, principal.GetUserId(), "principal", "group", wire,
+            "enforce", oldValue: null, newValue: enforce);
+        return Results.Ok(new { group = wire, field = "enforce", value = enforce });
+    }
+
+    private static bool GroupHasDialMembers(ActionGroup group) =>
+        ActionCatalog.ByGroup[group]
+            .Select(k => ActionCatalog.ByKey[k])
+            .Any(d => d.Enforceable && !d.IsMachinery);
+
     public static async Task<IResult> DeleteGroup(
         string group,
         IActionAssignmentRepository repository,
@@ -1057,10 +1113,7 @@ public static class ActionPolicyEndpoints
     /// </summary>
     private static IResult? InvalidGroupThreshold(ActionGroup group, int minAutonomy)
     {
-        var governable = ActionCatalog.ByGroup[group]
-            .Select(k => ActionCatalog.ByKey[k])
-            .Any(d => d.Enforceable && !d.IsMachinery);
-        if (governable)
+        if (GroupHasDialMembers(group))
         {
             return null;
         }

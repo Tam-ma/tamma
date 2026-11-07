@@ -69,7 +69,9 @@ public class ActionAssignment
 
     /// <summary>The minimum autonomy threshold — automated iff
     /// <c>dial &gt;= MinAutonomy</c>; <c>AutonomyDial.AlwaysHuman</c> means a
-    /// person decides at every level. NULL only on <c>mode</c> rows
+    /// person decides at every level. Always NULL on <c>mode</c> rows, always
+    /// set on <c>action</c> rows, OPTIONAL on <c>group</c> rows — a group row
+    /// may hold only an enforce/enabled/roles opinion (Story 43-6, 2026-11-07)
     /// (<c>ck_action_assignments_mode_row</c>). NO numeric DB CHECK —
     /// deliberate (AC3/D5).</summary>
     public int? MinAutonomy { get; set; }

@@ -88,7 +88,9 @@ public class ActionWirePinTests
             "mentorship.session.resume", "mentorship.session.cancel",
             // Story 43-17 follow-up — appended at the END of the enum so the
             // existing order is untouched.
-            "ci.workflow.dispatch", "llm.task.execute");
+            "ci.workflow.dispatch", "llm.task.execute",
+            // Story 43-6, 2026-11-07: the group-enforce policy write (machinery).
+            "governance.policy.group-enforce.set");
     }
 
     [Test]

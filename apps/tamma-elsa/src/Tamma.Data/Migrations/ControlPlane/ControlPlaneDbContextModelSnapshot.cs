@@ -92,7 +92,7 @@ namespace Tamma.Data.Migrations.ControlPlane
 
                     b.ToTable("action_assignments", null, t =>
                         {
-                            t.HasCheckConstraint("ck_action_assignments_mode_row", "(\"TargetKind\" = 'mode') = (\"MinAutonomy\" IS NULL)");
+                            t.HasCheckConstraint("ck_action_assignments_mode_row", "(\"TargetKind\" = 'mode' AND \"MinAutonomy\" IS NULL) OR (\"TargetKind\" = 'action' AND \"MinAutonomy\" IS NOT NULL) OR \"TargetKind\" = 'group'");
 
                             t.HasCheckConstraint("ck_action_assignments_principal_scope", "NOT (\"TenantId\" IS NOT NULL AND \"UserId\" IS NOT NULL)");
 

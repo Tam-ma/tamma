@@ -267,7 +267,7 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void PlatformAutomation_has_the_50_expected_members()
+    public void PlatformAutomation_has_the_51_expected_members()
     {
         var expected = new List<string>
         {
@@ -277,6 +277,8 @@ public class ActionGroupMembershipTests
             // 41-30 — the scheduled-trigger admin trio (platform plumbing, not a
             // work-product surface).
             "effect:schedule.create", "effect:schedule.update", "effect:schedule.delete",
+            // Story 43-6 (2026-11-07) — the group-enforce policy write, machinery.
+            "effect:governance.policy.group-enforce.set",
         };
         // The 29 automation members outside the secrets group (Epic 31 P2 added
         // the driver-cache invalidator + the installation-bridge backfill; 41-30 added
@@ -295,12 +297,13 @@ public class ActionGroupMembershipTests
         // (automation machinery, like every hosted service).
         // 47 → 49 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper — both IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
         // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        expected.Should().HaveCount(50, "5 engine effects + 3 schedule effects + 34 automation + 8 platform tasks");
+        // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
+        expected.Should().HaveCount(51, "5 engine effects + 3 schedule effects + 1 policy effect + 34 automation + 8 platform tasks");
         WiresIn(ActionGroup.PlatformAutomation).Should().BeEquivalentTo(expected);
     }
 
     [Test]
-    public void The_per_group_counts_sum_to_227()
+    public void The_per_group_counts_sum_to_228()
     {
         // 225 → 226 (Story 40-1 AC7): source-control-write 17 → 18
         // (+effect:git.runner.install) — nothing else moves.
@@ -347,7 +350,8 @@ public class ActionGroupMembershipTests
             [ActionGroup.Secrets] = 5,
             // 47 → 49 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper — both IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
             // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-            [ActionGroup.PlatformAutomation] = 50,
+            // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
+            [ActionGroup.PlatformAutomation] = 51,
         };
 
         // 223 → 225 (2026-08-18): platform-automation 47 → 49 (+AdlLoopWatchdogService
@@ -361,7 +365,8 @@ public class ActionGroupMembershipTests
         // (+the DG-5 CI completion poller, automation machinery).
         // 219 → 221 (Epic 31 P2): +2 platform-automation machinery members.
         // 226 → 227 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        counts.Values.Sum().Should().Be(227);
+        // 227 → 228 (Story 43-6, 2026-11-07): platform-automation 50 → 51 (+effect:governance.policy.group-enforce.set, machinery).
+        counts.Values.Sum().Should().Be(228);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }
