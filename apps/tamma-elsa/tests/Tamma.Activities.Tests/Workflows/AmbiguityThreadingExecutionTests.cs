@@ -42,17 +42,15 @@ namespace Tamma.Activities.Tests.Workflows;
 /// read fake — the row plus its <c>DOCUMENT.ACCEPTED</c> event, because
 /// <c>LifecycleResumeCalculator</c> fail-louds on a store/stream disagreement.</para>
 ///
-/// <para><b>CI-only</b>: class name contains <c>Execution</c> (skipped by the fast local filter
-/// <c>FullyQualifiedName!~Execution</c>) and <c>[Explicit]</c> keeps it out of the default gate.
-/// Known limitation (2026-08-03, family-wide and pre-existing): under the bare in-memory test
-/// host, Task-kind activities suspend without draining (no bookmarks, no incidents), so this
-/// suite — like <see cref="IssueDecompositionLifecycleExecutionTests"/> and
-/// <c>ProseLifecycleExecutionTests</c> — stalls on a local runner; the bounded waits surface
-/// the stalled state instead of hanging. The structural suites
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
+/// The structural suites
 /// (<see cref="AmbiguitySignalCoverageMapTests"/>) carry the drift burden the harness cannot.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime integration — runs in the CI Postgres jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class AmbiguityThreadingExecutionTests
 {
     private static readonly Guid Tenant = Guid.Parse("0192a8b0-9999-7abc-8def-000000000025");
@@ -159,8 +157,8 @@ public class AmbiguityThreadingExecutionTests
             Llm.Enqueue(ValidDecomposition());
             var capture = new CapturingHandler();
             await using var provider = BuildProvider(capture, StoreWithAssessment(IssueA, 0.95), EventsWithAssessment(IssueA));
+            await StartRuntimeAsync(provider);
             var result = await RunParentToCompletionAsync(provider, IssueA);
-        await StartRuntimeAsync(provider);
             Status(result).Should().Be(DocumentLifecycleResult.StatusEscalated);
             Output(result, "outcome").Should().Be(DocumentLifecycleOutcome.AmbiguityAboveThreshold.ToWire());
         }
@@ -172,8 +170,8 @@ public class AmbiguityThreadingExecutionTests
             Reviews.Enqueue(ApproveReview());
             var capture = new CapturingHandler();
             await using var provider = BuildProvider(capture, FreshStore(), FreshEvents());
+            await StartRuntimeAsync(provider);
             var (instanceId, request) = await RunToSuspendAsync(provider, IssueB);
-        await StartRuntimeAsync(provider);
             request.Should().NotBeNull();
             var result = await ResumeAndReadParentAsync(provider, instanceId, request!.DecisionSessionId, Accept());
             Status(result).Should().Be("completed",
@@ -186,8 +184,8 @@ public class AmbiguityThreadingExecutionTests
             // Review queue left EMPTY — the stub returns "{}", an unusable review ⇒ undecidable.
             var capture = new CapturingHandler();
             await using var provider = BuildProvider(capture, FreshStore(), FreshEvents());
+            await StartRuntimeAsync(provider);
             var result = await RunParentToCompletionAsync(provider, IssueB);
-        await StartRuntimeAsync(provider);
             Status(result).Should().Be(DocumentLifecycleResult.StatusEscalated);
             Output(result, "outcome").Should().Be(DocumentLifecycleOutcome.ReviewUndecidable.ToWire());
             provider.GetRequiredService<CapturingPublisher>().Last.Should().BeNull(
@@ -251,6 +249,7 @@ public class AmbiguityThreadingExecutionTests
         var runtime = provider.GetRequiredService<IWorkflowRuntime>();
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         await DocumentDecisionResumeEndpoint.Resume(
             new DocumentDecisionResumeEndpoint.ResumeRequest(
                 SessionId: session, TenantId: Tenant.ToString(), DecisionJson: decisionJson,

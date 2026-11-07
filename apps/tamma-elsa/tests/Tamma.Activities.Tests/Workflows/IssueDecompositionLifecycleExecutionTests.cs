@@ -44,9 +44,11 @@ namespace Tamma.Activities.Tests.Workflows;
 /// (f) crash mid-review → re-enter at review, no second produce / no second STARTED. All run
 /// with the 39-9 managed repair ring OFF (default).</para>
 ///
-/// <para><b>CI-only</b>: the class name contains <c>Execution</c> (skipped by the fast local
-/// filter <c>FullyQualifiedName!~Execution</c>) and <c>[Explicit]</c> keeps it out of the
-/// default gate; the Postgres CI jobs run it. The property-level correctness burden lives in
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
+/// The property-level correctness burden lives in
 /// <see cref="DecompositionBindingHelperTests"/> + <see cref="DocumentLifecycleHelperTests"/>
 /// — this proves the WIRING.</para>
 ///
@@ -63,7 +65,7 @@ namespace Tamma.Activities.Tests.Workflows;
 /// <c>DocumentLifecycleWorkflowStructureTests</c>.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime integration — runs in the CI Postgres jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class IssueDecompositionLifecycleExecutionTests
 {
     private static readonly Guid Tenant = Guid.Parse("0192a8b0-9999-7abc-8def-000000000012");
@@ -252,6 +254,8 @@ public class IssueDecompositionLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("issue-decomposition"),
             Input = DecompositionInput(),
         });
+        await ElsaRuntimeHarness.WaitAsync(
+            client, st => publisher.Last is not null || ElsaRuntimeHarness.IsFinished(st), "accept gate");
         return (response.WorkflowInstanceId, publisher.Last);
     }
 
@@ -264,8 +268,7 @@ public class IssueDecompositionLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("issue-decomposition"),
             Input = DecompositionInput(),
         });
-        var client2 = await runtime.CreateClientAsync(response.WorkflowInstanceId);
-        var state = await client2.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, response.WorkflowInstanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -274,8 +277,7 @@ public class IssueDecompositionLifecycleExecutionTests
     {
         await ResumeRawAsync(provider, session, decisionJson, tenantId);
         var runtime = provider.GetRequiredService<IWorkflowRuntime>();
-        var client = await runtime.CreateClientAsync(parentInstanceId);
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, parentInstanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -286,6 +288,7 @@ public class IssueDecompositionLifecycleExecutionTests
         var runtime = provider.GetRequiredService<IWorkflowRuntime>();
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         return await DocumentDecisionResumeEndpoint.Resume(
             new DocumentDecisionResumeEndpoint.ResumeRequest(
                 SessionId: session, TenantId: tenantId, DecisionJson: decisionJson,
@@ -388,7 +391,7 @@ public class IssueDecompositionLifecycleExecutionTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── seed fixtures ──────────────────────────────────────────────────

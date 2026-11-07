@@ -40,13 +40,15 @@ namespace Tamma.Activities.Tests.Workflows;
 /// <see cref="DocumentDecisionResumeEndpoint"/> resume seam with the re-entry service
 /// wired (the canonical bookmark path).</para>
 ///
-/// <para><b>CI-only</b>: the class name contains <c>Integration</c> (skipped by the fast
-/// local filter) and <c>[Explicit]</c> keeps it out of the default gate, matching how
-/// 39-6's execution suite is gated. The full-runtime + faked-store wiring proves the
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
+/// The full-runtime + faked-store wiring proves the
 /// WIRING; the property-level correctness lives in the unit suites.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime re-entry integration — runs in the CI jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class LifecycleReEntryIntegrationTests
 {
     private static readonly Guid Tenant = Guid.Parse("0192a8b0-9999-7abc-8def-000000000009");
@@ -157,19 +159,14 @@ public class LifecycleReEntryIntegrationTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("document-lifecycle"),
             Input = LifecycleInput(),
         });
+        await ElsaRuntimeHarness.WaitAsync(
+            client, st => publisher.Last is not null || ElsaRuntimeHarness.IsFinished(st), "document-lifecycle gate");
         return publisher.Last;
     }
 
     private static async Task<IDictionary<string, object>> RunToCompletionAsync(IServiceProvider provider)
     {
-        var runtime = provider.GetRequiredService<IWorkflowRuntime>();
-        var client = await runtime.CreateClientAsync();
-        await client.CreateAndRunInstanceAsync(new CreateAndRunWorkflowInstanceRequest
-        {
-            WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("document-lifecycle"),
-            Input = LifecycleInput(),
-        });
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.RunUntilDoneAsync(provider, "document-lifecycle", LifecycleInput());
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -181,6 +178,7 @@ public class LifecycleReEntryIntegrationTests
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
         var name = WaitForDocumentDecisionActivity.DecisionBookmarkName(Tenant.ToString(), session);
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         var bookmarks = (await bookmarkStore.FindManyAsync(
             new Elsa.Workflows.Runtime.Filters.BookmarkFilter { Name = name }, CancellationToken.None)).ToList();
         var instanceId = bookmarks.Count == 1 ? bookmarks[0].WorkflowInstanceId : string.Empty;
@@ -193,8 +191,7 @@ public class LifecycleReEntryIntegrationTests
             bookmarkStore, runtime, loggerFactory, CancellationToken.None);
 
         if (string.IsNullOrEmpty(instanceId)) return new Dictionary<string, object>();
-        var client = await runtime.CreateClientAsync(instanceId);
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, instanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -214,8 +211,7 @@ public class LifecycleReEntryIntegrationTests
         => output.TryGetValue("status", out var s) ? s?.ToString() : null;
 
     private static List<string?> CapturedTypes(CapturingHandler capture) =>
-        capture.Bodies
-            .SelectMany(b => JsonDocument.Parse(b).RootElement.GetProperty("events").EnumerateArray())
+        ElsaRuntimeHarness.EventsIn(capture.Bodies)
             .Select(e => e.GetProperty("eventType").GetString())
             .ToList();
 
@@ -256,7 +252,7 @@ public class LifecycleReEntryIntegrationTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── seed fixtures ──────────────────────────────────────────────────

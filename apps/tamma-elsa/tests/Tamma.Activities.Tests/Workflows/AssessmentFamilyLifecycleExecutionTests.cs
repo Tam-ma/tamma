@@ -43,8 +43,10 @@ namespace Tamma.Activities.Tests.Workflows;
 /// REQUIREMENTS.CLARIFIED); (d) Design accept-gate round trip (suspend on the canonical decision
 /// bookmark → legacy DesignResumeEndpoint approves → APPROVED; reject variant → REJECTED).</para>
 ///
-/// <para><b>CI-only</b>: the class name contains <c>Execution</c> (skipped by the fast local
-/// filter) and <c>[Explicit]</c> keeps it out of the default gate; the Postgres CI jobs run it.
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
 /// The property-level burden lives in <see cref="AssessmentBindingHelperTests"/> and the four
 /// structure suites — this proves the WIRING.</para>
 ///
@@ -55,7 +57,7 @@ namespace Tamma.Activities.Tests.Workflows;
 /// <c>.dev/findings/document-lifecycle-persist-not-wired.md</c>.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime integration — runs in the CI Postgres jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class AssessmentFamilyLifecycleExecutionTests
 {
     private static readonly Guid Tenant = Guid.Parse("0192a8b0-9999-7abc-8def-000000000013");
@@ -145,21 +147,31 @@ public class AssessmentFamilyLifecycleExecutionTests
             Input = ClarifyInput(),
         });
 
-        // Run A's own accept gate suspends first — resume it.
+        // Run A's own accept gate suspends first — resume it. The produce/review children
+        // run on the background dispatcher, so each gate is awaited (bounded), never assumed.
         var publisher = provider.GetRequiredService<CapturingPublisher>();
-        if (publisher.Last is { } runAReq)
-            await ResumeDecisionRawAsync(provider, runAReq.DecisionSessionId, Accept(), Tenant.ToString());
+        await ElsaRuntimeHarness.UntilAsync(() => publisher.Count >= 1, "run A's accept request");
+        StatusCode(await ResumeDecisionRawAsync(provider, publisher.Last!.DecisionSessionId, Accept(), Tenant.ToString()))
+            .Should().Be(200);
 
         // Now the binding suspends on the document-input gate — resume via the legacy adapter.
-        var inputResume = await ClarifyResumeEndpoint.Resume(
-            new ClarifyResumeEndpoint.ResumeRequest(SessionIdOf(ClarifyInput()), Tenant.ToString(), "we mean web + OAuth2", "who@x.test"),
-            provider.GetRequiredService<IBookmarkStore>(), runtime,
-            provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(), CancellationToken.None);
+        // Until that bookmark exists the adapter answers 404, so retry (bounded) until it lands.
+        IResult inputResume = Results.NotFound();
+        await ElsaRuntimeHarness.UntilAsync(async () =>
+        {
+            inputResume = await ClarifyResumeEndpoint.Resume(
+                new ClarifyResumeEndpoint.ResumeRequest(SessionIdOf(ClarifyInput()), Tenant.ToString(), "we mean web + OAuth2", "who@x.test"),
+                provider.GetRequiredService<IBookmarkStore>(), runtime,
+                provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(), CancellationToken.None);
+            return StatusCode(inputResume) != 404;
+        }, "the document-input gate bookmark");
         StatusCode(inputResume).Should().Be(200);
 
         // Run B accept gate.
-        if (publisher.Last is { } runBReq)
-            await ResumeDecisionRawAsync(provider, runBReq.DecisionSessionId, Accept(), Tenant.ToString());
+        await ElsaRuntimeHarness.UntilAsync(() => publisher.Count >= 2, "run B's accept request");
+        StatusCode(await ResumeDecisionRawAsync(provider, publisher.Last!.DecisionSessionId, Accept(), Tenant.ToString()))
+            .Should().Be(200);
+        await ElsaRuntimeHarness.WaitForFinishedAsync(provider, response.WorkflowInstanceId);
 
         var stream = CapturedTypes(capture);
         stream.Should().Contain("CLARIFY.QUESTIONS.GENERATED").And.Contain("CLARIFY.QUESTIONS.DELIVERED");
@@ -234,6 +246,8 @@ public class AssessmentFamilyLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId(definitionId),
             Input = input,
         });
+        await ElsaRuntimeHarness.WaitAsync(
+            client, st => publisher.Last is not null || ElsaRuntimeHarness.IsFinished(st), "accept gate");
         return (response.WorkflowInstanceId, publisher.Last);
     }
 
@@ -252,9 +266,7 @@ public class AssessmentFamilyLifecycleExecutionTests
 
     private static async Task<IDictionary<string, object>> ReadParentAsync(IServiceProvider provider, string instanceId)
     {
-        var runtime = provider.GetRequiredService<IWorkflowRuntime>();
-        var client = await runtime.CreateClientAsync(instanceId);
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, instanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -265,9 +277,11 @@ public class AssessmentFamilyLifecycleExecutionTests
         return await ReadParentAsync(provider, parentInstanceId);
     }
 
-    private static Task<IResult> ResumeDecisionRawAsync(
+    private static async Task<IResult> ResumeDecisionRawAsync(
         IServiceProvider provider, Guid session, string decisionJson, string tenantId)
-        => DocumentDecisionResumeEndpoint.Resume(
+    {
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
+        return await DocumentDecisionResumeEndpoint.Resume(
             new DocumentDecisionResumeEndpoint.ResumeRequest(
                 SessionId: session, TenantId: tenantId, DecisionJson: decisionJson,
                 Feedback: null, DeciderId: "orchestrator", DeciderDisplay: null,
@@ -276,6 +290,7 @@ public class AssessmentFamilyLifecycleExecutionTests
             provider.GetRequiredService<IWorkflowRuntime>(),
             provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(),
             CancellationToken.None);
+    }
 
     private static Guid SessionIdOf(Dictionary<string, object> input)
         => input.TryGetValue("sessionId", out var v) && v is Guid g ? g : Guid.Empty;
@@ -360,7 +375,7 @@ public class AssessmentFamilyLifecycleExecutionTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── payloads ────────────────────────────────────────────────────────
@@ -382,6 +397,7 @@ public class AssessmentFamilyLifecycleExecutionTests
 
     private static string ResolutionClarification() =>
         "{\"phase\":\"resolution\",\"clarifiedRequirement\":\"web app with OAuth2\"," +
+        "\"questions\":[\"What is the target platform?\",\"Which auth model is expected?\"]," +
         "\"resolutions\":[{\"questionId\":\"Q-1\",\"requirement\":\"web\"}],\"remainingAmbiguities\":[],\"resolved\":true}";
 
     private static string ValidDesign() =>
@@ -390,8 +406,11 @@ public class AssessmentFamilyLifecycleExecutionTests
         "{\"id\":\"ALT-2\",\"name\":\"Redis\",\"tradeoffs\":\"durable; adds a dependency\"}]," +
         "\"recommendation\":\"ALT-1 is lowest-risk.\",\"recommendedAlternativeId\":\"ALT-1\",\"constraintEvaluation\":\"meets no-new-infra\"}";
 
+    // A canonical Review: `subject` is required — a review without one does not
+    // deserialize, so the lifecycle (correctly) treats it as unusable → review-undecidable.
     private static string ApproveReview() =>
-        "{\"decision\":\"approve\",\"summary\":\"looks good\",\"issues\":[]}";
+        "{\"subject\":{\"kind\":\"document\",\"documentId\":\"0192a8b0-1111-7abc-8def-000000000001\",\"documentType\":\"research\"}," +
+        "\"decision\":\"approve\",\"summary\":\"looks good\",\"issues\":[]}";
 
     // ── stub sub-workflows ─────────────────────────────────────────────
 
@@ -452,6 +471,7 @@ public class AssessmentFamilyLifecycleExecutionTests
     {
         private readonly ConcurrentQueue<AcceptanceRequest> _requests = new();
         public AcceptanceRequest? Last => _requests.LastOrDefault();
+        public int Count => _requests.Count;
         public Task PublishAsync(AcceptanceRequest request, CancellationToken ct)
         {
             _requests.Enqueue(request);

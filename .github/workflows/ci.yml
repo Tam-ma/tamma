@@ -275,7 +275,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8, api-9, api-10, api-11, api-12, api-13, api-14, api-15, api-16]
+        slice: [other, workflow-exec, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8, api-9, api-10, api-11, api-12, api-13, api-14, api-15, api-16]
     env:
       API_SHARDS: 16  # keep in sync with the matrix list above
     defaults:
@@ -310,6 +310,8 @@ jobs:
         run: |
           if [ "${{ matrix.slice }}" = "other" ]; then
             dotnet restore Tamma.sln
+          elif [ "${{ matrix.slice }}" = "workflow-exec" ]; then
+            dotnet restore tests/Tamma.Activities.Tests/Tamma.Activities.Tests.csproj
           else
             dotnet restore tests/Tamma.Api.Tests/Tamma.Api.Tests.csproj
           fi
@@ -318,6 +320,8 @@ jobs:
         run: |
           if [ "${{ matrix.slice }}" = "other" ]; then
             dotnet build Tamma.sln --no-restore -c Release
+          elif [ "${{ matrix.slice }}" = "workflow-exec" ]; then
+            dotnet build tests/Tamma.Activities.Tests/Tamma.Activities.Tests.csproj --no-restore -c Release
           else
             dotnet build tests/Tamma.Api.Tests/Tamma.Api.Tests.csproj --no-restore -c Release
           fi
@@ -327,8 +331,8 @@ jobs:
           COVERAGE: '1'
         run: |
           slice="${{ matrix.slice }}"
-          if [ "$slice" = "other" ]; then
-            ../../.github/scripts/dotnet-test-run.sh other
+          if [ "$slice" = "other" ] || [ "$slice" = "workflow-exec" ]; then
+            ../../.github/scripts/dotnet-test-run.sh "$slice"
           else
             ../../.github/scripts/dotnet-test-run.sh api "${slice#api-}" "$API_SHARDS"
           fi
@@ -404,7 +408,7 @@ jobs:
         env:
           SLICES_RESULT: ${{ needs.dotnet-tests-slice.result }}
         run: |
-          expected=17  # one per dotnet-tests-slice matrix entry (other + api-1..16) — keep in sync
+          expected=18  # one per dotnet-tests-slice matrix entry (other + workflow-exec + api-1..16) — keep in sync
           got=$(find coverage-in -mindepth 1 -maxdepth 1 -type d -name 'coverage-*' | wc -l)
           {
             python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \

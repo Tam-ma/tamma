@@ -4,6 +4,9 @@
 #   dotnet-test-run.sh other          every test project EXCEPT Tamma.Api.Tests and
 #                                     Tamma.Platforms.IntegrationTests
 #   dotnet-test-run.sh api <I> <N>    shard I of N of Tamma.Api.Tests
+#   dotnet-test-run.sh workflow-exec  the full-runtime Elsa workflow suites in
+#                                     Tamma.Activities.Tests (NUnit category
+#                                     WorkflowExecution, ~1.5 min); `other` skips them
 #
 # Run from apps/tamma-elsa, after a Release build. Kept from the old single job:
 #   * --blame-hang: a test host that will not exit is named and its threads
@@ -19,7 +22,7 @@
 # `coverage-report` job merges every slice's files. Costs ~10% test time.
 set -uo pipefail
 
-mode="${1:?usage: dotnet-test-run.sh other | api <shard> <total>}"
+mode="${1:?usage: dotnet-test-run.sh other | workflow-exec | api <shard> <total>}"
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 logs=/tmp/test-logs
 mkdir -p "$logs"
@@ -60,9 +63,16 @@ case "$mode" in
         # runner busy with 16 minutes of API-test containers. On an idle slice
         # docker answers, the full engine E2E starts, and it hung the job.
         Tamma.Platforms.IntegrationTests) continue ;;
+        # Its full-runtime workflow suites run in the `workflow-exec` slice.
+        Tamma.Activities.Tests)
+          run_project "$proj" --filter "TestCategory!=WorkflowExecution"
+          continue ;;
       esac
       run_project "$proj"
     done
+    ;;
+  workflow-exec)
+    run_project tests/Tamma.Activities.Tests/ --filter "TestCategory=WorkflowExecution"
     ;;
   api)
     shard="${2:?shard index required}"

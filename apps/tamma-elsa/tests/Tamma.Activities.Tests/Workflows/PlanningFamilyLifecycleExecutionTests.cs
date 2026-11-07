@@ -35,8 +35,10 @@ namespace Tamma.Activities.Tests.Workflows;
 /// <see cref="LifecycleReEntryService"/> over faked 39-11 repos, and decisions injected through
 /// 39-8's <see cref="DocumentDecisionResumeEndpoint"/>.
 ///
-/// <para><b>CI-only</b>: the class name contains <c>Execution</c> (skipped by the fast local
-/// filter) and <c>[Explicit]</c> keeps it out of the default gate; the Postgres CI jobs run it.
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
 /// The property-level correctness burden lives in <see cref="PlanBindingHelperTests"/> +
 /// <see cref="PlanReviewDecisionPortedTests"/> + the structure suites — this proves the WIRING.</para>
 ///
@@ -49,7 +51,7 @@ namespace Tamma.Activities.Tests.Workflows;
 /// behind (the 39-10 harness pattern), which exercises the read path those ACs depend on.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime integration — runs in the CI Postgres jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class PlanningFamilyLifecycleExecutionTests
 {
     private static readonly Guid Tenant = Guid.Parse("0192a8b0-9999-7abc-8def-000000000014");
@@ -230,6 +232,8 @@ public class PlanningFamilyLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId(definitionId),
             Input = input,
         });
+        await ElsaRuntimeHarness.WaitAsync(
+            client, st => publisher.Last is not null || ElsaRuntimeHarness.IsFinished(st), "accept gate");
         return (response.WorkflowInstanceId, publisher.Last);
     }
 
@@ -243,8 +247,7 @@ public class PlanningFamilyLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId(definitionId),
             Input = input,
         });
-        var client2 = await runtime.CreateClientAsync(response.WorkflowInstanceId);
-        var state = await client2.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, response.WorkflowInstanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -254,6 +257,7 @@ public class PlanningFamilyLifecycleExecutionTests
         var bookmarkStore = provider.GetRequiredService<IBookmarkStore>();
         var runtime = provider.GetRequiredService<IWorkflowRuntime>();
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         await DocumentDecisionResumeEndpoint.Resume(
             new DocumentDecisionResumeEndpoint.ResumeRequest(
                 SessionId: session, TenantId: tenantId, DecisionJson: decisionJson,
@@ -261,8 +265,7 @@ public class PlanningFamilyLifecycleExecutionTests
                 Channel: "orchestrator", RulesReference: "system-default@1"),
             bookmarkStore, runtime, loggerFactory, CancellationToken.None);
 
-        var client = await runtime.CreateClientAsync(parentInstanceId);
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, parentInstanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -341,7 +344,7 @@ public class PlanningFamilyLifecycleExecutionTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── seed fixtures ──────────────────────────────────────────────────

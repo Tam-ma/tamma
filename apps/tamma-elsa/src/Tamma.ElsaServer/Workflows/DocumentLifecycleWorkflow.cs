@@ -284,6 +284,23 @@ public class DocumentLifecycleWorkflow : WorkflowBase
         var reEntryAcceptGate = new FlowDecision(ctx => reEntryStage.Get(ctx) == "accept")
         { Id = "ReEntryAcceptGate", Name = "Re-enter At Accept?" };
         reEntryAcceptGate.SetDisplayText("Re-enter At Accept?");
+        // Loop head for the REVISE round. A revised draft must be re-validated, but the
+        // revise path cannot loop straight back to ValidateDraft: the re-entry gates
+        // above jump into REVIEW and ACCEPT, so ValidateDraft does not lie on every path
+        // to the revise step, and Elsa rejects that back edge at run time ("Invalid
+        // backward connection") — every revise round faulted. The revise path instead
+        // sets the stage to "validate" and loops back to the head of this gate chain,
+        // which does dominate it; this gate then routes straight to ValidateDraft.
+        var reEntryValidateGate = new FlowDecision(ctx => reEntryStage.Get(ctx) == "validate")
+        { Id = "ReEntryValidateGate", Name = "Re-validate A Revision?" };
+        reEntryValidateGate.SetDisplayText("Re-validate A Revision?");
+        var loopToValidate = new SetVariable
+        {
+            Id = "LoopToValidate", Name = "Loop To Validate",
+            Variable = reEntryStage,
+            Value = new(_ => (object)"validate"),
+        };
+        loopToValidate.SetDisplayText("Loop To Validate");
 
         // ================================================================
         // PRODUCE — dispatch llm-call (agentRole/action/variables + documentType/issueId)
@@ -842,7 +859,7 @@ public class DocumentLifecycleWorkflow : WorkflowBase
         // ================================================================
         // Flowchart wiring
         // ================================================================
-        builder.Root = new Flowchart
+        var flowchart = new Flowchart
         {
             Id = "DocumentLifecycleFlowchart",
             Start = init,
@@ -850,7 +867,8 @@ public class DocumentLifecycleWorkflow : WorkflowBase
             {
                 init,
                 computeReEntry, applyReEntry,
-                reEntryCompleteGate, reEntryReviewGate, reEntryAcceptGate, finalizeReenteredComplete,
+                reEntryCompleteGate, reEntryReviewGate, reEntryAcceptGate, reEntryValidateGate, finalizeReenteredComplete,
+                loopToValidate,
                 dispatchProduce, ingestProduce, emitProduced,
                 validateDraft, emitValidated, validationGate,
                 repairCheck, prepareRepair, dispatchRepair, ingestRepair,
@@ -880,7 +898,9 @@ public class DocumentLifecycleWorkflow : WorkflowBase
                 ConnectOutcome(reEntryReviewGate, "True", emitReviewRequested),
                 ConnectOutcome(reEntryReviewGate, "False", reEntryAcceptGate),
                 ConnectOutcome(reEntryAcceptGate, "True", buildAcceptanceRequest),
-                ConnectOutcome(reEntryAcceptGate, "False", dispatchProduce),
+                ConnectOutcome(reEntryAcceptGate, "False", reEntryValidateGate),
+                ConnectOutcome(reEntryValidateGate, "True", validateDraft),
+                ConnectOutcome(reEntryValidateGate, "False", dispatchProduce),
                 Connect(finalizeReenteredComplete, setOutputs),
 
                 Connect(dispatchProduce, ingestProduce),
@@ -922,7 +942,8 @@ public class DocumentLifecycleWorkflow : WorkflowBase
                 Connect(persistRevised, prepareRevision),
                 Connect(prepareRevision, dispatchRevise),
                 Connect(dispatchRevise, ingestRevise),
-                Connect(ingestRevise, validateDraft),
+                Connect(ingestRevise, loopToValidate),
+                Connect(loopToValidate, reEntryCompleteGate),
 
                 // ACCEPT — (optional delivery) → publish → gate (NO decision between them) → guardrails → route.
                 // Delivery is behind TWO gates: "is a delivery workflow configured?" and
@@ -976,6 +997,15 @@ public class DocumentLifecycleWorkflow : WorkflowBase
                 Connect(setOutputs, finish),
             }
         };
+
+        // Every convergence point above merges mutually exclusive branches. Without an
+        // explicit WaitAny join, Elsa treats each as an implicit WaitAllActive join that
+        // never fires when a branch behind a loop is never visited — the run then
+        // completes silently with empty outputs (see FlowJoins).
+        FlowJoins.WaitAny(flowchart,
+            validateDraft, emitReviewRequested, buildAcceptanceRequest, publishRequest, applyGuardrails,
+            mintRevisionEventId, mintEscalatedEventId, setOutputs);
+        builder.Root = flowchart;
     }
 
     // ====================================================================

@@ -270,7 +270,7 @@ public class AmbiguitySignalCoverageMapTests
         intoGate.Should().ContainSingle().Which.Source.Activity!.Id.Should().Be("AmbiguityCheck");
 
         var fromGate = fc.Connections.Where(c => c.Source.Activity?.Id == "AmbiguityGate")
-            .ToDictionary(c => c.Source.Port ?? "", c => c.Target.Activity!.Id);
+            .ToDictionary(c => c.Source.Port ?? "", c => WorkflowTestHelper.ResolvedTargetId(fc, c)!);
         fromGate.Should().HaveCount(2);
         fromGate["True"].Should().Be("SeedAmbiguity",
             "a score at/above threshold pulls a person via the typed ambiguity-above-threshold escalation");

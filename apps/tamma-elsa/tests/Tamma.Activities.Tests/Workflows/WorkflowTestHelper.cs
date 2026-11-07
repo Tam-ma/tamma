@@ -112,6 +112,19 @@ public static class WorkflowTestHelper
     }
 
     /// <summary>
+    /// The activity a connection really leads to: when it targets an explicit
+    /// <see cref="FlowJoin"/> (e.g. the WaitAny joins <c>FlowJoins.WaitAny</c> inserts in
+    /// front of a convergence point), the join's single successor; otherwise its target.
+    /// </summary>
+    public static string? ResolvedTargetId(Flowchart flowchart, Elsa.Workflows.Activities.Flowchart.Models.Connection connection)
+    {
+        var target = connection.Target.Activity;
+        if (target is not FlowJoin join) return target?.Id;
+        var next = flowchart.Connections.Where(c => c.Source.Activity == join).ToList();
+        return next.Count == 1 ? next[0].Target.Activity?.Id : join.Id;
+    }
+
+    /// <summary>
     /// Extracts the Flowchart from the builder's Root property.
     /// </summary>
     public static Flowchart GetFlowchart(Mock<IWorkflowBuilder> mockBuilder)

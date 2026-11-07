@@ -24,12 +24,13 @@ namespace Tamma.Activities.Tests.Workflows;
 /// step 10, scenarios (a)–(g)). Drives the REAL producers through the Elsa runtime
 /// with a role-aware SCRIPTED <c>llm-call</c> stub and the durable event drain.
 ///
-/// <para>CI-only: the class name contains <c>Execution</c> so the fast local filter
-/// (<c>FullyQualifiedName!~Execution</c>) skips it, and <c>[Explicit]</c> keeps it out
-/// of the default gate; the Postgres CI jobs run it.</para>
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.</para>
 /// </summary>
 [TestFixture]
-[Explicit("Full Elsa workflow-runtime integration — runs in the CI Postgres jobs, skipped in the fast local gate")]
+[Category(ElsaRuntimeHarness.Category)]
 public class ReviewProducerExecutionTests
 {
     [SetUp]
@@ -192,14 +193,7 @@ public class ReviewProducerExecutionTests
     private static async Task<IDictionary<string, object>> RunAsync(
         IServiceProvider provider, string definitionId, Dictionary<string, object> input)
     {
-        var runtime = provider.GetRequiredService<IWorkflowRuntime>();
-        var client = await runtime.CreateClientAsync();
-        await client.CreateAndRunInstanceAsync(new CreateAndRunWorkflowInstanceRequest
-        {
-            WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId(definitionId),
-            Input = input,
-        });
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.RunUntilDoneAsync(provider, definitionId, input);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -273,8 +267,7 @@ public class ReviewProducerExecutionTests
         CapturedEvents(capture).Select(e => e.GetProperty("eventType").GetString()).ToList();
 
     private static List<JsonElement> CapturedEvents(CapturingHandler capture) =>
-        capture.Bodies
-            .SelectMany(b => JsonDocument.Parse(b).RootElement.GetProperty("events").EnumerateArray())
+        ElsaRuntimeHarness.EventsIn(capture.Bodies)
             .ToList();
 
     private static bool HasReviewDocumentTypeTag(CapturingHandler capture) =>
@@ -311,7 +304,7 @@ public class ReviewProducerExecutionTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── role-aware scripted stub llm-call ──

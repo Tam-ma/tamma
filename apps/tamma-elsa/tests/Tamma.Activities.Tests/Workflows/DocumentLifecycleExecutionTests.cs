@@ -34,11 +34,11 @@ namespace Tamma.Activities.Tests.Workflows;
 ///
 /// <para>This is the heaviest artifact in the epic (dispatcher + registered
 /// sub-workflows + bookmarks). It is built as a REUSABLE fixture (39-8 / 39-12 reuse
-/// the harness) and is <b>CI-only</b>: the class name contains <c>Execution</c> so
-/// the fast local filter (<c>FullyQualifiedName!~Execution</c>) skips it, and
-/// <c>[Explicit]</c> keeps it out of the default gate. NOTE (2026-07-29): no CI job
-/// currently selects [Explicit] fixtures, and the harness does not yet work — see
-/// the [Explicit] reason below.
+/// the harness).</para>
+/// <para><b>Runs in CI</b> in the <c>workflow-exec</c> slice (category
+/// <see cref="ElsaRuntimeHarness.Category"/>) and in a plain local <c>dotnet test</c>; it is
+/// in-process and takes seconds. Until 2026-11-07 it was <c>[Explicit]</c> and selected by no CI
+/// job, so it never ran and had drifted — see <c>.dev/findings/explicit-execution-suites.md</c>.
 /// The property-level correctness burden lives in
 /// <see cref="DocumentLifecycleHelperTests"/> — this proves the WIRING.</para>
 ///
@@ -51,12 +51,7 @@ namespace Tamma.Activities.Tests.Workflows;
 /// Escalate).</para>
 /// </summary>
 [TestFixture]
-[Explicit("DOES NOT RUN ANYWHERE TODAY and FAILS when invoked: no CI job passes a filter that selects " +
-    "[Explicit] fixtures, and under this bare-provider harness the lifecycle suspends forever on its first " +
-    "Kind=ActivityKind.Task activity (ComputeReEntryPosition) — Elsa's background activity invoker defers it " +
-    "but no BackgroundActivity bookmark is ever created, so nothing resumes it (diagnosed 2026-07-29). The " +
-    "property-level correctness burden lives in DocumentLifecycleHelperTests and BuildReviewEnvelopeTests; " +
-    "keep this fixture as the full-runtime target for a future working harness.")]
+[Category(ElsaRuntimeHarness.Category)]
 public class DocumentLifecycleExecutionTests
 {
     private const string TenantId = "";
@@ -193,6 +188,10 @@ public class DocumentLifecycleExecutionTests
             WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("document-lifecycle"),
             Input = LifecycleInput(),
         });
+        // The producer/reviewer children run on the background dispatcher: wait until
+        // the gate request is published (or the run ends without one).
+        await ElsaRuntimeHarness.WaitAsync(
+            client, s => publisher.Last is not null || ElsaRuntimeHarness.IsFinished(s), "document-lifecycle gate");
         return new SuspendedRun(response.WorkflowInstanceId, publisher.Last);
     }
 
@@ -205,14 +204,7 @@ public class DocumentLifecycleExecutionTests
 
     private static async Task<IDictionary<string, object>> RunToCompletionAsync(IServiceProvider provider)
     {
-        var runtime = provider.GetRequiredService<IWorkflowRuntime>();
-        var client = await runtime.CreateClientAsync();
-        var response = await client.CreateAndRunInstanceAsync(new CreateAndRunWorkflowInstanceRequest
-        {
-            WorkflowDefinitionHandle = WorkflowDefinitionHandle.ByDefinitionId("document-lifecycle"),
-            Input = LifecycleInput(),
-        });
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.RunUntilDoneAsync(provider, "document-lifecycle", LifecycleInput());
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -226,6 +218,7 @@ public class DocumentLifecycleExecutionTests
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
         var bookmarkName = WaitForDocumentDecisionActivity.DecisionBookmarkName(TenantId, session);
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         var bookmarks = (await bookmarkStore.FindManyAsync(
             new Elsa.Workflows.Runtime.Filters.BookmarkFilter { Name = bookmarkName }, CancellationToken.None)).ToList();
         var instanceId = bookmarks.Count == 1 ? bookmarks[0].WorkflowInstanceId : string.Empty;
@@ -243,8 +236,7 @@ public class DocumentLifecycleExecutionTests
             bookmarkStore, runtime, loggerFactory, CancellationToken.None);
 
         if (string.IsNullOrEmpty(instanceId)) return new Dictionary<string, object>();
-        var client = await runtime.CreateClientAsync(instanceId);
-        var state = await client.ExportStateAsync();
+        var state = await ElsaRuntimeHarness.WaitForFinishedAsync(provider, instanceId);
         return state.Output ?? new Dictionary<string, object>();
     }
 
@@ -267,8 +259,7 @@ public class DocumentLifecycleExecutionTests
         => output.TryGetValue("outcome", out var o) ? o?.ToString() : null;
 
     private static List<string?> CapturedTypes(CapturingHandler capture) =>
-        capture.Bodies
-            .SelectMany(b => JsonDocument.Parse(b).RootElement.GetProperty("events").EnumerateArray())
+        ElsaRuntimeHarness.EventsIn(capture.Bodies)
             .Select(e => e.GetProperty("eventType").GetString())
             .ToList();
 
@@ -305,7 +296,7 @@ public class DocumentLifecycleExecutionTests
             NullLogger<Tamma.Activities.LlmCall.TammaApiClient>.Instance,
             config));
 
-        return services.BuildServiceProvider();
+        return ElsaRuntimeHarness.Start(services.BuildServiceProvider());
     }
 
     // ── decision + payload fixtures ────────────────────────────────────
