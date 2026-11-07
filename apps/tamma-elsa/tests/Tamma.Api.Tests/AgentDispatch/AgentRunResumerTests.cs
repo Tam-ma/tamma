@@ -90,6 +90,20 @@ public class AgentRunResumerTests
         .Setup(w => w.ListPendingByTenantAsync(_tenantId, Installation, Repo, Branch, It.IsAny<CancellationToken>()))
         .ReturnsAsync(rows);
 
+    /// <summary>Story 40-3b — the wake path reaches the engine: webhook by default, poll from the reconciler.</summary>
+    [TestCase(null, "webhook")]
+    [TestCase("poll", "poll")]
+    [TestCase("nonsense", "webhook")]
+    public async Task The_wake_path_is_sent_to_the_engine(string? wakePath, string expected)
+    {
+        TenantRows(Row(_tenantId, null, _tenantId));
+        var completion = wakePath is null ? Completion() : Completion() with { WakePath = wakePath };
+
+        await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(completion);
+
+        _engine.Bodies.Single().GetProperty("wakePath").GetString().Should().Be(expected);
+    }
+
     [Test]
     public async Task SaaS_resolves_the_tenant_from_the_installation_and_resumes()
     {

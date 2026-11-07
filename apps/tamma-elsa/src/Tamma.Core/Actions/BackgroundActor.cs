@@ -190,6 +190,13 @@ public enum BackgroundActor
     /// race — a burned bookmark 404s, never double-advances).</summary>
     [Wire("ci-completion-poller")] CiCompletionPoller,
 
+    /// <summary><c>Tamma.Api.Services.AgentDispatch.AgentRunWaitReconciler</c> — Story 40-3b:
+    /// recovers agent-run waits whose <c>workflow_run.completed</c> webhook never arrived. Polls
+    /// stale pending <c>agent_run_waits</c> rows' runs through the mediated discover call and
+    /// resumes finished ones through the webhook's own resumer (exactly-once claim); marks rows
+    /// still pending past the limit <c>timed_out</c>. Mutating: it advances suspended instances.</summary>
+    [Wire("agent-run-wait-reconciler")] AgentRunWaitReconciler,
+
     /// <summary><c>Tamma.Api.Services.Webhooks.Registration.WebhookRegistrationStartupService</c>
     /// — Epic 31 P4 M3: single-user-mode startup validation for webhook
     /// ingress. When the <c>Platform:</c> config tier is active and

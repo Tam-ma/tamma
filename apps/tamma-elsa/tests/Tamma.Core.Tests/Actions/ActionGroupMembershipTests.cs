@@ -267,7 +267,7 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void PlatformAutomation_has_the_49_expected_members()
+    public void PlatformAutomation_has_the_50_expected_members()
     {
         var expected = new List<string>
         {
@@ -294,12 +294,13 @@ public class ActionGroupMembershipTests
         // 45 → 46 (Epic 31 P3, 2026-08-08): + the DG-5 CI completion poller
         // (automation machinery, like every hosted service).
         // 47 → 49 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper — both IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
-        expected.Should().HaveCount(49, "5 engine effects + 3 schedule effects + 33 automation + 8 platform tasks");
+        // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+        expected.Should().HaveCount(50, "5 engine effects + 3 schedule effects + 34 automation + 8 platform tasks");
         WiresIn(ActionGroup.PlatformAutomation).Should().BeEquivalentTo(expected);
     }
 
     [Test]
-    public void The_per_group_counts_sum_to_226()
+    public void The_per_group_counts_sum_to_227()
     {
         // 225 → 226 (Story 40-1 AC7): source-control-write 17 → 18
         // (+effect:git.runner.install) — nothing else moves.
@@ -345,7 +346,8 @@ public class ActionGroupMembershipTests
             [ActionGroup.ModelInvocation] = 8,
             [ActionGroup.Secrets] = 5,
             // 47 → 49 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper — both IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
-            [ActionGroup.PlatformAutomation] = 49,
+            // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+            [ActionGroup.PlatformAutomation] = 50,
         };
 
         // 223 → 225 (2026-08-18): platform-automation 47 → 49 (+AdlLoopWatchdogService
@@ -358,7 +360,8 @@ public class ActionGroupMembershipTests
         // 221 → 222 (Epic 31 P3, 2026-08-08): platform-automation 45 → 46
         // (+the DG-5 CI completion poller, automation machinery).
         // 219 → 221 (Epic 31 P2): +2 platform-automation machinery members.
-        counts.Values.Sum().Should().Be(226);
+        // 226 → 227 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+        counts.Values.Sum().Should().Be(227);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

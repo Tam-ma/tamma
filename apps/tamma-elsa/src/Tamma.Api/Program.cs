@@ -958,6 +958,18 @@ builder.Services.AddHostedService<
 builder.Services.AddHostedService<
     Tamma.Api.Services.Ci.CiCompletionPollerService>();
 
+// Story 40-3b — the agent-run wait reconciler: recovers agent-run waits whose
+// workflow_run.completed webhook never arrived (poll → resume through the webhook's
+// resumer), and marks never-completed rows timed_out. One advisory lock per principal on
+// the control-plane DB, so pods never sweep the same tenant/user at once.
+// AgentRuns:Reconciler:Enabled=false turns the loop off.
+builder.Services.Configure<Tamma.Api.Services.AgentDispatch.AgentRunWaitReconcilerOptions>(
+    builder.Configuration.GetSection(Tamma.Api.Services.AgentDispatch.AgentRunWaitReconcilerOptions.Section));
+builder.Services.AddSingleton<Tamma.Api.Services.AgentDispatch.IAgentRunSweepLock>(_ =>
+    new Tamma.Api.Services.AgentDispatch.PostgresAgentRunSweepLock(
+        controlPlaneConnectionString ?? connectionString));
+builder.Services.AddHostedService<Tamma.Api.Services.AgentDispatch.AgentRunWaitReconciler>();
+
 // Story 31-9 — onboarding platform picker connect service. Composes
 // the secret-cabinet (29-1/29-3 reveal-on-create), the 31-2 platform
 // installation registry, and the 31-1 driver factory to validate +

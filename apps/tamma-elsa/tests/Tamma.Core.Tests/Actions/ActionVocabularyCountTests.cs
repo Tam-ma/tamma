@@ -106,7 +106,7 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void BackgroundActor_has_35_members()
+    public void BackgroundActor_has_36_members()
     {
         // 31 → 32 (Epic 31 P3, 2026-08-08): + CiCompletionPollerService — the
         // DG-5 durable CI completion poller (an IHostedService in Tamma.Api)
@@ -132,7 +132,8 @@ public class ActionVocabularyCountTests
         // across both host assemblies (BackgroundActorCatalogSweepTests binds
         // them by type name). +1 (Story 41-30): TenantScheduledTriggerService.
         // 33 → 35 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper. Both are IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
-        Enum.GetValues<BackgroundActor>().Should().HaveCount(35);
+        // 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+        Enum.GetValues<BackgroundActor>().Should().HaveCount(36);
     }
 
     [Test]
@@ -163,7 +164,7 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void TotalCatalogMembers_is_226()
+    public void TotalCatalogMembers_is_227()
     {
         // 96 + 17 + 8 + 62 + 35 + 8 = 226 — was 225 (effect 61): Story 40-1 AC7
         // minted effect:git.runner.install (see ExternalEffect_has_62_members).
@@ -201,7 +202,8 @@ public class ActionVocabularyCountTests
         // (80 + 10 + 22 + 26 + …); the agent-action plane grew by 16 (Story
         // 41-1a), the document-type plane by 6 (Story 41-1b), and
         // effect/automation by 3 + 1 (Story 41-30).
-        ActionCatalog.All.Should().HaveCount(226);
-        ActionCatalog.ByKey.Should().HaveCount(226);
+        // 226 → 227 — automation 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+        ActionCatalog.All.Should().HaveCount(227);
+        ActionCatalog.ByKey.Should().HaveCount(227);
     }
 }

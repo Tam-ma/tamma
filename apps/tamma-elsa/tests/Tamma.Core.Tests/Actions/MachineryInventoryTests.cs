@@ -87,6 +87,9 @@ public class MachineryInventoryTests
         // Epic 31 P3 (2026-08-08, DG-5): the CI completion poller — a
         // background service with no human in the loop (44 → 45).
         "automation:ci-completion-poller",
+        // Story 40-3b (2026-11-07): the agent-run wait reconciler — a background
+        // service with no human in the loop (49 → 50).
+        "automation:agent-run-wait-reconciler",
         // Epic 31 P4 M3 (2026-08-08): the single-user startup webhook
         // registration pass — background service, machinery by class.
         "automation:webhook-registration-startup",
@@ -140,7 +143,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(49, "6 + 35 + 8 = 49 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper)");
+        MachineryInventory.Should().HaveCount(50, "6 + 36 + 8 = 50 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler)");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(
