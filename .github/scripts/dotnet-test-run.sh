@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Runs one slice of the C# test suite for the CI matrix (.github/workflows/ci.yml).
 #
-#   dotnet-test-run.sh other          every test project EXCEPT Tamma.Api.Tests
+#   dotnet-test-run.sh other          every test project EXCEPT Tamma.Api.Tests and
+#                                     Tamma.Platforms.IntegrationTests
 #   dotnet-test-run.sh api <I> <N>    shard I of N of Tamma.Api.Tests
 #
 # Run from apps/tamma-elsa, after a Release build. Kept from the old single job:
@@ -40,7 +41,16 @@ run_project() {
 case "$mode" in
   other)
     for proj in tests/*/; do
-      [ "$(basename "$proj")" = "Tamma.Api.Tests" ] && continue
+      case "$(basename "$proj")" in
+        # Sharded separately (the `api` mode).
+        Tamma.Api.Tests) continue ;;
+        # Owned by git-platform-integration-tests.yml (per-PR on platform paths,
+        # nightly, and the run-gitea-e2e / run-gitlab-integration labels). The old
+        # single CI job only ever SKIPPED it: its docker probe timed out on a
+        # runner busy with 16 minutes of API-test containers. On an idle slice
+        # docker answers, the full engine E2E starts, and it hung the job.
+        Tamma.Platforms.IntegrationTests) continue ;;
+      esac
       run_project "$proj"
     done
     ;;
