@@ -185,31 +185,56 @@ public sealed class RunnerScaffoldService : IRunnerScaffoldService
         var defaultBranch = probe.DefaultBranch!;
         var branch = BranchPrefix + _template.Version.Trim();
 
+        // The branch name depends only on the version, so a branch left over from an
+        // earlier install (PR merged or closed, branch kept) is reused by name. Only a
+        // branch with an OPEN PR is live work to build on; without one the branch is
+        // stale — it may carry the shipped bytes with no commits ahead of default, and
+        // reusing it would skip the commit and open an empty PR (GitHub 422). A stale
+        // branch is deleted and recreated from the default tip. The branch is
+        // Tamma-owned (tamma/runner-<version>), so nothing of the user's is lost.
         var existing = await client.GetBranchAsync(owner, name, branch, ct).ConfigureAwait(false);
-        bool branchExisted;
+        PModels.PullRequest? openPr = null;
+        bool needsCreate;
         switch (existing)
         {
             case PlatformResult<PModels.Branch>.Ok:
-                branchExisted = true;
-                break;
-            case PlatformResult<PModels.Branch>.Failed { Error: PlatformError.NotFound }:
             {
-                branchExisted = false;
-                var tip = await client.GetBranchAsync(owner, name, defaultBranch, ct).ConfigureAwait(false);
-                if (tip is not PlatformResult<PModels.Branch>.Ok tipOk)
-                    return await StepFailAsync(tenantId, repo, prior, "read default branch", tip, ct).ConfigureAwait(false);
-                var created = await client.CreateBranchAsync(
-                    new PModels.CreateBranchRequest(owner, name, branch, tipOk.Value.Sha), ct).ConfigureAwait(false);
-                if (created is not PlatformResult<PModels.Branch>.Ok)
-                    return await StepFailAsync(tenantId, repo, prior, "create install branch", created, ct).ConfigureAwait(false);
+                var open = await client.ListOpenPullRequestsForBranchAsync(owner, name, branch, defaultBranch, ct)
+                    .ConfigureAwait(false);
+                if (open is not PlatformResult<IReadOnlyList<PModels.PullRequest>>.Ok openOk)
+                    return await StepFailAsync(tenantId, repo, prior, "list open pull requests", open, ct).ConfigureAwait(false);
+                openPr = openOk.Value.Count > 0 ? openOk.Value[0] : null;
+                if (openPr is null)
+                {
+                    var deleted = await client.DeleteBranchAsync(owner, name, branch, ct).ConfigureAwait(false);
+                    if (deleted is not PlatformResult<bool>.Ok and not PlatformResult<bool>.Failed { Error: PlatformError.NotFound })
+                        return await StepFailAsync(tenantId, repo, prior, "reset stale install branch", deleted, ct).ConfigureAwait(false);
+                }
+                needsCreate = openPr is null;
                 break;
             }
+            case PlatformResult<PModels.Branch>.Failed { Error: PlatformError.NotFound }:
+                needsCreate = true;
+                break;
             default:
                 return await StepFailAsync(tenantId, repo, prior, "read install branch", existing, ct).ConfigureAwait(false);
         }
 
+        if (needsCreate)
+        {
+            var tip = await client.GetBranchAsync(owner, name, defaultBranch, ct).ConfigureAwait(false);
+            if (tip is not PlatformResult<PModels.Branch>.Ok tipOk)
+                return await StepFailAsync(tenantId, repo, prior, "read default branch", tip, ct).ConfigureAwait(false);
+            var created = await client.CreateBranchAsync(
+                new PModels.CreateBranchRequest(owner, name, branch, tipOk.Value.Sha), ct).ConfigureAwait(false);
+            if (created is not PlatformResult<PModels.Branch>.Ok)
+                return await StepFailAsync(tenantId, repo, prior, "create install branch", created, ct).ConfigureAwait(false);
+        }
+
+        // A fresh branch sits at the default tip, which is not Current (that returned
+        // above), so it never already carries the set — only a live PR branch can.
         string? commitSha = null;
-        var alreadyCarried = branchExisted
+        var alreadyCarried = !needsCreate
             && await BranchCarriesShippedSetAsync(client, owner, name, branch, ct).ConfigureAwait(false);
         if (!alreadyCarried)
         {
@@ -223,11 +248,10 @@ public sealed class RunnerScaffoldService : IRunnerScaffoldService
             commitSha = commitOk.Value.Sha;
         }
 
-        var open = await client.ListOpenPullRequestsForBranchAsync(owner, name, branch, defaultBranch, ct).ConfigureAwait(false);
         PModels.PullRequest pr;
-        if (open is PlatformResult<IReadOnlyList<PModels.PullRequest>>.Ok { Value.Count: > 0 } openOk)
+        if (openPr is not null)
         {
-            pr = openOk.Value[0];
+            pr = openPr;
         }
         else
         {

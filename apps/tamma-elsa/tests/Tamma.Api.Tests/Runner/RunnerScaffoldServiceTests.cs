@@ -475,15 +475,68 @@ public class RunnerScaffoldServiceTests
     }
 
     [Test]
-    public async Task Install_BranchExistsWithStaleFiles_CommitsOntoIt_WithoutRecreating()
+    public async Task Install_BranchExistsWithStaleFiles_AndPrOpen_CommitsOntoIt_WithoutRecreating()
     {
         _client.Setup(c => c.GetBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()))
             .ReturnsAsync(PlatformResult<Branch>.FromOk(new Branch("tamma/runner-1.0.0", "s", false)));
+        _client.Setup(c => c.ListOpenPullRequestsForBranchAsync("acme", "widgets", "tamma/runner-1.0.0", "main", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<IReadOnlyList<PullRequest>>.FromOk([Pr("12")]));
 
         var result = await _sut.InstallAsync(_tenant, Repo, new RunnerInstallRequest());
 
         result.CommitSha.Should().Be("newsha");
+        result.PullRequestNumber.Should().Be("12");
         _client.Verify(c => c.CreateBranchAsync(It.IsAny<CreateBranchRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        _client.Verify(c => c.DeleteBranchAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        _client.Verify(c => c.OpenPullRequestAsync(It.IsAny<OpenPullRequestRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    /// <summary>
+    /// Audit fix (PR #519): install → PR merged → branch kept → files edited on
+    /// default → force re-install. The kept branch already carries the shipped
+    /// bytes but has no commits ahead of default, so reusing it would skip the
+    /// commit and open a PR with nothing in it (GitHub 422). With no open PR the
+    /// branch is stale: it is reset to the default tip and the set recommitted.
+    /// </summary>
+    [Test]
+    public async Task Install_BranchExists_PrAlreadyMerged_NoOpenPr_ResetsBranchToDefaultTip_RecommitsAndOpensPr()
+    {
+        // Default branch: workflow edited locally (same marker, different bytes) → Customized.
+        InstallCurrentSet();
+        _repoFiles[(Wf, "main")] = Bytes(Marked(Version, "name: edited"));
+        // The kept install branch still carries the shipped set from the merged PR.
+        _client.Setup(c => c.GetBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<Branch>.FromOk(new Branch("tamma/runner-1.0.0", "oldsha", false)));
+        InstallCurrentSet("tamma/runner-1.0.0");
+        _client.Setup(c => c.DeleteBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<bool>.FromOk(true));
+
+        var result = await _sut.InstallAsync(_tenant, Repo, new RunnerInstallRequest(Force: true));
+
+        result.Success.Should().BeTrue();
+        result.CommitSha.Should().Be("newsha", "the stale branch is recommitted, not reused");
+        result.PullRequestNumber.Should().Be("12");
+        _client.Verify(c => c.DeleteBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()), Times.Once);
+        _client.Verify(c => c.CreateBranchAsync(
+            new CreateBranchRequest("acme", "widgets", "tamma/runner-1.0.0", "tipsha"), It.IsAny<CancellationToken>()), Times.Once);
+        _client.Verify(c => c.CommitFilesAsync(It.IsAny<CommitFilesRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        _client.Verify(c => c.OpenPullRequestAsync(It.IsAny<OpenPullRequestRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        SingleEvent(RunnerScaffoldEventTypes.Upgraded).Data.Should().Contain("\"reusedCommit\":false");
+    }
+
+    [Test]
+    public async Task Install_StaleBranch_DeleteFails_IsPlatformError_NoCommit_NoPr()
+    {
+        _client.Setup(c => c.GetBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<Branch>.FromOk(new Branch("tamma/runner-1.0.0", "oldsha", false)));
+        _client.Setup(c => c.DeleteBranchAsync("acme", "widgets", "tamma/runner-1.0.0", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<bool>.FromError(new PlatformError.ServiceUnavailable()));
+
+        var result = await _sut.InstallAsync(_tenant, Repo, new RunnerInstallRequest());
+
+        result.Success.Should().BeFalse();
+        result.FailureCode.Should().Be(RunnerScaffoldFailureCodes.PlatformError);
+        VerifyNoWrites();
     }
 
     // ===================================================================
