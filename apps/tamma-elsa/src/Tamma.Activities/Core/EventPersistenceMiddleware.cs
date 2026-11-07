@@ -4,6 +4,7 @@ using Elsa.Workflows;
 using Elsa.Workflows.Features;
 using Elsa.Workflows.Pipelines.ActivityExecution;
 using Elsa.Workflows.Pipelines.WorkflowExecution;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Tamma.Activities.LlmCall;
 using Tamma.Activities.LlmCall.Models;
@@ -199,6 +200,21 @@ public static class EventPersistenceMiddleware
         var tenantId = ResolveTenantId(context);
         return DrainCoreAsync(
             context.TransientProperties, apiClient, logger, tenantId, context.Id, context.CancellationToken);
+    }
+
+    /// <summary>
+    /// The workflow backstop with an explicit tenant. For callers that run after the instance has
+    /// finished (Story 40-4's <c>CycleEndedNotificationHandler</c>): the workflow variables the
+    /// tenant is normally read from are out of scope by then, so the caller supplies the tenant it
+    /// kept. Falls back to the variable read only when <paramref name="tenantId"/> is null.
+    /// </summary>
+    public static Task DrainAsync(WorkflowExecutionContext context, Guid? tenantId)
+    {
+        var apiClient = context.GetService<TammaApiClient>();
+        var logger = context.GetService<ILogger<TammaApiClient>>();
+        return DrainCoreAsync(
+            context.TransientProperties, apiClient, logger, tenantId ?? ResolveTenantId(context), context.Id,
+            context.CancellationToken);
     }
 
     /// <summary>
@@ -421,6 +437,10 @@ public static class EventPersistencePipelineExtensions
             pipeline
                 .UseMiddleware<RunCorrelationWorkflowMiddleware>()
                 .UseMiddleware<EventPersistenceWorkflowMiddleware>());
+        // Story 40-4 — record CYCLE.ENDED when a single-issue-cycle instance finishes normally
+        // (the task-loop re-entry attempt boundary). An Elsa notification handler, because the
+        // instance is marked finished only after the pipeline above returns.
+        workflows.Services.AddNotificationHandler<Tamma.Activities.ADL.CycleEndedNotificationHandler>();
         return workflows;
     }
 }

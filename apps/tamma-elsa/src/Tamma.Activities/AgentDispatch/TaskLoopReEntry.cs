@@ -38,14 +38,15 @@ public static class TaskReEntryRegistration
     public const string ConfigKey = "Coding:TaskReEntryDisabled";
 
     /// <summary>
-    /// The shipped default: re-entry OFF. Story 40-4 shipped it off; Story 40-7 turned it on; the
-    /// 2026-11-07 audit turned it back off: <c>TaskLoopReEntryService.ReadRunsAsync</c> reads
+    /// The shipped default: re-entry ON. History: Story 40-4 shipped it off; 40-7 turned it on;
+    /// the 2026-11-07 audit turned it off because <c>TaskLoopReEntryService.ReadRunsAsync</c> read
     /// <c>AGENT_RUN.*</c> events by issue/repo/branch only, so a re-run of an issue (fixed branch
-    /// <c>tamma/issue-N</c>) inherits an EARLIER attempt's task results and can fail with
-    /// <c>CODE.REENTRY.INCONSISTENT_STATE</c> before dispatching anything. Turn it back on only
-    /// once those reads are scoped to the crashed attempt. Set the key to <c>false</c> to opt in.
+    /// <c>tamma/issue-N</c>) inherited an EARLIER attempt's task results. It is on again now that the
+    /// read keeps only the attempt that crashed: rows stored after the last <c>CycleEvents.Terminal</c>
+    /// row for the repo + issue, from instances with no end row of their own (every normally
+    /// finished cycle writes <c>CYCLE.ENDED</c>). Set the key to <c>true</c> to switch it off.
     /// </summary>
-    public const bool DisabledByDefault = true;
+    public const bool DisabledByDefault = false;
 
     public static bool IsDisabled(IConfiguration configuration)
         => configuration.GetValue(ConfigKey, DisabledByDefault);

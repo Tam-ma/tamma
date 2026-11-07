@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Tamma.Activities.ADL;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Core.AgentDispatch.Resume;
 using Tamma.Core.Logging;
@@ -12,8 +13,8 @@ namespace Tamma.Api.Services.AgentDispatch;
 /// and hands them to the pure <see cref="TaskLoopResumeCalculator"/>:
 /// <list type="number">
 ///   <item><b>Runs</b> — the Story 40-6 <c>AGENT_RUN.RECEIVED</c> / <c>WAIT_SUSPENDED</c> rows for
-///     this issue (the 4-7 query by tenant, type, issue), kept to this repo + branch and grouped
-///     by task index.</item>
+///     this issue (the 4-7 query by tenant, type, issue), kept to this repo + branch AND to the
+///     attempt that crashed (see <see cref="ReadRunsAsync"/>), grouped by task index.</item>
 ///   <item><b>The stored task list</b> — the accepted task-breakdown <c>plan</c> (39-15), the only
 ///     order-stable copy of the list the indices refer to. Never a freshly generated one.</item>
 ///   <item><b>Git</b> — the paths changed on the branch, through the tenant's own mediated driver
@@ -80,6 +81,16 @@ public sealed class TaskLoopReEntryService : ITaskLoopReEntryService
     /// <summary>
     /// One record per task index: the latest RECEIVED decides success/files; any row supplies
     /// the recorded task id. A suspended-only task is a run with no result (Success = null).
+    ///
+    /// <para><b>Only the attempt that crashed counts.</b> The branch (<c>tamma/issue-N</c>) and
+    /// the planner's task ids (<c>T1</c>…) repeat on every attempt at an issue, so repo/branch/issue
+    /// alone would let a new attempt inherit an earlier, finished attempt's results. A crashed cycle
+    /// comes back as a NEW instance (the orphan sweep cancels the old one and the ADL loop dispatches
+    /// again), so the instance id alone cannot name the attempt either. The attempt is instead every
+    /// instance since the last one that finished: a row counts only when it was stored after the
+    /// latest <see cref="CycleEvents.Terminal"/> row for this repo + issue, and its own instance
+    /// (<c>tags.workflowInstanceId</c>) has no terminal row. Back-to-back crashes are one attempt; a
+    /// cycle that finished by any path — including a loud re-entry refusal — closes it.</para>
     /// </summary>
     internal async Task<IReadOnlyList<TaskRunRecord>> ReadRunsAsync(
         Guid tenantId, string repository, string branchName, int issueNumber)
@@ -87,12 +98,26 @@ public sealed class TaskLoopReEntryService : ITaskLoopReEntryService
         var received = await _events.QueryAsync(tenantId, AgentRunWaitEventTypes.Received, issueNumber, EventReadLimit).ConfigureAwait(false);
         var suspended = await _events.QueryAsync(tenantId, AgentRunWaitEventTypes.WaitSuspended, issueNumber, EventReadLimit).ConfigureAwait(false);
 
+        var ends = new List<(long Sequence, string? Instance)>();
+        foreach (var type in CycleEvents.Terminal)
+        {
+            var endRows = await _events.QueryAsync(tenantId, type, issueNumber, EventReadLimit).ConfigureAwait(false);
+            ends.AddRange(endRows.Select(ParseEnd)
+                .Where(e => e is not null && string.Equals(e.Value.Repository, repository, StringComparison.Ordinal))
+                .Select(e => (e!.Value.Sequence, e.Value.Instance)));
+        }
+        var boundary = ends.Count == 0 ? 0L : ends.Max(e => e.Sequence);
+        var endedInstances = ends.Where(e => !string.IsNullOrEmpty(e.Instance))
+            .Select(e => e.Instance!).ToHashSet(StringComparer.Ordinal);
+
         var rows = received.Concat(suspended)
             .Select(Parse)
             .Where(r => r is not null
                         && r.Value.IssueNumber == issueNumber
                         && string.Equals(r.Value.Repository, repository, StringComparison.Ordinal)
-                        && string.Equals(r.Value.Branch, branchName, StringComparison.Ordinal))
+                        && string.Equals(r.Value.Branch, branchName, StringComparison.Ordinal)
+                        && r.Value.Sequence > boundary
+                        && (r.Value.Instance is null || !endedInstances.Contains(r.Value.Instance)))
             .Select(r => r!.Value)
             .ToList();
 
@@ -115,7 +140,20 @@ public sealed class TaskLoopReEntryService : ITaskLoopReEntryService
 
     private readonly record struct Row(
         string Type, long Sequence, int IssueNumber, int TaskIndex, string? TaskId,
-        string? Repository, string? Branch, bool Success, IReadOnlyList<string> Files);
+        string? Repository, string? Branch, bool Success, IReadOnlyList<string> Files, string? Instance);
+
+    private static (long Sequence, string? Repository, string? Instance)? ParseEnd(DomainEvent e)
+    {
+        try
+        {
+            using var tags = JsonDocument.Parse(string.IsNullOrWhiteSpace(e.Tags) ? "{}" : e.Tags);
+            return (e.SequenceNumber, Str(tags.RootElement, "repository"), Str(tags.RootElement, "workflowInstanceId"));
+        }
+        catch (JsonException)
+        {
+            return null;
+        }
+    }
 
     private static Row? Parse(DomainEvent e)
     {
@@ -136,7 +174,8 @@ public sealed class TaskLoopReEntryService : ITaskLoopReEntryService
 
             return new Row(
                 e.Type, e.SequenceNumber, issue, index, Str(d, "taskId"),
-                Str(tags.RootElement, "repository"), Str(tags.RootElement, "branchName"), success, files);
+                Str(tags.RootElement, "repository"), Str(tags.RootElement, "branchName"), success, files,
+                Str(tags.RootElement, "workflowInstanceId"));
         }
         catch (JsonException)
         {

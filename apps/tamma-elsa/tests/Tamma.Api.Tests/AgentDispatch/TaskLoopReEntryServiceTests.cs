@@ -3,6 +3,7 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Tamma.Activities.ADL;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Core;
 using Tamma.Api.Dtos.Engine;
@@ -159,6 +160,95 @@ public class TaskLoopReEntryServiceTests
         => (await Service().ReconstructAsync(null, Repo, Branch, Issue, CancellationToken.None))
             .BasisCode.Should().Be(TaskResumeBasis.NoRuns);
 
+    // ── Attempt scope: only the attempt that crashed counts (2026-11-07 audit) ──
+
+    [Test]
+    public async Task A_previous_attempt_that_ended_is_not_read_even_when_its_files_are_gone() // scenario A
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1");
+        await EndAsync("wf-1", CycleEvents.StepFailed);
+        BranchFiles(); // the new attempt works on a fresh branch
+
+        var p = await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None);
+
+        p.ResumeIndex.Should().Be(0);
+        p.BasisCode.Should().Be(TaskResumeBasis.NoRuns);
+    }
+
+    [Test]
+    public async Task A_previous_attempt_that_ended_does_not_skip_tasks_even_when_its_files_remain() // scenario B
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1");
+        await RecordAsync(1, "T2", success: true, "src/b.cs", instance: "wf-1");
+        await EndAsync("wf-1");
+
+        var p = await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None);
+
+        p.ResumeIndex.Should().Be(0);
+        p.BasisCode.Should().Be(TaskResumeBasis.NoRuns);
+    }
+
+    [Test]
+    public async Task A_loud_reentry_failure_ends_the_attempt_so_the_next_one_starts_clean()
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1"); // crashed: no end
+        await EndAsync("wf-2", CycleEvents.StepFailed);                          // refused re-entry, failed loud
+        BranchFiles();
+
+        (await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None))
+            .BasisCode.Should().Be(TaskResumeBasis.NoRuns, "wf-3 must not inherit wf-1's records forever");
+    }
+
+    [Test]
+    public async Task A_crash_after_an_ended_attempt_reads_only_the_crashed_attempt()
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1");
+        await RecordAsync(1, "T2", success: true, "src/b.cs", instance: "wf-1");
+        await EndAsync("wf-1");
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-2"); // crashed during T2
+        BranchFiles("src/a.cs"); // wf-2 started from a fresh branch
+
+        var p = await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None);
+
+        p.ResumeIndex.Should().Be(1);
+        p.LandedIndices.Should().Equal(0);
+    }
+
+    [Test]
+    public async Task Back_to_back_crashes_are_one_attempt()
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1"); // crashed
+        await RecordAsync(1, "T2", success: true, "src/b.cs", instance: "wf-2"); // re-entered at 1, crashed
+
+        var p = await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None);
+
+        p.ResumeIndex.Should().Be(2);
+        p.LandedIndices.Should().Equal(0, 1);
+    }
+
+    [Test]
+    public async Task An_end_in_another_repository_does_not_close_this_attempt()
+    {
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1");
+        await EndAsync("wf-x", repo: "acme/other");
+        BranchFiles("src/a.cs");
+
+        (await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None))
+            .ResumeIndex.Should().Be(1);
+    }
+
+    [Test]
+    public async Task An_ended_instances_rows_never_count_even_if_stored_after_a_later_end()
+    {
+        await EndAsync("wf-2");                                                  // a later instance ended first in the store
+        await RecordAsync(0, "T1", success: true, "src/a.cs", instance: "wf-1");
+        await EndAsync("wf-1");
+        BranchFiles("src/a.cs");
+
+        (await Service().ReconstructAsync(Tenant, Repo, Branch, Issue, CancellationToken.None))
+            .BasisCode.Should().Be(TaskResumeBasis.NoRuns);
+    }
+
     // ── The endpoint the engine calls ─────────────────────────────────────
 
     [Test]
@@ -220,7 +310,7 @@ public class TaskLoopReEntryServiceTests
     /// API's engine-events handler. <paramref name="success"/> null = suspended, no result yet.
     /// </summary>
     private async Task RecordAsync(int index, string taskId, bool? success, string? file = null,
-        string repo = Repo, string branch = Branch)
+        string repo = Repo, string branch = Branch, string instance = "wf-1")
     {
         var events = new List<TammaEvent>
         {
@@ -237,6 +327,19 @@ public class TaskLoopReEntryServiceTests
                     ["filesChanged"] = file is null ? Array.Empty<string>() : new[] { file },
                 }));
 
+        await PersistAsync(events, instance);
+    }
+
+    /// <summary>
+    /// The end of a cycle instance, as the cycle writes it (<see cref="EmitCycleEventActivity.BuildTammaEvent"/>).
+    /// </summary>
+    private Task EndAsync(string instance, string type = CycleEvents.Ended, string repo = Repo)
+        => PersistAsync(new List<TammaEvent> { EmitCycleEventActivity.BuildTammaEvent(type, Issue, repo, Tenant, null, null) }, instance);
+
+    /// <summary>Through the API's engine-events handler, stamped with the emitting instance (as the emitter does).</summary>
+    private async Task PersistAsync(List<TammaEvent> events, string instance)
+    {
+        foreach (var e in events) e.WorkflowInstanceId = instance;
         var json = JsonSerializer.Serialize(events.Select(EventPersistenceMiddleware.ToWireRecord).ToList());
         var records = JsonSerializer.Deserialize<List<EngineEventRecord>>(json, new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
         var result = await EngineEndpoints.AppendEvents(new AppendEventsRequest(records), _events.Object, TenantScope());

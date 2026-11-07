@@ -81,6 +81,9 @@ public class EmitCycleEventActivity : Activity
             errorDetail: ErrorDetail.GetOrDefault(context));
 
         TammaEventEmitter.Emit(context, this, _logger, evt);
+        CycleEndedNotificationHandler.RememberCycle(
+            context.WorkflowExecutionContext.Properties,
+            IssueNumber.GetOrDefault(context), Repository.GetOrDefault(context), TenantId.GetOrDefault(context));
 
         _logger?.LogInformation(
             "Emitted {Type} for issue #{Issue} repo {Repo} (step={Step})",
