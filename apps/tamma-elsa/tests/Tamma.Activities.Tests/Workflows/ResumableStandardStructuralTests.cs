@@ -81,8 +81,8 @@ public class ResumableStandardStructuralTests
             ["PullRequestWorkflow"] = "PR side-effect workflow, no suspend gate (burn-down: 39-15+).",
             ["ReviewFixWorkflow"] = "review-fix loop, no human suspend gate (burn-down: 39-14+).",
             ["RotateSecretWorkflow"] = "platform secret-rotation saga, no document lifecycle (burn-down: n/a — platform).",
-            // SingleIssueCycleWorkflow burned down (BookmarkSuspend) in Story 40-2 — its coding step
-            // suspends on the canonical WaitForAgentRunActivity; 40-4/40-5 extend it to Both.
+            // SingleIssueCycleWorkflow burned down in Story 40-2 (BookmarkSuspend) and declares Both
+            // since Story 40-5 — WaitForAgentRunActivity suspend + ComputeTaskResumeIndexActivity re-entry.
             ["SingleReviewerWorkflow"] = "39-7 single-reviewer producer, runs to completion (burn-down: 39-12+).",
             // TaskCreationWorkflow burned down in Story 39-15 — it now declares
             // [ResumeBehavior(LatestStateReEntry)] with the ComputeReEntryPositionActivity gate
@@ -370,6 +370,37 @@ public class ResumableStandardStructuralTests
             "the lifecycle both suspends on the accept-gate bookmark AND re-enters after a crash");
         decl.SuspendActivities.Should().Contain(typeof(WaitForDocumentDecisionActivity),
             "its bookmark-suspend gate is the canonical WaitForDocumentDecisionActivity");
+    }
+
+    // ── Story 40-5 — the coding cycle declares Both and the gate proves it ──
+
+    [Test]
+    public void SingleIssueCycleWorkflow_DeclaresBoth_AndIsNotAllowlisted()
+    {
+        LegacyResumeAllowlist.Should().NotContainKey(nameof(SingleIssueCycleWorkflow));
+
+        var decl = Declaration(typeof(SingleIssueCycleWorkflow));
+        decl.Should().NotBeNull();
+        decl!.Mode.Should().Be(ResumeMode.Both,
+            "the cycle suspends on the agent-run bookmark (40-2) AND re-enters its task loop after a crash (40-4)");
+        decl.SuspendActivities.Should().Equal(typeof(WaitForAgentRunActivity));
+
+        var graph = BuiltGraphNodeTypes(typeof(SingleIssueCycleWorkflow));
+        graph.Should().Contain(typeof(WaitForAgentRunActivity));
+        graph.Should().Contain(typeof(ComputeTaskResumeIndexActivity));
+    }
+
+    /// <summary>
+    /// Story 40-5 AC4 — both registries the cycle's verdict depends on, pinned here so losing
+    /// either fails this story's test instead of quietly weakening the gate.
+    /// </summary>
+    [Test]
+    public void SingleIssueCycleWorkflow_RegistryDependencies_ArePresent()
+    {
+        LifecycleBookmarks.CanonicalSuspendActivities.Should()
+            .Contain(new KeyValuePair<Type, string>(typeof(WaitForAgentRunActivity), LifecycleBookmarks.AgentRunGate));
+        CanonicalReEntryActivities.Registry.Should()
+            .Contain(new KeyValuePair<Type, string>(typeof(ComputeTaskResumeIndexActivity), "task-index"));
     }
 
     // ── graph walk (shared with DocumentLifecycleWorkflowStructureTests style) ──

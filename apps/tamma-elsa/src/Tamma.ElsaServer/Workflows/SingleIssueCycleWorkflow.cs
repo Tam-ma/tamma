@@ -35,11 +35,14 @@ namespace Tamma.ElsaServer.Workflows;
 /// Every step inherits TammaActivity for automatic event emission.
 /// On any failure → Report to orchestrator → Finish.
 ///
-/// <para><b>Resume behaviour (Story 40-2).</b> The per-task coding step suspends on the
-/// canonical <see cref="WaitForAgentRunActivity"/> bookmark, so the cycle declares
-/// <c>BookmarkSuspend</c>. Crash re-entry (40-4) and the final declaration (40-5) build on this.</para>
+/// <para><b>Resume behaviour (Story 40-5: <c>Both</c>).</b> The per-task coding step suspends on
+/// the canonical <see cref="WaitForAgentRunActivity"/> bookmark (40-2), AND a restarted cycle
+/// re-enters its task loop at the first unlanded task via
+/// <see cref="ComputeTaskResumeIndexActivity"/> (40-4). The build gate checks the wiring, not
+/// that re-entry is switched on: until Story 40-7 flips <c>Coding:TaskReEntryDisabled</c>, the
+/// re-entry read is the Null seam and the loop starts at task 0.</para>
 /// </summary>
-[ResumeBehavior(ResumeMode.BookmarkSuspend, SuspendActivities = new[] { typeof(WaitForAgentRunActivity) })]
+[ResumeBehavior(ResumeMode.Both, SuspendActivities = new[] { typeof(WaitForAgentRunActivity) })]
 public class SingleIssueCycleWorkflow : WorkflowBase
 {
     protected override void Build(IWorkflowBuilder builder)
