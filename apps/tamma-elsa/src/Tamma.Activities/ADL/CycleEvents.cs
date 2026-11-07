@@ -37,6 +37,12 @@ namespace Tamma.Activities.ADL;
 ///     (PR merged + deployment pipeline result inspected).</description></item>
 ///   <item><description><c>CYCLE.FAILED</c> — the cycle reached its loud failure terminal
 ///     (any fail-the-cycle path). Loud (error-status).</description></item>
+///   <item><description><c>CYCLE.ENDED</c> — the instance finished normally, by ANY path
+///     (success, loud failure, defer/split, needs-human, reject, escalation). Written by
+///     <see cref="CycleEndedNotificationHandler"/> on Elsa's workflow-finished notification, so it is
+///     recorded even where the flowchart writes no COMPLETED / STEP_FAILED. Not written for a
+///     cancelled or faulted instance. Task-loop crash re-entry (Story 40-4) uses it as the attempt
+///     boundary: an instance with no end row crashed.</description></item>
 /// </list>
 /// </summary>
 public static class CycleEvents
@@ -45,6 +51,14 @@ public static class CycleEvents
     public const string StepFailed = "CYCLE.STEP_FAILED";
     public const string Completed = "CYCLE.COMPLETED";
     public const string Failed = "CYCLE.FAILED";
+    public const string Ended = "CYCLE.ENDED";
+
+    /// <summary>
+    /// The rows that mean a cycle instance is OVER (it did not crash): <see cref="Ended"/>, plus
+    /// <see cref="Completed"/> / <see cref="StepFailed"/> / <see cref="Failed"/> so instances that
+    /// finished before <see cref="Ended"/> existed still count as finished.
+    /// </summary>
+    public static readonly IReadOnlyList<string> Terminal = new[] { Ended, Completed, StepFailed, Failed };
 
     /// <summary>
     /// Parse a tenant id from the loose string form threaded through the workflow

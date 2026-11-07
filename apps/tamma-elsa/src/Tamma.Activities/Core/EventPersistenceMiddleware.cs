@@ -4,6 +4,7 @@ using Elsa.Workflows;
 using Elsa.Workflows.Features;
 using Elsa.Workflows.Pipelines.ActivityExecution;
 using Elsa.Workflows.Pipelines.WorkflowExecution;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Tamma.Activities.LlmCall;
 using Tamma.Activities.LlmCall.Models;
@@ -421,6 +422,10 @@ public static class EventPersistencePipelineExtensions
             pipeline
                 .UseMiddleware<RunCorrelationWorkflowMiddleware>()
                 .UseMiddleware<EventPersistenceWorkflowMiddleware>());
+        // Story 40-4 — record CYCLE.ENDED when a single-issue-cycle instance finishes normally
+        // (the task-loop re-entry attempt boundary). An Elsa notification handler, because the
+        // instance is marked finished only after the pipeline above returns.
+        workflows.Services.AddNotificationHandler<Tamma.Activities.ADL.CycleEndedNotificationHandler>();
         return workflows;
     }
 }

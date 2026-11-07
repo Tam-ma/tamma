@@ -17,6 +17,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Tamma.Activities.ADL;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.AgentDispatch.Models;
 using Tamma.Activities.Core;
@@ -189,13 +190,68 @@ public class SingleIssueCycleCrashReEntryTests
         Data(_world.Events(AgentRunWaitEventTypes.TaskReentered).Single()).GetProperty("resumeIndex").GetInt32().Should().Be(1);
     }
 
-    // ── AC9: the switch (default OFF again since the 2026-11-07 audit) ───
+    // ── Attempt scope (2026-11-07 audit): a finished attempt is never inherited ──
 
     [Test]
-    public void Reentry_is_off_by_default_and_the_switch_turns_it_on()
+    public async Task After_a_loud_reentry_failure_the_next_attempt_starts_clean()
     {
-        TaskReEntryRegistration.DisabledByDefault.Should().BeTrue("re-entry reads events across attempts (2026-11-07 audit)");
-        TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder().Build()).Should().BeTrue();
+        await using (var a = await HostAsync("github_actions"))
+        {
+            await StartCycleAsync(a);
+            await DeliverAsync(a, taskIndex: 0);
+            await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
+        }
+        _world.BranchFiles.Clear();
+
+        await using (var b = await HostAsync("github_actions"))
+        {
+            await StartCycleAsync(b);
+            await WaitUntilAsync(() => _world.Events("CYCLE.STEP_FAILED").Any(), "attempt B failed loud");
+        }
+        _world.Events("CYCLE.STEP_FAILED").Should().ContainSingle();
+        _world.Dispatched.Clear();
+
+        // Attempt C, same issue, same (fresh) branch: it must not re-read attempt A's records.
+        await using var c = await HostAsync("github_actions");
+        await StartCycleAsync(c);
+        await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 0)), "attempt C dispatched task 0");
+
+        _world.Events("CYCLE.STEP_FAILED").Should().ContainSingle("attempt C did not fail on attempt A's records");
+        _world.Events(AgentRunWaitEventTypes.TaskReentered).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task A_finished_attempts_landed_tasks_are_not_skipped_by_a_new_attempt()
+    {
+        // Attempt A lands every task and finishes at the merge gate's reject terminal — a path that
+        // wrote no COMPLETED / STEP_FAILED row before CYCLE.ENDED existed. Its files stay on the branch.
+        await using (var a = await HostAsync("github_actions"))
+        {
+            await StartCycleAsync(a);
+            for (var i = 0; i < StoredTasks.Length; i++) await DeliverAsync(a, taskIndex: i);
+            await WaitUntilAsync(() => _world.Events(CycleEvents.Ended).Any(), "attempt A ended at the reject terminal");
+        }
+        _world.Events("CYCLE.STEP_FAILED").Should().BeEmpty();
+        _world.Events(CycleEvents.Completed).Should().BeEmpty();
+        _world.BranchFiles.Should().BeEquivalentTo(StoredTasks.Select(t => t.File));
+        _world.Dispatched.Clear();
+
+        // Attempt B, same issue and branch: it starts over rather than skipping A's tasks.
+        await using var b = await HostAsync("github_actions");
+        await StartCycleAsync(b);
+        await WaitUntilAsync(() => _world.Dispatched.Count > 0, "attempt B dispatched a task");
+
+        _world.Dispatched.First().Should().Be(TaskSessionId.For(Issue, 0), "a new attempt starts at task 0");
+        _world.Events(AgentRunWaitEventTypes.TaskReentered).Should().BeEmpty();
+    }
+
+    // ── AC9: the switch (default ON again: reads are scoped to the crashed attempt) ───
+
+    [Test]
+    public void Reentry_is_on_by_default_and_the_switch_turns_it_off()
+    {
+        TaskReEntryRegistration.DisabledByDefault.Should().BeFalse("reads are scoped to the crashed attempt (attempt-scope tests above)");
+        TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder().Build()).Should().BeFalse();
         TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { [TaskReEntryRegistration.ConfigKey] = "false" })
             .Build()).Should().BeFalse();

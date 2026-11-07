@@ -3,7 +3,26 @@
 Status: done
 
 > **Delivered 2026-11-07.** All ten ACs. Shipped switched OFF (`Coding:TaskReEntryDisabled`
-> defaults to `true`, `TaskReEntryRegistration.DisabledByDefault`); 40-7 flips that literal.
+> defaults to `true`, `TaskReEntryRegistration.DisabledByDefault`); 40-7 flipped it on; the
+> 2026-11-07 audit switched it back off (reads were not scoped to one attempt, below).
+> **Now ON again** (`DisabledByDefault = false`) with the reads scoped to the crashed attempt;
+> `Coding:TaskReEntryDisabled=true` still switches it off.
+>
+> **Attempt scope (fix after the 2026-11-07 audit).** The read used to take `AGENT_RUN.*` rows by
+> tenant + issue + repo + branch only. Branches (`tamma/issue-N`) and planner task ids (`T1`…)
+> repeat on every attempt, so a re-run inherited an earlier attempt's results: missing files ⇒
+> `INCONSISTENT_STATE` on every later attempt; files still there ⇒ tasks skipped on another
+> attempt's evidence. The workflow instance id alone cannot name the attempt — after a crash the
+> cycle comes back as a NEW instance (orphan sweep cancels, the ADL loop dispatches again; 40-7's
+> suite does the same). So an attempt is "every cycle instance since the last one that finished":
+> `ReadRunsAsync` keeps a row only if it was stored after the latest `CYCLE.ENDED` /
+> `CYCLE.COMPLETED` / `CYCLE.STEP_FAILED` / `CYCLE.FAILED` row for the repo + issue, and its own
+> `tags.workflowInstanceId` has no such row. `CYCLE.ENDED` is new: `CycleEndedNotificationHandler`
+> writes it on Elsa's `WorkflowFinished` for every normally finished `single-issue-cycle`
+> instance, whatever the path (the merge gate's reject path, for one, reaches no report node and
+> wrote no end row before). Tests: `TaskLoopReEntryServiceTests` (attempt-scope cases) and
+> `SingleIssueCycleCrashReEntryTests` (`After_a_loud_reentry_failure_the_next_attempt_starts_clean`,
+> `A_finished_attempts_landed_tasks_are_not_skipped_by_a_new_attempt`).
 >
 > **How it is built (differs from the plan in three places, on purpose):**
 > - **Where the real read runs.** The plan put `TaskLoopReEntryService` in `Tamma.Activities`.
@@ -29,7 +48,12 @@ Status: done
 > task-creation list will not match the recorded ids, so re-entry restarts at 0 (safe, no skip).
 > (2) Compare-based file lists are capped by the platform (GitHub: 300 files); a larger diff can
 > read as "file missing" and fail loud. (3) Single-user needs a tenant in the request scope (the
-> personal tenant); with none, re-entry starts at 0.
+> personal tenant); with none, re-entry starts at 0. (4) A cancelled or faulted cycle gets no
+> `CYCLE.ENDED`, so the next dispatch treats it as crashed and may re-enter from its records
+> (still checked against git). If they disagree, that dispatch fails loud and its own end row
+> closes the attempt, so the one after starts at 0. (5) An instance that finished before
+> `CYCLE.ENDED` existed and wrote no COMPLETED / STEP_FAILED (e.g. a reject) is read as crashed
+> by the first re-run — same outcome as (4).
 
 ## MANDATORY: Before You Code
 

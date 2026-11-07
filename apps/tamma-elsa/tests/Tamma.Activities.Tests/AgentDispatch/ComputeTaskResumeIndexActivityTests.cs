@@ -127,11 +127,11 @@ public class ComputeTaskResumeIndexActivityTests
     // ── AC6: the switch ───────────────────────────────────────────────────
 
     [Test]
-    public void Shipped_default_is_switched_off_until_reads_are_scoped_to_one_attempt()
+    public void Shipped_default_is_switched_on_now_that_reads_are_scoped_to_one_attempt()
     {
-        TaskReEntryRegistration.DisabledByDefault.Should().BeTrue(
-            "re-entry reads AGENT_RUN events across every attempt at an issue (2026-11-07 audit)");
-        TaskReEntryRegistration.IsDisabled(Config()).Should().BeTrue();
+        TaskReEntryRegistration.DisabledByDefault.Should().BeFalse(
+            "ReadRunsAsync keeps only the crashed attempt's AGENT_RUN rows (TaskLoopReEntryServiceTests)");
+        TaskReEntryRegistration.IsDisabled(Config()).Should().BeFalse();
     }
 
     [TestCase("true", true)]
