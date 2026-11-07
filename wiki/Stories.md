@@ -619,7 +619,7 @@ Per-tenant SAML 2.0 / OIDC / LDAP / SCIM directory sync. Deferred until trigger 
 
 ## Epic 39: Typed Work Documents & the Universal Lifecycle (Implemented -- 17/21 Done)
 
-The document-lifecycle spine: ~10 typed work documents in `Tamma.Core`, one generic produce→validate→review→revise→accept lifecycle, acceptance rules + a 70–100 autonomy dial, the escalation surface, real-time channels + orchestrator chat + Task View, and the resumable-by-design standard. **The producer-migration spine is complete** — 39-12…39-15 all merged, so every document-producing workflow now rides `DocumentLifecycleWorkflow`.
+The document-lifecycle spine: ~10 typed work documents in `Tamma.Core`, one generic produce→validate→review→revise→accept lifecycle, acceptance rules + an autonomy dial (range published by `GET /api/actions/dial`), the escalation surface, real-time channels + orchestrator chat + Task View, and the resumable-by-design standard. **The producer-migration spine is complete** — 39-12…39-15 all merged, so every document-producing workflow now rides `DocumentLifecycleWorkflow`.
 
 | Story | Title | Status |
 |-------|-------|--------|

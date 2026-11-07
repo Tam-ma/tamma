@@ -215,8 +215,9 @@ services:
   # ---------------------------------------------------------------------------
   tamma-api:
     build:
-      context: ../apps/tamma-elsa/src
-      dockerfile: Tamma.Api/Dockerfile
+      # Story 40-1 AC7 — context includes runner/ (embedded by Tamma.Api).
+      context: ../apps/tamma-elsa
+      dockerfile: src/Tamma.Api/Dockerfile
     restart: unless-stopped
     environment:
       ConnectionStrings__DefaultConnection: "Host=postgres;Port=5432;Database=${POSTGRES_DB:-tamma};Username=${POSTGRES_USER:-tamma};Password=${POSTGRES_PASSWORD}"

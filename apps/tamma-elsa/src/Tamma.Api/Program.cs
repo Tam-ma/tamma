@@ -714,6 +714,12 @@ builder.Services.AddScoped<Tamma.Api.Services.Git.IGitPlatformCapabilityService,
 // Registered as itself; the enforcement seam resolves it by the type the route's
 // IActionKeySelectorMetadata names.
 builder.Services.AddScoped<Tamma.Api.Services.Git.MergeTargetActionKeySelector>();
+// Story 40-1 AC7 — the runner scaffold: the embedded canonical runner set
+// (fail-loud at first resolve if the build dropped it) + the install/drift service.
+builder.Services.AddSingleton<Tamma.Api.Services.Runner.IRunnerTemplate,
+    Tamma.Api.Services.Runner.EmbeddedRunnerTemplate>();
+builder.Services.AddScoped<Tamma.Api.Services.Runner.IRunnerScaffoldService,
+    Tamma.Api.Services.Runner.RunnerScaffoldService>();
 
 // ── Story 38 (Phase 1) — CI / JIRA / email step mediation ──
 // CI (GitHub Actions) reuses the git guard + token resolver (CI runs on the same
@@ -3321,6 +3327,19 @@ engine.MapPost("/channel/outbox", ChannelEndpoints.EnqueueFromEngine)
 // recorded spend (no platform margin). Kept out of the health region so the
 // concurrent System Health work (#277) does not conflict.
 app.MapGet("/api/v1/repos", ReposRunsEndpoints.ListRepos).RequireAuthorization("MemberAccess");
+// Story 40-1 AC7 — runner scaffold (tenant-admin). Status is a read (any member);
+// install is PlatformsManage (tenant_owner/tenant_admin → member 403) and is BORN
+// BOUND + ENFORCED to effect:git.runner.install (level 35). A person's own JWT is
+// never dial-gated; an LLM/engine caller is. The install writes a
+// branch + PR in the tenant's repo, never the default branch.
+app.MapGet("/api/v1/repos/{owner}/{repo}/runner", RunnerScaffoldEndpoints.GetStatus)
+    .RequireAuthorization("MemberAccess")
+    .WithName("RunnerScaffoldStatus");
+app.MapPost("/api/v1/repos/{owner}/{repo}/runner/install", RunnerScaffoldEndpoints.Install)
+    .RequireAuthorization("PlatformsManage").RequireRateLimiting("ConfigWrite")
+    .WithName("RunnerScaffoldInstall")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.GitRunnerInstall.ToWire()))
+    .EnforcesGovernance();
 app.MapGet("/api/v1/runs", ReposRunsEndpoints.ListRuns).RequireAuthorization("MemberAccess");
 // Story 23-5 Workflow Monitor: windowed per-status/per-definition instance counts
 // (literal segment — never collides with the {runId:guid} route below). Counts

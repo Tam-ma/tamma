@@ -1,7 +1,7 @@
 # Story 40-1: The `tamma-agent.yml` Runner Contract & Repo Scaffolding (+ single-user CLI parity)
 
-Status: in-progress — AC1-AC6, AC8, AC9, AC10 delivered 2026-08-18; AC7's
-server-side half remains (see [Delivery record](#delivery-record-2026-08-18)).
+Status: review — AC1-AC6, AC8, AC9, AC10 delivered 2026-08-18; AC7's server-side
+half delivered 2026-11-06 (see [AC7 delivery record](#ac7-delivery-record-2026-11-06)).
 
 ## MANDATORY: Before You Code
 
@@ -275,7 +275,7 @@ pre-check the moment the customer installs it.
 - **`claude-code` CLI version defaults to `latest`, not an exact pin.** The plan asked for
   an exact version; pinning to a version nobody verified guarantees breakage on day one.
   The repo variable `TAMMA_CLAUDE_CODE_VERSION` pins it, and the README recommends doing so.
-- **AC7 half-delivered.** `install-runner.sh` provides the install/drift/upgrade semantics
+- **AC7 half-delivered** *(closed 2026-11-06 — see the AC7 delivery record below).* `install-runner.sh` provides the install/drift/upgrade semantics
   self-serve. The server-side `RunnerScaffoldService` + tenant-admin endpoints and the
   `AgentDispatchMediationService` message edit did not land: they live in `Tamma.Api`,
   outside the implementing lane's file scope, and — see the Architectural Context
@@ -301,6 +301,80 @@ the success, agent-failure and no-`jq` paths, and `install-runner.sh` was exerci
 all four states. The plan's optional runner self-test CI job (dispatch with
 `agent_provider=mock`) is still the missing live proof — 40-7 is its natural home.
 
+## AC7 delivery record (2026-11-06)
+
+**Shipped.** A tenant admin can check and install the runner through the GitHub
+App; the `WorkflowNotFound` dead end now names that action.
+
+| Path | What |
+|---|---|
+| `Tamma.Platforms.Abstractions/IGitPlatformClient.cs` (`CommitFilesAsync`), `Models/FileCommitRequests.cs`, `PlatformCapability.FileWrites` | The missing file-WRITE verb: an atomic multi-file commit onto an existing branch, with a per-file executable bit |
+| `Tamma.Platforms.GitHub/GitHubPlatformClient.cs` | GitHub implementation over the Git Data API (blobs → tree → commit → fast-forward ref, `force:false`). Advertised in the GitHub matrix |
+| `GitLabPlatformClient.cs`, `GiteaPlatformClient.cs`, `NullGitPlatformDriver.cs` | `capability_unsupported` (not advertised) — pinned by `PlatformCapabilityContractTests` (new probe row) |
+| `Tamma.Api/Services/Runner/*` | `IRunnerScaffoldService` / `RunnerScaffoldService` (D5 state machine), `EmbeddedRunnerTemplate` + `RunnerVersionMarker`, `RunnerScaffoldEventTypes` |
+| `Tamma.Api/Tamma.Api.csproj` | Embeds `runner/github-actions/*.yml` + `scripts/*.sh` as `TammaRunner/*`; build fails loud if the directory is missing |
+| `Tamma.Api/Endpoints/RunnerScaffoldEndpoints.cs` + `Program.cs` | `GET /api/v1/repos/{owner}/{repo}/runner` (MemberAccess), `POST …/runner/install` (PlatformsManage, ConfigWrite rate limit, `.Governs(effect:git.runner.install).EnforcesGovernance()`) |
+| `Tamma.Core/Actions/ExternalEffect.cs`, `ActionCatalog.Descriptors.cs` | New catalog row `effect:git.runner.install` (source-control-write, mutating, reversible, level 35) |
+| `AgentDispatchMediationService.cs` | `WorkflowNotFound` message points at `POST /api/v1/repos/{owner}/{name}/runner/install`, script as fallback |
+| `Tamma.Api/Dockerfile`, `.github/workflows/docker-publish.yml`, `docker/docker-compose.yml`, `apps/tamma-elsa/docker-compose.yml` | Api image build context `apps/tamma-elsa/src` → `apps/tamma-elsa` (the ElsaServer image already uses it) so the runner files can be embedded |
+| `runner/github-actions/README.md`, `install-runner.sh` (comment) | Document the server-side install |
+
+**Decisions / deviations.**
+
+- **Install = branch + one commit + PR, never a push to the default branch.** The
+  plan's D5 said "commit the canonical bytes"; it did not say where. A PR is
+  reviewable by construction (Technical Notes), respects branch protection, and
+  lets a person see what a `force` overwrites (the PR body lists the replaced
+  files). Branch `tamma/runner-<version>`; a repeat call reuses the branch, skips
+  the commit when it already carries the shipped bytes, and returns the open PR.
+  Cost: the runner goes live on merge, because `workflow_dispatch` only sees
+  workflows on the default branch. The result message says so.
+- **New abstraction verb, not an `IGitHubActionsClient` extension** — that seam no
+  longer exists (Architectural Context). `CommitFilesAsync` is capability-gated
+  (`FileWrites`), GitHub only. Gitea/GitLab answer `capability_unsupported`; the
+  scaffold reports `PLATFORM_UNSUPPORTED` for them (GitLab is pipeline-per-ref
+  anyway; Gitea's multi-file contents endpoint is the obvious follow-up).
+- **Atomic set, executable bits.** The Contents API is one commit per file and
+  cannot set mode `100755`; the workflow runs the scripts directly and refuses a
+  mixed-version set, so the Git Data API is required, not a preference.
+- **State machine mirrors `install-runner.sh`, not the plan's D5 wording.** The plan
+  said "version marker removed/edited ⇒ customized"; the shipped script (the
+  self-serve twin) says marker differs or missing ⇒ `drifted`, same marker +
+  different bytes ⇒ `customized`, worst file wins. The service follows the
+  script so both paths report the same state for the same repo. `force` implies
+  `upgrade`, as in the script.
+- **Born governed.** The install route is a new mutating endpoint, so it is bound
+  and enforced from day one (`effect:git.runner.install`, level 35 — the
+  create-branch/PR zone). A person's JWT is never dial-gated; only an LLM/engine
+  caller would be. Pins moved in lockstep: ExternalEffect 61→62, catalog 225→226,
+  source-control-write 17→18, dial rows 176→177, in-scope surface 245→246, bound
+  35→36, enforced 30→31, live-site rows 37→38. The ungoverned backlog
+  (`PinnedCount` 208) does not move.
+- **Events.** `RUNNER.SCAFFOLD.INSTALLED` / `UPGRADED` / `SKIPPED` per the plan, plus
+  `RUNNER.SCAFFOLD.FAILED` so every install call emits exactly one terminal event
+  (guard denial, no driver, unsupported platform, platform error). The status
+  read emits none. Tags: `tenantId`, `repo`, `runnerVersion`, `priorState`,
+  `reason`, `failureCode`, `mode`.
+- **Single-user (AC10):** both endpoints answer `mode: single-user` and write
+  nothing (install emits `SKIPPED` / `single_user_mode`).
+- **No literal runner filename in the new C#.** The embedded resource names come
+  from the csproj glob, so `NoSeventhSite_HardcodesTheRunnerFilename` still holds.
+
+**Tests.** `RunnerScaffoldServiceTests` (27: state matrix incl. worst-wins, missing
+marker, scripts-missing, default-branch-only, read-error-is-not-absent; guard,
+invalid repo, no driver, GitLab, single-user; install absent/current, drifted
+refused/upgraded, customized refused-with-upgrade/replaced-with-force, idempotent
+repeat, existing branch, guard-denied, no FileWrites, commit failure, unexpected
+throw, single-user) and `RunnerTemplateTests` (embedded bytes == shipped files at the
+installer paths, every file carries the version, fail-loud on a missing template,
+marker parsing like the installer's `sed`, endpoint status mapping + tenant from
+context). GitHub driver: 3 `CommitFiles_*` tests. Mutation-checked: letting
+`upgrade` overwrite a customized copy fails the suite.
+
+**Not verified end-to-end.** No live GitHub App install was possible from the
+implementing sandbox. Open: the App's manifest/permissions are configured outside
+this repo and must include **Workflows: write**.
+
 ## Change Log
 
 | Date       | Version | Changes                | Author |
@@ -308,3 +382,4 @@ all four states. The plan's optional runner self-test CI job (dispatch with
 | 2026-07-23 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-24 | 1.1.0   | Code-verified revision: `tamma-agent.yml` default count 3 → 6 (+2 prose-only) and AC1 byte-match widened to all six; `CheckWorkflowFileAsync` re-attributed to `IGitHubActionsClient`/`OctokitGitHubActionsClient` with the fail-loud message located at `AgentDispatchMediationService.cs:107-112`; AC8 rewritten — `execute-agent` exists, the defect is entry-point resolution/packaging; 40-1 AC8 recorded as feeding 40-2 AC8 | Claude |
 | 2026-08-18 | 2.0.0   | Implementation pass: runner + scripts + schema + fixture + installer + docs + contract tests + AC8 shipped (Delivery record). Architectural Context re-corrected — `IGitHubActionsClient`/`OctokitGitHubActionsClient`/`CheckWorkflowFileAsync` no longer exist (Epic 31 retired the seam); the presence check is an inline `driver.Client.GetFileContentAsync` probe, and the abstraction has no file-WRITE verb, which is the real remaining cost of AC7 | Claude |
+| 2026-11-06 | 2.1.0   | AC7 server-side half: `IGitPlatformClient.CommitFilesAsync` (+ GitHub Git Data API impl, `FileWrites` capability), `RunnerScaffoldService` + status/install endpoints (born governed: `effect:git.runner.install`), `RUNNER.SCAFFOLD.*` events, `WorkflowNotFound` message → install endpoint, Api image context widened to embed the runner. Status → review | Claude |

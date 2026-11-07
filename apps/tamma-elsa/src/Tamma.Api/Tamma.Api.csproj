@@ -80,6 +80,29 @@
     </EmbeddedResource>
   </ItemGroup>
 
+  <!-- Story 40-1 AC7 — the canonical GitHub Actions runner set, embedded so the
+       scaffold service commits the SHIPPED bytes (never a copy that can drift).
+       Source of truth: apps/tamma-elsa/runner/github-actions/. The Docker build
+       context is therefore apps/tamma-elsa (not src/) — see Dockerfile. Loaded by
+       Services/Runner/EmbeddedRunnerTemplate.cs, which maps
+       TammaRunner/workflows/* → .github/workflows/* and
+       TammaRunner/scripts/* → .github/tamma/scripts/* (executable). -->
+  <PropertyGroup>
+    <TammaRunnerDir>$(MSBuildThisFileDirectory)..\..\runner\github-actions\</TammaRunnerDir>
+  </PropertyGroup>
+  <ItemGroup>
+    <EmbeddedResource Include="$(TammaRunnerDir)*.yml">
+      <LogicalName>TammaRunner/workflows/%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+    <EmbeddedResource Include="$(TammaRunnerDir)scripts\*.sh">
+      <LogicalName>TammaRunner/scripts/%(Filename)%(Extension)</LogicalName>
+    </EmbeddedResource>
+  </ItemGroup>
+  <Target Name="TammaRunnerTemplateMustExist" BeforeTargets="BeforeBuild">
+    <Error Condition="!Exists('$(TammaRunnerDir)scripts')"
+           Text="Story 40-1: the runner template directory '$(TammaRunnerDir)' is missing. Tamma.Api embeds it; build from a context that includes apps/tamma-elsa/runner (the Dockerfile's context is apps/tamma-elsa)." />
+  </Target>
+
   <ItemGroup>
     <ProjectReference Include="..\Tamma.Core\Tamma.Core.csproj" />
     <ProjectReference Include="..\Tamma.Data\Tamma.Data.csproj" />

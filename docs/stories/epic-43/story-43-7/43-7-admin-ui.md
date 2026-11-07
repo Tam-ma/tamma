@@ -1,6 +1,6 @@
 # Story 43-7: Action Catalog Admin UI
 
-Status: drafted
+Status: in-progress — reconciled 2026-11-06: a working admin Governance tab shipped (932f159a) in a different shape than this story (no /admin/actions route, primitives or three-state control). Re-scope against it before building more. See docs/sprint-status.yaml.
 
 ## MANDATORY: Before You Code
 

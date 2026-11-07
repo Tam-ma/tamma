@@ -1,6 +1,6 @@
 # Story 43-6: Admin API + RBAC for the Action Catalog
 
-Status: drafted
+Status: in-progress — reconciled 2026-11-06: most of this landed under 43-5/43-15; `actions:manage` in the Development-permissive array (AC3) and its test were not found. See docs/sprint-status.yaml.
 
 ## MANDATORY: Before You Code
 

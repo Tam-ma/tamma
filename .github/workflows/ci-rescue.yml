@@ -1,11 +1,11 @@
 # tamma-runner-version n/a — repository CI infrastructure.
 #
-# Auto-rescue for EXTERNALLY CANCELLED runs. Something repository-wide has been
-# cancelling in-flight runs since at least PR #511 (six documented cases in
-# .dev/findings/external-ci-run-cancellations-pr-511.md; branch-scoping was
-# refuted by a same-commit probe, and identifying the actor needs the org audit
-# log). Until the actor is found, a cancelled run whose commit is still the
-# branch tip is re-run automatically instead of silently staying dead.
+# Auto-rescue for CANCELLED runs. It was written for a suspected outside
+# actor cancelling runs; on 2026-11-06 that turned out to be the `.NET Tests`
+# job hitting its own 25-minute `timeout-minutes` (GitHub reports a timeout as
+# "cancelled"). See .dev/findings/external-ci-run-cancellations-pr-511.md. The
+# C# suite is now split into short parallel slices, so this should rarely fire;
+# it is kept as a cheap safety net for genuinely transient cancellations.
 #
 # Guards, so this can never loop or fight real cancellations:
 #   - only conclusion == 'cancelled' (real failures are left for humans);

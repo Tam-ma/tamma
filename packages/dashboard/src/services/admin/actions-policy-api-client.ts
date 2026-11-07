@@ -79,6 +79,10 @@ export interface AutonomyDialInfo {
   /** Sentinel threshold above `max` meaning "a person decides at every level". */
   alwaysHuman: number;
   default: number;
+  /** The caller's dial position in effect (their resolved base acceptance row). */
+  current: number;
+  /** Which tier supplied `current` (same vocabulary as acceptance-rules `source`). */
+  source: string;
 }
 
 /** One row of GET /api/actions/catalog. */
@@ -164,7 +168,8 @@ export interface PolicyGroup {
   platformRow: PolicyAssignmentRow | null;
 }
 
-export interface PolicyDial extends AutonomyDialInfo {
+/** `/policy` publishes the dial without `source` (only `/dial` reports the tier). */
+export interface PolicyDial extends Omit<AutonomyDialInfo, 'source'> {
   /** The principal's current dial position. */
   current: number;
   /** The level this policy view was computed at (`?level=` or the current dial). */

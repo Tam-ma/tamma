@@ -274,7 +274,11 @@ internal static class KnownUngovernedEndpoints
     // 43-17 follow-up — UNCHANGED at 245: trigger-ci and execute-task were already
     // in-scope mutating endpoints; they only move baseline→bound. New state:
     // 208 baselined + 2 exceptions + 35 bound = 245.
-    internal const int PinnedInScopeCount = 245;
+    // Story 40-1 AC7 — 245 → 246: POST /api/v1/repos/{owner}/{repo}/runner/install is
+    // a NEW in-scope mutating endpoint, BORN BOUND (git.runner.install) + enforcing —
+    // the backlog (PinnedCount) does not move. New state: 208 baselined + 2
+    // exceptions + 36 bound = 246.
+    internal const int PinnedInScopeCount = 246;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

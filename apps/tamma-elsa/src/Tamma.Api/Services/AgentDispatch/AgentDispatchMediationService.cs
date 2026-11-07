@@ -175,8 +175,11 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
             if (probe is PlatformResult<byte[]>.Failed { Error: PlatformError.NotFound })
                 return await DispatchFailAsync(tenantId, repo, body.CorrelationId, dispatchedAt,
                     AgentDispatchFailureCodes.WorkflowNotFound,
+                    // Story 40-1 AC7 — point at the server-side install action (the
+                    // self-serve script stays the fallback for non-App installs).
                     $"Workflow file '{workflowFile}' not found in {owner}/{name}. Install the Tamma agent runner: " +
-                    "apps/tamma-elsa/runner/github-actions/install-runner.sh --repo <owner/repo> (see that directory's README).",
+                    $"POST /api/v1/repos/{owner}/{name}/runner/install (opens a pull request; merge it to activate). " +
+                    "Without the GitHub App, run apps/tamma-elsa/runner/github-actions/install-runner.sh instead.",
                     404, ct)
                     .ConfigureAwait(false);
         }

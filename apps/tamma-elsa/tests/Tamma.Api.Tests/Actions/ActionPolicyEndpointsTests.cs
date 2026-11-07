@@ -976,6 +976,11 @@ public class ActionPolicyEndpointsTests
         dial.GetProperty("min").GetInt32().Should().Be(AutonomyDial.Min);
         dial.GetProperty("max").GetInt32().Should().Be(AutonomyDial.Max);
         dial.GetProperty("alwaysHuman").GetInt32().Should().Be(AutonomyDial.AlwaysHuman);
+        dial.GetProperty("default").GetInt32().Should().Be(AcceptanceDefaults.DefaultAutonomyLevel);
+        // Story 43-1 AC3: the caller's resolved base row — a fresh principal has
+        // no override, so the shipped default is in effect, from the system tier.
+        dial.GetProperty("current").GetInt32().Should().Be(AcceptanceDefaults.DefaultAutonomyLevel);
+        dial.GetProperty("source").GetString().Should().Be("system-default");
 
         var catalog = await member.GetFromJsonAsync<JsonElement>("/api/actions/catalog");
         catalog.GetArrayLength().Should().Be(Tamma.Core.Actions.ActionCatalog.All.Count,

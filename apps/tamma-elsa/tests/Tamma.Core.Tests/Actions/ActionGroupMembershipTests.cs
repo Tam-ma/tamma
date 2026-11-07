@@ -151,7 +151,7 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void SourceControlWrite_has_the_17_expected_members()
+    public void SourceControlWrite_has_the_18_expected_members()
     {
         // 6 -> 10 (Story 43-12): the coarse effect:git.pull-request.merge is RETIRED
         // and replaced by the per-target trio git.merge.{dev,qa,main} (+3 net +2);
@@ -172,6 +172,8 @@ public class ActionGroupMembershipTests
             "effect:git.pull-request.comment", "effect:git.pull-request.review-comment",
             "effect:git.pull-request.request-reviewers", "effect:git.pull-request.label",
             "effect:git.pull-request.set-draft",
+            // 17 -> 18 (Story 40-1 AC7): the runner scaffold install.
+            "effect:git.runner.install",
         });
     }
 
@@ -297,8 +299,10 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void The_per_group_counts_sum_to_225()
+    public void The_per_group_counts_sum_to_226()
     {
+        // 225 → 226 (Story 40-1 AC7): source-control-write 17 → 18
+        // (+effect:git.runner.install) — nothing else moves.
         // 219 → 221 (Epic 31 P2): platform-automation 43 → 45 (+the driver-cache
         // invalidator + the installation-bridge backfill, both automation machinery)
         // — nothing else moves.
@@ -334,7 +338,7 @@ public class ActionGroupMembershipTests
             [ActionGroup.CommandExecution] = 2,
             [ActionGroup.CiAndTest] = 4,
             [ActionGroup.SourceControlRead] = 1,
-            [ActionGroup.SourceControlWrite] = 17,
+            [ActionGroup.SourceControlWrite] = 18,
             [ActionGroup.IssueTracking] = 16,
             [ActionGroup.DeployControl] = 10,
             [ActionGroup.ExternalComms] = 2,
@@ -354,7 +358,7 @@ public class ActionGroupMembershipTests
         // 221 → 222 (Epic 31 P3, 2026-08-08): platform-automation 45 → 46
         // (+the DG-5 CI completion poller, automation machinery).
         // 219 → 221 (Epic 31 P2): +2 platform-automation machinery members.
-        counts.Values.Sum().Should().Be(225);
+        counts.Values.Sum().Should().Be(226);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

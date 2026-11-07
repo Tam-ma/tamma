@@ -48,6 +48,19 @@ public interface IGitPlatformClient
         GetFileContentRequest request, CancellationToken ct = default);
 
     /// <summary>
+    /// Story 40-1 AC7 — the file WRITE counterpart of
+    /// <see cref="GetFileContentAsync"/>: create or replace a set of files on
+    /// an existing branch as ONE atomic commit (all files land or none do),
+    /// fast-forwarding the branch. Powers the runner scaffold, which must
+    /// install the workflow and its scripts as a matched set. Capability:
+    /// <see cref="PlatformCapability.FileWrites"/>; a driver without it MUST
+    /// return <see cref="PlatformError.InvalidRequest"/> with code
+    /// <c>"capability_unsupported"</c> — never throw.
+    /// </summary>
+    Task<PlatformResult<FileCommit>> CommitFilesAsync(
+        CommitFilesRequest request, CancellationToken ct = default);
+
+    /// <summary>
     /// Create a new branch from an existing SHA.
     /// </summary>
     Task<PlatformResult<Branch>> CreateBranchAsync(

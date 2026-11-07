@@ -238,6 +238,10 @@ public class MediationClientEffectSweepTests
                 "Story 31-13 issue callback; reached via IssueCallbackClient / HttpTriageApplyClient, not the engine mediation client"),
             [ExternalEffect.GitIssueLabelsSet] = new(SiteKind.RouteOnly, null,
                 "Story 31-13 issue callback; reached via IssueCallbackClient / HttpTriageApplyClient, not the engine mediation client"),
+            // Story 40-1 AC7 — reached by a tenant admin from the dashboard/API
+            // (PlatformsManage), never through the engine's mediation client.
+            [ExternalEffect.GitRunnerInstall] = new(SiteKind.RouteOnly, null,
+                "Story 40-1 runner scaffold; tenant-admin route POST /api/v1/repos/{owner}/{repo}/runner/install, no TammaApiClient method"),
             [ExternalEffect.GitIssueLabelsRemove] = new(SiteKind.RouteOnly, null,
                 "Story 31-13 issue callback; reached via IssueCallbackClient / HttpTriageApplyClient, not the engine mediation client"),
 
