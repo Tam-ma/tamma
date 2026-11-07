@@ -3065,6 +3065,8 @@ actionsPolicy.MapGet("/policy/diff", ActionPolicyEndpoints.GetPolicyDiff);
 actionsPolicy.MapPost("/policy/reset", ActionPolicyEndpoints.ResetPolicy).RequireAuthorization("ActionsManage");
 actionsPolicy.MapPut("/policy/groups/{group}/threshold", ActionPolicyEndpoints.PutGroupThreshold).RequireAuthorization("ActionsManage");
 actionsPolicy.MapDelete("/policy/groups/{group}", ActionPolicyEndpoints.DeleteGroup).RequireAuthorization("ActionsManage");
+// Story 43-6 AC1 — one action's resolved view (read-only; inherits AuthenticatedAny).
+actionsPolicy.MapGet("/policy/actions/{ns}/{key}", ActionPolicyEndpoints.GetPolicyAction);
 actionsPolicy.MapPut("/policy/actions/{ns}/{key}/threshold", ActionPolicyEndpoints.PutActionThreshold).RequireAuthorization("ActionsManage");
 actionsPolicy.MapPut("/policy/actions/{ns}/{key}/enforce", ActionPolicyEndpoints.PutActionEnforce).RequireAuthorization("ActionsManage");
 actionsPolicy.MapPut("/policy/actions/{ns}/{key}/enabled", ActionPolicyEndpoints.PutActionEnabled).RequireAuthorization("ActionsManage");

@@ -143,4 +143,33 @@ public class PermissionsMatrixTests
         memberPerms.Should().Contain("dashboard:view");
         memberPerms.Should().Contain("workflows:view");
     }
+
+    /// <summary>
+    /// Story 43-6 AC4 — the exact permission set. Adding a permission is a deliberate edit here
+    /// (and in the AddAuthorization block and the Development-permissive array — see
+    /// DevelopmentPolicyParityTests); the message names what is missing or extra.
+    /// </summary>
+    [Test]
+    public void Matrix_keys_are_pinned()
+    {
+        var expected = new[]
+        {
+            "dashboard:view", "workflows:view", "workflows:manage", "workflows:delete",
+            "users:view", "users:manage", "admin:access", "logs:access", "elsa:access",
+            "settings:view", "settings:manage", "apikeys:manage", "prompts:manage",
+            "conventions:manage", "platforms:manage", "agents:manage", "pricing:manage",
+            "acceptance-rules:manage", "schedules:manage", "actions:manage",
+            "tracker:view", "tracker:manage",
+        };
+        var actual = Permissions.Matrix.Keys.ToHashSet(StringComparer.Ordinal);
+
+        actual.Except(expected).Should().BeEmpty("these permissions are not in the pinned set (add them deliberately)");
+        expected.Except(actual).Should().BeEmpty("these pinned permissions are missing from Permissions.Matrix");
+    }
+
+    [TestCase("member", false)]
+    [TestCase("admin", true)]
+    [TestCase("owner", true)]
+    public void Actions_manage_is_admin_and_owner_only(string role, bool allowed)
+        => Permissions.HasPermission(role, "actions:manage").Should().Be(allowed);
 }

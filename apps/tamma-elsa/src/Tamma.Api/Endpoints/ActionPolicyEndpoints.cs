@@ -147,90 +147,9 @@ public static class ActionPolicyEndpoints
         var dial = baseRules.Rules.AutonomyLevel;
         var viewLevel = level ?? dial;
 
-        var actions = ActionCatalog.All.Select(d =>
-        {
-            // Story 43-13 — deliberately on the defaulted Caller (Llm): the
-            // policy view is the LLM-path view by definition — it renders what
-            // the dial would do to the MODEL, which is the only caller the dial
-            // governs (43-11 Amendment 4). Machinery rows short-circuit inside
-            // the evaluator; surfacing that flag on this payload is 43-15's job.
-            var decision = AutonomyGateEvaluator.Evaluate(
-                new AutonomyQuery(d.Key, gp), snapshot, baseRules);
-
-            // Story 43-15 (AC8, closes 43-11 AC12) — the toggle/greying fields.
-            // levelOwned keys on the ladder WITHOUT the principal action row
-            // (Amendment 2-E): the shipped level, group rows and the ceiling are
-            // all included, so the group-row bypass is closed and the badge is
-            // NEVER keyed on row presence alone.
-            var withoutRow = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
-                d, snapshot, baseRules);
-            var hasActionToggle =
-                snapshot.PrincipalActionRows.TryGetValue(d.Key.ToWire(), out var prow)
-                && prow.MinAutonomy == AutonomyDial.Min;
-            bool levelOwned;
-            bool editable;
-            string reason;
-            if (d.IsMachinery)
-            {
-                // Machinery takes no threshold (43-13); the dial does not govern it.
-                (levelOwned, editable, reason) = (false, false, "machinery-not-dial-governed");
-            }
-            else if (!d.Enforceable)
-            {
-                (levelOwned, editable, reason) = (false, false, "not-enforceable");
-            }
-            else
-            {
-                levelOwned = viewLevel >= withoutRow.EffectiveMinAutonomy;
-                editable = !levelOwned;
-                reason = levelOwned ? "level-owned" : "editable";
-            }
-
-            return new
-            {
-                key = d.Key.ToWire(),
-                group = d.Group.ToWire(),
-                risk = d.Risk.ToWire(),
-                title = d.Title,
-                summary = d.Summary,
-                siteKey = d.SiteKey,
-                minAutonomy = decision.EffectiveMinAutonomy,
-                source = SourceWire(decision.Source),
-                enforce = decision.Enforced,
-                enabled = decision.Enabled,
-                allowedRoles = decision.AllowedRoles,
-                escalatableToHuman = d.EscalatableToHuman,
-                enforceable = d.Enforceable,
-                isMachinery = d.IsMachinery,
-                // The shipped zone level (43-11) — a LEVEL, distinct from the
-                // resolved effective threshold above.
-                shippedLevel = d.DefaultMinAutonomy,
-                // The ladder-without-the-action-row resolution the 409/greying
-                // rule keys on (Amendment 2-E).
-                ladderWithoutRow = withoutRow.EffectiveMinAutonomy,
-                // Computed with THE SAME comparison the gate applies, so the
-                // UI's greying rule cannot drift from the enforcement rule.
-                automatedAtLevel = viewLevel >= decision.EffectiveMinAutonomy,
-                // Story 43-15 AC8 — levelOwned / editable = !levelOwned / reason,
-                // replacing the old unconditional editable = true (S3 deleted).
-                levelOwned,
-                editable,
-                reason,
-                // A per-action toggle standing ABOVE the current dial: an explicit
-                // choice the dial has not caught up to. Keyed on the row being AT
-                // Min AND the ladder-without-row exceeding the dial — never on row
-                // presence alone (Amendment 2-E's named failure).
-                toggleAboveDial =
-                    !d.IsMachinery && hasActionToggle
-                    && withoutRow.EffectiveMinAutonomy > dial,
-                // Story 43-8 AC9 — the concrete sites this action is bound at, read
-                // off the RUNNING host. An EMPTY array means the row is enforced
-                // NOWHERE; rendering such a row as "governed" claims coverage that
-                // does not exist, which is the lie the epic exists to prevent. See
-                // ActionEnforcementSites for what a site does and does not prove.
-                enforcementSites = enforcementSites.For(d.Key),
-            };
-        }).ToList();
+        var actions = ActionCatalog.All
+            .Select(d => ActionView(d, gp, snapshot, baseRules, dial, viewLevel, enforcementSites))
+            .ToList();
 
         var groups = Enum.GetValues<ActionGroup>().Select(g => new
         {
@@ -254,6 +173,150 @@ public static class ActionPolicyEndpoints
             },
             groups,
             actions,
+        });
+    }
+
+    /// <summary>
+    /// One action's resolved, level-parameterized view — the row <c>GET /policy</c> lists and
+    /// <c>GET /policy/actions/{ns}/{key}</c> returns alone (Story 43-6 AC1/AC5). One method, so
+    /// the two can never disagree.
+    /// </summary>
+    private static object ActionView(
+        ActionDescriptor d, GovernancePrincipal gp, GovernancePolicySnapshot snapshot,
+        ResolvedAcceptanceRules baseRules, int dial, int viewLevel, IActionEnforcementSites enforcementSites)
+    {
+        // Story 43-13 — deliberately on the defaulted Caller (Llm): the
+        // policy view is the LLM-path view by definition — it renders what
+        // the dial would do to the MODEL, which is the only caller the dial
+        // governs (43-11 Amendment 4). Machinery rows short-circuit inside
+        // the evaluator; surfacing that flag on this payload is 43-15's job.
+        var decision = AutonomyGateEvaluator.Evaluate(
+            new AutonomyQuery(d.Key, gp), snapshot, baseRules);
+
+        // Story 43-15 (AC8, closes 43-11 AC12) — the toggle/greying fields.
+        // levelOwned keys on the ladder WITHOUT the principal action row
+        // (Amendment 2-E): the shipped level, group rows and the ceiling are
+        // all included, so the group-row bypass is closed and the badge is
+        // NEVER keyed on row presence alone.
+        var withoutRow = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
+            d, snapshot, baseRules);
+        var hasActionToggle =
+            snapshot.PrincipalActionRows.TryGetValue(d.Key.ToWire(), out var prow)
+            && prow.MinAutonomy == AutonomyDial.Min;
+        bool levelOwned;
+        bool editable;
+        string reason;
+        if (d.IsMachinery)
+        {
+            // Machinery takes no threshold (43-13); the dial does not govern it.
+            (levelOwned, editable, reason) = (false, false, "machinery-not-dial-governed");
+        }
+        else if (!d.Enforceable)
+        {
+            (levelOwned, editable, reason) = (false, false, "not-enforceable");
+        }
+        else
+        {
+            levelOwned = viewLevel >= withoutRow.EffectiveMinAutonomy;
+            editable = !levelOwned;
+            reason = levelOwned ? "level-owned" : "editable";
+        }
+
+        return new
+        {
+            key = d.Key.ToWire(),
+            group = d.Group.ToWire(),
+            risk = d.Risk.ToWire(),
+            title = d.Title,
+            summary = d.Summary,
+            siteKey = d.SiteKey,
+            minAutonomy = decision.EffectiveMinAutonomy,
+            source = SourceWire(decision.Source),
+            enforce = decision.Enforced,
+            enabled = decision.Enabled,
+            allowedRoles = decision.AllowedRoles,
+            escalatableToHuman = d.EscalatableToHuman,
+            enforceable = d.Enforceable,
+            isMachinery = d.IsMachinery,
+            // The shipped zone level (43-11) — a LEVEL, distinct from the
+            // resolved effective threshold above.
+            shippedLevel = d.DefaultMinAutonomy,
+            // The ladder-without-the-action-row resolution the 409/greying
+            // rule keys on (Amendment 2-E).
+            ladderWithoutRow = withoutRow.EffectiveMinAutonomy,
+            // Computed with THE SAME comparison the gate applies, so the
+            // UI's greying rule cannot drift from the enforcement rule.
+            automatedAtLevel = viewLevel >= decision.EffectiveMinAutonomy,
+            // Story 43-15 AC8 — levelOwned / editable = !levelOwned / reason,
+            // replacing the old unconditional editable = true (S3 deleted).
+            levelOwned,
+            editable,
+            reason,
+            // A per-action toggle standing ABOVE the current dial: an explicit
+            // choice the dial has not caught up to. Keyed on the row being AT
+            // Min AND the ladder-without-row exceeding the dial — never on row
+            // presence alone (Amendment 2-E's named failure).
+            toggleAboveDial =
+                !d.IsMachinery && hasActionToggle
+                && withoutRow.EffectiveMinAutonomy > dial,
+            // Story 43-8 AC9 — the concrete sites this action is bound at, read
+            // off the RUNNING host. An EMPTY array means the row is enforced
+            // NOWHERE; rendering such a row as "governed" claims coverage that
+            // does not exist, which is the lie the epic exists to prevent. See
+            // ActionEnforcementSites for what a site does and does not prove.
+            enforcementSites = enforcementSites.For(d.Key),
+        };
+    }
+
+    // =======================================================================
+    // GET /api/actions/policy/actions/{ns}/{key}?level=NN — one action
+    // =======================================================================
+
+    /// <summary>
+    /// Story 43-6 AC1 — one action's resolved view: the same row <c>GET /policy</c> lists
+    /// (<see cref="ActionView"/>), plus this principal's and the platform's stored rows for it
+    /// and the dial block. <c>{ns}/{key}</c> is parsed case-sensitively — unknown or mis-cased
+    /// wires are 400, never coerced.
+    /// </summary>
+    public static async Task<IResult> GetPolicyAction(
+        string ns, string key, int? level,
+        IGovernancePolicySnapshotProvider snapshots,
+        IAcceptanceRulesResolver acceptanceRules,
+        IGovernancePrincipalResolver principals,
+        IActionEnforcementSites enforcementSites,
+        ClaimsPrincipal principal)
+    {
+        if (!TryResolveAction(ns, key, out var descriptor, out var error)) return error!;
+        if (level is int l && !AutonomyDial.IsValidLevel(l))
+        {
+            return Results.BadRequest(new
+            {
+                error = $"level must be within [{AutonomyDial.Min}, {AutonomyDial.Max}]",
+                code = "ACTION_POLICY.INVALID",
+            });
+        }
+
+        var gp = await principals.ResolveAsync(principal);
+        var snapshot = snapshots.GetSnapshot(gp);
+        var baseRules = await ResolveBaseAsync(acceptanceRules, gp);
+        var dial = baseRules.Rules.AutonomyLevel;
+        var viewLevel = level ?? dial;
+        var wire = descriptor!.Key.ToWire();
+
+        return Results.Ok(new
+        {
+            dial = new
+            {
+                min = AutonomyDial.Min,
+                max = AutonomyDial.Max,
+                alwaysHuman = AutonomyDial.AlwaysHuman,
+                @default = AcceptanceDefaults.DefaultAutonomyLevel,
+                current = dial,
+                viewLevel,
+            },
+            action = ActionView(descriptor, gp, snapshot, baseRules, dial, viewLevel, enforcementSites),
+            principalRow = RowView(snapshot.PrincipalActionRows, wire),
+            platformRow = RowView(snapshot.PlatformActionRows, wire),
         });
     }
 
