@@ -69,6 +69,7 @@ jobs:
           shellcheck install.sh
           shellcheck apps/tamma-elsa/runner/github-actions/install-runner.sh
           shellcheck apps/tamma-elsa/runner/github-actions/scripts/*.sh
+          shellcheck .github/scripts/dotnet-test-run.sh
 
       - name: Lint GitHub Actions workflows
         # actionlint also shellchecks the `run:` blocks embedded in the workflow
@@ -200,15 +201,30 @@ jobs:
       - name: Run E2E tests
         run: npx vitest run --config vitest.e2e.config.ts --passWithNoTests
 
-  dotnet-tests:
-    name: .NET Tests
+  # The C# suite runs as parallel slices so no job runs long. It used to be ONE
+  # job: ~2.5 min of setup plus ~16.5 min of Tamma.Api.Tests plus ~1 min of every
+  # other project. Runs that crossed its 25-min limit were reported as
+  # "cancelled", which was misread for months as something cancelling runs from
+  # outside (see .dev/findings/external-ci-run-cancellations-pr-511.md).
+  #
+  # Now: Tamma.Api.Tests is split by test CLASS into API_SHARDS balanced shards
+  # (.github/scripts/dotnet-test-shard.py, weights in dotnet-test-weights.json),
+  # and every other project runs in one more slice. Target: each slice's tests
+  # take under ~2.5 min, so a whole job finishes in about 5. When a slice grows
+  # past that, raise API_SHARDS (and the matrix list) or regenerate the weights.
+  dotnet-tests-slice:
+    name: .NET Tests (${{ matrix.slice }})
     runs-on: ubuntu-latest
-    # The C# suite (4000+ tests, Postgres testcontainers) grew to ~13-15 min as
-    # Epics 32/34/35/36/37 landed and began flaking on the old 15-min cap. 25 min
-    # gives headroom for continued growth without masking a real hang.
-    timeout-minutes: 25
+    # Hang guard, not the target: a healthy slice finishes in ~5 min.
+    timeout-minutes: 12
     permissions:
       contents: read
+    strategy:
+      fail-fast: false
+      matrix:
+        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8]
+    env:
+      API_SHARDS: 8
     defaults:
       run:
         working-directory: apps/tamma-elsa
@@ -222,10 +238,10 @@ jobs:
         with:
           dotnet-version: 8.0.x
 
-      # The tenant-move e2e shells out to pg_dump/pg_restore, and pg_dump
-      # refuses servers newer than itself — the runner's stock client is
-      # older than the postgres:17 test container, so install client 17
-      # from pgdg (official install steps from postgresql.org/download).
+      # Tenant-move / backup tests shell out to pg_dump/pg_restore, and pg_dump
+      # refuses servers newer than itself — the runner's stock client is older
+      # than the postgres:17 test container, so install client 17 from pgdg
+      # (official install steps from postgresql.org/download).
       - name: Install PostgreSQL 17 client tools
         run: |
           sudo install -d /usr/share/postgresql-common/pgdg
@@ -235,77 +251,52 @@ jobs:
           sudo apt-get install -y -qq postgresql-client-17
           pg_dump --version
 
+      # API slices build only what Tamma.Api.Tests needs; the "other" slice
+      # builds the whole solution (it runs every other test project).
       - name: Restore
-        run: dotnet restore Tamma.sln
+        run: |
+          if [ "${{ matrix.slice }}" = "other" ]; then
+            dotnet restore Tamma.sln
+          else
+            dotnet restore tests/Tamma.Api.Tests/Tamma.Api.Tests.csproj
+          fi
 
       - name: Build
-        run: dotnet build Tamma.sln --no-restore -c Release
+        run: |
+          if [ "${{ matrix.slice }}" = "other" ]; then
+            dotnet build Tamma.sln --no-restore -c Release
+          else
+            dotnet build tests/Tamma.Api.Tests/Tamma.Api.Tests.csproj --no-restore -c Release
+          fi
 
-      # --blame-hang: the run twice exited 1 with all tests passing (a test
-      # host kept alive past shutdown; runner cleanup killed orphaned dotnet
-      # processes). Blame mode names the project/host that fails to exit and
-      # dumps its live threads within the timeout instead of failing silently.
-      # Per-project loop with an explicit PROJECT-FAILED marker and a final
-      # recap: the solution-level run kept exiting 1 while Tamma.Api.Tests
-      # (4860 tests, the log-dominating last project) passed — the failing
-      # project's output was always pushed beyond the retrievable log window.
-      # The recap block at the end of the step names every failing project
-      # regardless of how much output preceded it.
       - name: Test
         run: |
-          rc=0
-          failed=""
-          mkdir -p /tmp/test-logs
-          for proj in tests/*/; do
-            name=$(basename "$proj")
-            echo "::group::$name"
-            if dotnet test "$proj" --no-build -c Release --verbosity minimal --logger trx --blame-hang --blame-hang-timeout 8m > "/tmp/test-logs/$name.log" 2>&1; then
-              tail -4 "/tmp/test-logs/$name.log"
-            else
-              echo "PROJECT-FAILED: $name"
-              failed="$failed $name"
-              rc=1
-            fi
-            echo "::endgroup::"
-          done
-          echo "==== TEST RECAP ===="
-          if [ $rc -ne 0 ]; then
-            echo "FAILED PROJECTS:$failed"
-            for n in $failed; do
-              # Failed test names live in the .trx, not the console: each test
-              # spins a WebApplicationFactory whose startup logs flood stdout,
-              # pushing the "Failed <test>" line far above any tail window, and
-              # the .trx is only reachable as a token-gated artifact. Split the
-              # newest .trx on '<' so every start-tag lands on its own line,
-              # then pull the failed UnitTestResult names (attribute-order
-              # independent, no extra tooling) so intermittent failures are
-              # diagnosable straight from the CI log.
-              echo "---- FAILED TESTS IN $n (from .trx) ----"
-              trx=$(find "tests/$n/TestResults" -maxdepth 1 -name '*.trx' -printf '%T@ %p\n' \
-                2>/dev/null | sort -rn | head -1 | cut -d' ' -f2-)
-              if [ -n "$trx" ]; then
-                tr '<' '\n' < "$trx" \
-                  | grep 'UnitTestResult ' \
-                  | grep 'outcome="Failed"' \
-                  | grep -oE 'testName="[^"]*"' \
-                  | sed 's/^/  FAILED: /' \
-                  || echo "  (no Failed results in .trx — likely a host/hang exit)"
-              else
-                echo "  (no .trx found)"
-              fi
-              echo "---- OUTPUT OF FAILED PROJECT $n (tail 200) ----"
-              tail -200 "/tmp/test-logs/$n.log"
-            done
+          slice="${{ matrix.slice }}"
+          if [ "$slice" = "other" ]; then
+            ../../.github/scripts/dotnet-test-run.sh other
           else
-            echo "ALL PROJECTS PASSED"
+            ../../.github/scripts/dotnet-test-run.sh api "${slice#api-}" "$API_SHARDS"
           fi
-          exit $rc
 
       - name: Upload test results
         if: failure()
         uses: actions/upload-artifact@v4
         with:
-          name: dotnet-test-results
+          name: dotnet-test-results-${{ matrix.slice }}
           path: |
             apps/tamma-elsa/tests/**/TestResults/**
           if-no-files-found: ignore
+
+  # One stable status for the whole C# suite, under the job's old name.
+  dotnet-tests:
+    name: .NET Tests
+    needs: dotnet-tests-slice
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 2
+    steps:
+      - name: All slices passed
+        run: |
+          result="${{ needs.dotnet-tests-slice.result }}"
+          echo "slices: $result"
+          [ "$result" = "success" ]

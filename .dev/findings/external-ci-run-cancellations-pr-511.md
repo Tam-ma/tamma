@@ -1,6 +1,20 @@
 # 2026-08-13 — external CI-run cancellations on PR #511 (and #512)
 
-**Status:** open — repository-wide (branch-scoping refuted 2026-08-14), identity unconfirmed. Recorded so it is not re-litigated.
+**Status:** RESOLVED 2026-11-06 — **there was no external canceller.** The runs hit the `.NET Tests` job's own `timeout-minutes: 25`. See the resolution below; the rest of this note is kept as the original investigation.
+
+## Resolution (2026-11-06)
+
+GitHub reports a job that exceeds its `timeout-minutes` with conclusion **`cancelled`**, the same word it uses for a manual or concurrency cancel, and the log only says `##[error]The operation was canceled.` That made a timeout look like an outside actor.
+
+The evidence, from the last 25 CI runs:
+
+- Every "external" cancel stopped at **25 minutes** of `.NET Tests` — exactly its limit (e.g. run 42311171464: started 23:20:02, stopped 23:45:12).
+- Passing runs of the same job took **20–22 minutes** (setup ~2.5 min + `Tamma.Api.Tests` ~16.5 min + everything else ~1 min), so ordinary variance pushed some runs over.
+- The few cancels at 0, 7 and 19 minutes are ordinary concurrency cancels from a newer push.
+
+Fix: the C# suite now runs as parallel slices (`ci.yml` `dotnet-tests-slice`, split by `.github/scripts/dotnet-test-shard.py`), each finishing in about 5 minutes. `ci-rescue.yml` stays as a cheap safety net but its premise was wrong.
+
+**Lesson:** when a run is "cancelled", first compare how long it ran with the job's `timeout-minutes`.
 
 ## What happened
 
