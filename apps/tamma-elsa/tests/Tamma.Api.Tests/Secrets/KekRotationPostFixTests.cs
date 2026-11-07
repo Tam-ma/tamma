@@ -280,7 +280,7 @@ public class KekRotationPostFixTests
         var connectionString = pg.GetConnectionString();
         var services = new ServiceCollection();
         services.AddDbContextFactory<ControlPlaneDbContext>(
-            o => o.UseNpgsql(connectionString));
+            o => o.UseNpgsql(connectionString).EnableServiceProviderCaching(false));
         services.AddLogging();
         services.AddSingleton<IPlatformEventRepository, NoopPlatformEventRepository>();
         services.AddSingleton(NpgsqlDataSource.Create(connectionString));
@@ -549,7 +549,7 @@ public class KekRotationPostFixTests
             // NOT release our dedicated connection's lock.
             var services = new ServiceCollection();
             services.AddDbContextFactory<ControlPlaneDbContext>(
-                o => o.UseNpgsql(connectionString));
+                o => o.UseNpgsql(connectionString).EnableServiceProviderCaching(false));
             await using var sp = services.BuildServiceProvider();
             var factory = sp
                 .GetRequiredService<IDbContextFactory<ControlPlaneDbContext>>();

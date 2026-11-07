@@ -54,3 +54,14 @@
    them locally with `npx -y node@22 node_modules/vitest/vitest.mjs run`.
 8. **`find dir -maxdepth 1 -name 'coverage-*'` matches `dir` itself** when `dir` is
    `coverage-in`. Use `-mindepth 1`.
+9. **Changing the shard count reshuffles which fixtures share a test process. That
+   exposed a cross-fixture leak:** EF Core caches its internal service provider
+   process-wide. After a `WebApplicationFactory<Program>` host is disposed
+   (e.g. `BillingWebhookRoutesTests`), a DbContext later built with
+   `UseNpgsql(connectionString)` in the same process can be handed a disposed
+   `PoolingDataSource` (`ObjectDisposedException`). Seen in
+   `KekRotationPostFixTests` when it shared shard 12/16 with the billing class.
+   Fix in a test that builds its own context: `.EnableServiceProviderCaching(false)`.
+   Before blaming coverage for a slice failure, run that shard's filter locally
+   without coverage (`dotnet-test-shard.py filter ...`). Then bisect the fixtures
+   that sort before the failing one (NUnit runs fixtures alphabetically).
