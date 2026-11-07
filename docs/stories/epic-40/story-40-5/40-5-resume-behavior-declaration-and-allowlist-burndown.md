@@ -1,6 +1,14 @@
 # Story 40-5: `[ResumeBehavior]` on `SingleIssueCycleWorkflow` + Allowlist Burn-Down
 
-Status: drafted
+Status: done
+
+> **Delivered 2026-11-07.** `SingleIssueCycleWorkflow` now declares
+> `[ResumeBehavior(ResumeMode.Both, SuspendActivities = new[] { typeof(WaitForAgentRunActivity) })]`.
+> AC2 was already met: 40-2 removed the allowlist entry when it declared `BookmarkSuspend`.
+> New pins in `ResumableStandardStructuralTests`: `SingleIssueCycleWorkflow_DeclaresBoth_AndIsNotAllowlisted`
+> and `SingleIssueCycleWorkflow_RegistryDependencies_ArePresent` (AC4). Mutation-checked: dropping
+> `ComputeTaskResumeIndexActivity` from `CanonicalReEntryActivities` fails clause (c) on the cycle.
+> As the Technical Notes say, a green gate means "wired to re-enter", not "re-entry is on" — 40-7 flips it.
 
 ## MANDATORY: Before You Code
 
