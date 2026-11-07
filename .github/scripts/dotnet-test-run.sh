@@ -12,6 +12,11 @@
 #     failing project is never pushed out of the retrievable log window;
 #   * failed test names pulled from the .trx (each WebApplicationFactory start
 #     floods stdout, so the "Failed <test>" console line is easy to lose).
+#
+# COVERAGE=1 also collects line/branch coverage (coverlet, settings in
+# coverage.runsettings). Each project writes
+# tests/<project>/TestResults/<guid>/coverage.cobertura.xml; the CI
+# `coverage-report` job merges every slice's files. Costs ~10% test time.
 set -uo pipefail
 
 mode="${1:?usage: dotnet-test-run.sh other | api <shard> <total>}"
@@ -22,13 +27,18 @@ mkdir -p "$logs"
 rc=0
 failed=""
 
+coverage_args=()
+if [ "${COVERAGE:-0}" = "1" ]; then
+  coverage_args=(--collect "XPlat Code Coverage" --settings coverage.runsettings)
+fi
+
 run_project() {
   # $1 = project dir, remaining args = extra `dotnet test` arguments
   local proj="$1"; shift
   local name; name="$(basename "$proj")"
   echo "::group::$name"
   if dotnet test "$proj" --no-build -c Release --verbosity minimal --logger trx \
-       --blame-hang --blame-hang-timeout 8m "$@" > "$logs/$name.log" 2>&1; then
+       --blame-hang --blame-hang-timeout 8m ${coverage_args[@]+"${coverage_args[@]}"} "$@" > "$logs/$name.log" 2>&1; then
     tail -4 "$logs/$name.log"
   else
     echo "PROJECT-FAILED: $name"

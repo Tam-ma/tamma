@@ -79,6 +79,57 @@ jobs:
             | bash -s -- latest "$RUNNER_TEMP"
           "$RUNNER_TEMP/actionlint" -color
 
+  # Report-only TS coverage, kept apart from the gating `TypeScript Tests` run:
+  # instrumentation slows timing-sensitive tests (the intelligence file-watcher
+  # tests time out under coverage on macOS), and a coverage run must never be
+  # the reason a PR goes red. Thresholds in vitest.config.ts are zeroed here.
+  typescript-coverage:
+    name: TypeScript coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    continue-on-error: true
+    permissions:
+      contents: read
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Run tests with coverage
+        run: |
+          cov=(--coverage --coverage.reportOnFailure --coverage.reporter=json-summary
+               --coverage.thresholds.lines=0 --coverage.thresholds.branches=0
+               --coverage.thresholds.functions=0 --coverage.thresholds.statements=0)
+          out="$RUNNER_TEMP/ts-coverage"
+          pnpm vitest run "${cov[@]}" --coverage.reportsDirectory="$out/root" || true
+          for p in dashboard dashboard-user; do
+            (cd "packages/$p" && pnpm vitest run "${cov[@]}" --coverage.reportsDirectory="$out/$p") || true
+          done
+          python3 .github/scripts/ts-coverage-summary.py . \
+            "$out/root/coverage-summary.json" \
+            "dashboard=$out/dashboard/coverage-summary.json" \
+            "dashboard-user=$out/dashboard-user/coverage-summary.json" > ts-coverage.md
+          cat ts-coverage.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload summary
+        uses: actions/upload-artifact@v4
+        with:
+          name: ts-coverage-summary
+          path: ts-coverage.md
+          retention-days: 7
+
   integration-tests:
     name: Integration Tests (Postgres)
     runs-on: ubuntu-latest
@@ -270,6 +321,8 @@ jobs:
           fi
 
       - name: Test
+        env:
+          COVERAGE: '1'
         run: |
           slice="${{ matrix.slice }}"
           if [ "$slice" = "other" ]; then
@@ -286,6 +339,120 @@ jobs:
           path: |
             apps/tamma-elsa/tests/**/TestResults/**
           if-no-files-found: ignore
+
+      # Merged by the coverage-report job. Uploaded even when tests fail so the
+      # report still shows something (it is then marked partial).
+      - name: Upload coverage
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-${{ matrix.slice }}
+          path: apps/tamma-elsa/tests/*/TestResults/*/coverage.cobertura.xml
+          retention-days: 7
+          if-no-files-found: warn
+
+  # Merges every slice's cobertura file into one report: job summary, a sticky PR
+  # comment, and the merged report as an artifact. Not a required check.
+  # The ratchet (fail if coverage drops below .github/coverage-floor.json) runs
+  # only when every slice passed and uploaded, so a partial report never fails it.
+  coverage-report:
+    name: Coverage report
+    needs: [dotnet-tests-slice, typescript-coverage]
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    permissions:
+      contents: read
+      pull-requests: write
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Download coverage
+        uses: actions/download-artifact@v4
+        with:
+          pattern: coverage-*
+          path: coverage-in
+
+      - name: Download TS coverage summary
+        continue-on-error: true
+        uses: actions/download-artifact@v4
+        with:
+          name: ts-coverage-summary
+          path: ts-coverage
+
+      - name: Setup .NET
+        uses: actions/setup-dotnet@v4
+        with:
+          dotnet-version: 8.0.x
+
+      - name: Merge
+        run: |
+          dotnet tool install dotnet-reportgenerator-globaltool --tool-path "$RUNNER_TEMP/rg" --version 5.4.1
+          "$RUNNER_TEMP/rg/reportgenerator" \
+            -reports:'coverage-in/**/coverage.cobertura.xml' \
+            -targetdir:coverage-report \
+            -reporttypes:'JsonSummary;Cobertura;HtmlInline' \
+            '-assemblyfilters:-*.Tests;-*.Tests.*' \
+            '-filefilters:-*/Migrations/*;-*.Designer.cs;-*ModelSnapshot.cs;-*/obj/*' \
+            -verbosity:Warning
+
+      - name: Summarize
+        id: summary
+        env:
+          SLICES_RESULT: ${{ needs.dotnet-tests-slice.result }}
+        run: |
+          expected=13  # one per dotnet-tests-slice matrix entry — keep in sync
+          got=$(find coverage-in -maxdepth 1 -type d -name 'coverage-*' | wc -l)
+          {
+            python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \
+              --title 'C# coverage' --floor .github/coverage-floor.json
+            echo
+            if [ "$SLICES_RESULT" != success ] || [ "$got" -ne "$expected" ]; then
+              echo "> **Partial:** slices=$SLICES_RESULT, $got of $expected coverage uploads. Numbers are low; ratchet skipped."
+              echo "complete=false" >> "$GITHUB_OUTPUT"
+            else
+              echo "complete=true" >> "$GITHUB_OUTPUT"
+            fi
+            echo
+            if [ -f ts-coverage/ts-coverage.md ]; then cat ts-coverage/ts-coverage.md; else echo '_TypeScript coverage: no summary (job failed)._'; fi
+            echo
+            echo "Full C# report: the \`coverage-report\` artifact of this run."
+          } > coverage-comment.md
+          cat coverage-comment.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Upload merged report
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-report
+          path: coverage-report
+          retention-days: 14
+
+      # Sticky comment: edit the previous one instead of adding a new one per push.
+      # Fork PRs get a read-only token, so this step never fails the job.
+      - name: Comment on PR
+        if: github.event_name == 'pull_request'
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ github.token }}
+          PR: ${{ github.event.pull_request.number }}
+          REPO: ${{ github.repository }}
+        run: |
+          marker='<!-- tamma-coverage-report -->'
+          body="$(printf '%s\n%s' "$marker" "$(cat coverage-comment.md)")"
+          id=$(gh api "repos/$REPO/issues/$PR/comments" --paginate \
+            --jq ".[] | select(.body | startswith(\"$marker\")) | .id" | head -1)
+          if [ -n "$id" ]; then
+            gh api -X PATCH "repos/$REPO/issues/comments/$id" -f body="$body" > /dev/null
+          else
+            gh api -X POST "repos/$REPO/issues/$PR/comments" -f body="$body" > /dev/null
+          fi
+
+      - name: Ratchet (no regression below floor)
+        if: steps.summary.outputs.complete == 'true'
+        run: |
+          python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \
+            --floor .github/coverage-floor.json --check > /dev/null
 
   # One stable status for the whole C# suite, under the job's old name.
   dotnet-tests:
