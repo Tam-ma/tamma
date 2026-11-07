@@ -203,6 +203,21 @@ public static class EventPersistenceMiddleware
     }
 
     /// <summary>
+    /// The workflow backstop with an explicit tenant. For callers that run after the instance has
+    /// finished (Story 40-4's <c>CycleEndedNotificationHandler</c>): the workflow variables the
+    /// tenant is normally read from are out of scope by then, so the caller supplies the tenant it
+    /// kept. Falls back to the variable read only when <paramref name="tenantId"/> is null.
+    /// </summary>
+    public static Task DrainAsync(WorkflowExecutionContext context, Guid? tenantId)
+    {
+        var apiClient = context.GetService<TammaApiClient>();
+        var logger = context.GetService<ILogger<TammaApiClient>>();
+        return DrainCoreAsync(
+            context.TransientProperties, apiClient, logger, tenantId ?? ResolveTenantId(context), context.Id,
+            context.CancellationToken);
+    }
+
+    /// <summary>
     /// Shared drain: flush the new tamma:events via the API client. Never
     /// throws. On failure the cursor stays put (retry next flush / at the
     /// workflow backstop) and the ERROR is throttled — first failure ERROR,

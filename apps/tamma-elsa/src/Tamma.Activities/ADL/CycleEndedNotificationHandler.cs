@@ -1,6 +1,7 @@
 using Elsa.Mediator.Contracts;
 using Elsa.Workflows;
 using Elsa.Workflows.Notifications;
+using Microsoft.Extensions.Logging;
 using Tamma.Activities.Core;
 
 namespace Tamma.Activities.ADL;
@@ -20,9 +21,12 @@ namespace Tamma.Activities.ADL;
 ///
 /// <para>The workflow-pipeline drain has already run when this fires (Elsa marks the instance
 /// finished after the pipeline returns), so the handler flushes its own event through the same
-/// drain. Registered by <see cref="EventPersistencePipelineExtensions.UseTammaEventPersistence"/>.</para>
+/// drain, with the tenant the cycle stored (the variables it is normally read from are gone). If
+/// the end row is lost (no tenant, or a failed flush the drain logs), the instance merely looks
+/// crashed: the next dispatch may re-enter from its records, still checked against git. Registered by <see cref="EventPersistencePipelineExtensions.UseTammaEventPersistence"/>.</para>
 /// </summary>
-public sealed class CycleEndedNotificationHandler : INotificationHandler<WorkflowFinished>
+public sealed class CycleEndedNotificationHandler(ILogger<CycleEndedNotificationHandler> logger)
+    : INotificationHandler<WorkflowFinished>
 {
     /// <summary>The workflow whose ends are recorded.</summary>
     public const string CycleDefinitionId = "single-issue-cycle";
@@ -37,8 +41,17 @@ public sealed class CycleEndedNotificationHandler : INotificationHandler<Workflo
         if (!TryReadCycle(context.Properties, out var issue, out var repository, out var tenantId))
             return; // the cycle never reached a CYCLE.* emit: nothing ran that re-entry could read
 
+        // The tenant comes from what the cycle stored, never from the (now out-of-scope) workflow
+        // variables: the end row must land in the same tenant scope the re-entry read queries.
+        var tenant = CycleEvents.ParseTenantId(tenantId);
+        if (tenant is null)
+            logger.LogWarning(
+                "CYCLE.ENDED for {Repo}#{Issue} (instance {Instance}) has no tenant; it is stored unscoped and a "
+                + "tenant-scoped re-entry read will not see it, so the next dispatch treats this instance as crashed",
+                repository, issue, context.Id);
+
         var evt = EmitCycleEventActivity.BuildTammaEvent(
-            CycleEvents.Ended, issue, repository, CycleEvents.ParseTenantId(tenantId), stepId: null, errorDetail: null);
+            CycleEvents.Ended, issue, repository, tenant, stepId: null, errorDetail: null);
         evt.Timestamp = DateTime.UtcNow;
         evt.ActivityName = nameof(CycleEndedNotificationHandler);
         evt.WorkflowInstanceId = context.Id;
@@ -51,7 +64,7 @@ public sealed class CycleEndedNotificationHandler : INotificationHandler<Workflo
         }
         list.Add(evt);
 
-        await EventPersistenceMiddleware.DrainAsync(context).ConfigureAwait(false);
+        await EventPersistenceMiddleware.DrainAsync(context, tenant).ConfigureAwait(false);
     }
 
     private const string IssueKey = "tamma:cycle:issueNumber";
