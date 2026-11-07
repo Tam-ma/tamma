@@ -235,9 +235,10 @@ public class LlmCallWorkflow : WorkflowBase
         // broken). Rethrow with context as a TammaError so the workflow
         // engine surfaces the failure instead of running the LLM on a
         // stripped variable bag.
-        // TODO(coverage): SetVariable lambdas can't be unit-tested cheaply
-        // without a real ActivityExecutionContext; this fix is asserted
-        // indirectly by the existing LlmCallWorkflow integration coverage.
+        // Coverage: the normal path runs in LlmCallWorkflowExecutionTests. The
+        // malformed branch is not reachable from workflow inputs (InitInputs
+        // always writes valid JSON via BuildVariablesJson); it guards a future
+        // upstream bug.
         var mergeConventionsIntoVariables = new SetVariable
         {
             Id = "MergeConventions",
