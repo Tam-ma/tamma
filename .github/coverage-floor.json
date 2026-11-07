@@ -1,6 +1,6 @@
 {
   "_comment": "C# coverage floor for the CI ratchet (coverage-report job, .github/scripts/coverage-summary.py). Fails a PR when overall line or branch coverage drops more than `tolerance` percentage points below these. Raise them by hand when coverage goes up; never lower them to get a PR green without saying why in the PR.",
-  "line": 71.2,
-  "branch": 56.6,
+  "line": 73.6,
+  "branch": 59.5,
   "tolerance": 0.2
 }
