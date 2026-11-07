@@ -690,6 +690,142 @@ public static class ActionPolicyEndpoints
         return Results.Ok(new { group = g.ToWire(), minAutonomy });
     }
 
+    /// <summary>
+    /// Story 43-6 AC1 — <c>PUT /policy/groups/{group}/enforce</c>: write the
+    /// <c>enforce</c> field on the principal's GROUP-scope row. The evaluator
+    /// reads it as <c>principalAction?.Enforce ?? principalGroup?.Enforce</c>, so
+    /// it reaches every member that has no per-action enforce opinion.
+    ///
+    /// <para><b>The threshold is never moved.</b> <c>ck_action_assignments_mode_row</c>
+    /// requires a group row to carry a <c>MinAutonomy</c>:</para>
+    /// <list type="bullet">
+    /// <item>existing row (FRESH repository read, never the snapshot — the F4
+    /// pattern of <see cref="UpsertNonThresholdFieldAsync"/>) → a null threshold,
+    /// so the stored value is untouched;</item>
+    /// <item>no row → materialize the value from <see cref="PreservingGroupThreshold"/>,
+    /// which leaves EVERY member's effective threshold exactly where it is. When
+    /// no single value can do that (the members resolve to different levels), the
+    /// write is refused with <c>409 ACTION_POLICY.GROUP_THRESHOLD_REQUIRED</c>
+    /// rather than silently re-levelling the group — set a group threshold first.</item>
+    /// </list>
+    /// </summary>
+    public static async Task<IResult> PutGroupEnforce(
+        string group, SetActionEnforceRequest body,
+        IActionAssignmentRepository repository,
+        IGovernancePolicySnapshotProvider snapshots,
+        ActionGateEventsService events,
+        ISoleUserProvider soleUser,
+        ClaimsPrincipal principal,
+        ITenantContext tenantContext,
+        ITammaModeProvider modeProvider)
+    {
+        if (!TryResolveGroup(group, out var g, out var error)) return error!;
+        if (body?.Enforce is not bool enforce) return MissingField("enforce");
+        if (!GroupHasDialMembers(g))
+        {
+            return Results.BadRequest(new
+            {
+                error = $"every enforceable member of group '{g.ToWire()}' is machinery "
+                    + "(Story 43-13: never dial-governed, always reported Enforced=false), "
+                    + "so a group enforce flag here could govern nothing.",
+                code = MachineryNotDialGovernedCode,
+            });
+        }
+
+        var (tid, uid, resolveError) = await ResolvePrincipalKeysAsync(
+            soleUser, principal, tenantContext, modeProvider);
+        if (resolveError is not null) return resolveError;
+
+        var wire = g.ToWire();
+        var principalRows = await repository.ListForPrincipalAsync(tid, uid);
+        int? threshold = null;
+        if (!principalRows.Any(r =>
+                r.TargetKind == "group"
+                && string.Equals(r.TargetKey, wire, StringComparison.Ordinal)))
+        {
+            var platformRows = await repository.ListPlatformAsync();
+            var fresh = GovernancePolicySnapshot.FromSuccessfulRead(
+                RowsByKind(platformRows, "action"),
+                RowsByKind(platformRows, "group"),
+                RowsByKind(principalRows, "action"),
+                RowsByKind(principalRows, "group"));
+            threshold = PreservingGroupThreshold(g, fresh);
+            if (threshold is null)
+            {
+                return Results.Conflict(new
+                {
+                    error = $"group '{wire}' has no assignment row yet, and its members "
+                        + "resolve to different levels — a group row must carry a threshold "
+                        + "(ck_action_assignments_mode_row), and no single value would leave "
+                        + "every member where it is. Set the group threshold first "
+                        + $"(PUT /api/actions/policy/groups/{wire}/threshold), then its enforce flag.",
+                    code = "ACTION_POLICY.GROUP_THRESHOLD_REQUIRED",
+                });
+            }
+        }
+
+        await repository.UpsertAsync(
+            tid, uid, "group", wire, threshold, enforce, null, null, null,
+            principal.GetUserId());
+        await snapshots.RefreshAsync();
+        await events.EmitAssignmentChangedAsync(
+            tid, uid, principal.GetUserId(), "principal", "group", wire,
+            "enforce", oldValue: null, newValue: enforce);
+        return Results.Ok(new { group = wire, field = "enforce", value = enforce });
+    }
+
+    /// <summary>
+    /// Story 43-6 — the group threshold that, written onto a NEW group row,
+    /// changes no member's effective threshold; <c>null</c> when none exists.
+    /// Only enforceable dial members without a principal ACTION threshold are
+    /// constrained (machinery / non-enforceable members never read a group
+    /// threshold, and an action row beats the group row). For each, the current
+    /// value is <c>max(shipped, ceiling)</c> and the new one <c>max(T, ceiling)</c>:
+    /// a member above its ceiling (or with none) pins <c>T = shipped</c>; a member
+    /// held at its ceiling only bounds <c>T ≤ ceiling</c>. The legacy
+    /// always-escalate floor is ignored — it can only make more values safe, so
+    /// ignoring it may refuse a write but never moves a level.
+    /// </summary>
+    internal static int? PreservingGroupThreshold(ActionGroup group, GovernancePolicySnapshot snapshot)
+    {
+        int? exact = null;
+        var upper = AutonomyDial.AlwaysHuman;
+        foreach (var d in ActionCatalog.ByGroup[group].Select(k => ActionCatalog.ByKey[k]))
+        {
+            if (!d.Enforceable || d.IsMachinery) continue;
+            var actionWire = d.Key.ToWire();
+            if (snapshot.PrincipalActionRows.TryGetValue(actionWire, out var pa)
+                && pa.MinAutonomy is not null)
+            {
+                continue;
+            }
+
+            snapshot.PlatformActionRows.TryGetValue(actionWire, out var platformAction);
+            snapshot.PlatformGroupRows.TryGetValue(group.ToWire(), out var platformGroup);
+            var ceiling = platformAction?.MinAutonomy ?? platformGroup?.MinAutonomy;
+            if (ceiling is int c && d.DefaultMinAutonomy <= c)
+            {
+                upper = Math.Min(upper, c);
+            }
+            else if (exact is int e && e != d.DefaultMinAutonomy)
+            {
+                return null;
+            }
+            else
+            {
+                exact = d.DefaultMinAutonomy;
+            }
+        }
+
+        if (exact is int pinned) return pinned <= upper ? pinned : null;
+        return upper;
+    }
+
+    private static bool GroupHasDialMembers(ActionGroup group) =>
+        ActionCatalog.ByGroup[group]
+            .Select(k => ActionCatalog.ByKey[k])
+            .Any(d => d.Enforceable && !d.IsMachinery);
+
     public static async Task<IResult> DeleteGroup(
         string group,
         IActionAssignmentRepository repository,
@@ -1038,10 +1174,7 @@ public static class ActionPolicyEndpoints
     /// </summary>
     private static IResult? InvalidGroupThreshold(ActionGroup group, int minAutonomy)
     {
-        var governable = ActionCatalog.ByGroup[group]
-            .Select(k => ActionCatalog.ByKey[k])
-            .Any(d => d.Enforceable && !d.IsMachinery);
-        if (governable)
+        if (GroupHasDialMembers(group))
         {
             return null;
         }

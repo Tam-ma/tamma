@@ -3064,6 +3064,11 @@ actionsPolicy.MapGet("/policy", ActionPolicyEndpoints.GetPolicy);
 actionsPolicy.MapGet("/policy/diff", ActionPolicyEndpoints.GetPolicyDiff);
 actionsPolicy.MapPost("/policy/reset", ActionPolicyEndpoints.ResetPolicy).RequireAuthorization("ActionsManage");
 actionsPolicy.MapPut("/policy/groups/{group}/threshold", ActionPolicyEndpoints.PutGroupThreshold).RequireAuthorization("ActionsManage");
+// Story 43-6 AC1 — bound to a MACHINERY catalog member (metadata only, never
+// dial-governed, no .EnforcesGovernance()): 43-9's ratchets forbid a new
+// ungoverned mutating route, and a person editing policy is never gated by it.
+actionsPolicy.MapPut("/policy/groups/{group}/enforce", ActionPolicyEndpoints.PutGroupEnforce).RequireAuthorization("ActionsManage")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.GovernancePolicyGroupEnforceSet.ToWire()));
 actionsPolicy.MapDelete("/policy/groups/{group}", ActionPolicyEndpoints.DeleteGroup).RequireAuthorization("ActionsManage");
 // Story 43-6 AC1 — one action's resolved view (read-only; inherits AuthenticatedAny).
 actionsPolicy.MapGet("/policy/actions/{ns}/{key}", ActionPolicyEndpoints.GetPolicyAction);

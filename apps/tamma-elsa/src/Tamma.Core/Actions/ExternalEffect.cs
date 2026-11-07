@@ -405,6 +405,20 @@ public enum ExternalEffect
     /// <c>/api/v1/llm/call</c> mediation route — same reason as above, and the same
     /// level (20).</para></summary>
     [Wire("llm.task.execute")] LlmTaskExecute,
+
+    // ── Story 43-6 (2026-11-07) — the group-enforce policy write ──
+    // Appended at the END so the existing wire-pin order is untouched.
+
+    /// <summary><c>PUT /api/actions/policy/groups/{group}/enforce</c> —
+    /// <c>ActionPolicyEndpoints.PutGroupEnforce</c>. Writes the
+    /// <c>enforce</c> field on the caller's group-scope assignment row.
+    ///
+    /// <para>MACHINERY (Story 43-13), so it is never dial-governed: a person
+    /// editing autonomy policy must not be gated by that same policy (the
+    /// circularity 43-9 D17 names for <c>/decide</c>). It exists so the route
+    /// can be BOUND — 43-9's ratchets forbid a new ungoverned mutating route —
+    /// and so an admin can still switch it off with <c>enabled=false</c>.</para></summary>
+    [Wire("governance.policy.group-enforce.set")] GovernancePolicyGroupEnforceSet,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

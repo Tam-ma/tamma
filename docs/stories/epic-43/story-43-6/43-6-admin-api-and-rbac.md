@@ -1,6 +1,6 @@
 # Story 43-6: Admin API + RBAC for the Action Catalog
 
-Status: in-progress — one item blocked on a governance decision (2026-11-07)
+Status: done (2026-11-07)
 
 > **2026-11-07.** Shipped: `GET /api/actions/policy/actions/{ns}/{key}` (AC1) — the same row
 > `GET /policy` lists (one shared projection, `ActionView`) plus the stored principal/platform rows
@@ -9,16 +9,24 @@ Status: in-progress — one item blocked on a governance decision (2026-11-07)
 > `Delete_FallsBackToTheNextTier`, `PutThreshold_DoesNotResetEnforceEnabledOrRoles`,
 > `Member_Gets403OnWrite_…`); `RouteOrder_LiteralsBeatParameterized` is now added.
 >
-> **Blocked: `PUT /policy/groups/{group}/enforce`.** Built and tested, then removed. 43-9's
-> ratchets make a NEW ungoverned mutating route impossible by design: the backlog pin and the
-> D17 reviewed-exception pin (`ExceptionPinHistory = [2]`) are both shrink-only. The only legal
-> path is `.Governs(...)` on a catalog member, which would put the autonomy gate in front of the
-> screen people use to configure the gate (the circularity D17 names for `/decide`). Options:
-> (1) mint an effect member classified as machinery and bind it (metadata only, never gates a
-> person); (2) amend D17 to allow one more reviewed exception for human-operated policy edits;
-> (3) drop the route — group-level enforce is reachable today by per-action `enforce` writes.
-> A group row also needs a threshold (`ck_action_assignments_mode_row`), so the built version
-> answered 409 `ACTION_POLICY.GROUP_THRESHOLD_REQUIRED` when no group threshold existed.
+> **`PUT /policy/groups/{group}/enforce` — shipped (decision recorded 2026-11-07).** 43-9's
+> ratchets forbid a new ungoverned mutating route (the backlog pin and the D17 exception pin are
+> both shrink-only), so the route is BOUND with `.Governs(...)` to a new catalog member,
+> `effect:governance.policy.group-enforce.set` — `machinery: true`, group `platform-automation`,
+> `Mutating`, reversible. It does NOT opt into enforcement (`.EnforcesGovernance()` is not added).
+> Both ratchets are unchanged (`PinnedCount` 208, `ExceptionPinHistory = [2]`); only the in-scope
+> surface count moved (`PinnedInScopeCount` 246 → 247, the route is born bound). Why machinery is
+> safe here: the evaluator never dial-gates a machinery member, and a person (`CallerKind.Human`)
+> passes before any row is read, so an admin cannot lock themselves out. `enabled=false` on the
+> member still denies a non-human caller (pinned in `GroupEnforceMemberTests`), and that row is
+> removable through the ungoverned `DELETE /policy/actions/effect/governance.policy.group-enforce.set`.
+>
+> A group row must carry a threshold (`ck_action_assignments_mode_row`). An existing group row's
+> threshold is never touched (fresh read, null threshold — the F4 pattern). A first write on a group
+> with no row materializes a threshold chosen so that no member's effective threshold changes
+> (`ActionPolicyEndpoints.PreservingGroupThreshold`); when the members sit at different levels no
+> such value exists, and the write answers `409 ACTION_POLICY.GROUP_THRESHOLD_REQUIRED` (set the
+> group threshold first) instead of re-levelling the group.
 
 ## MANDATORY: Before You Code
 

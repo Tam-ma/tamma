@@ -1030,4 +1030,176 @@ public class ActionPolicyEndpointsTests
         (await admin.GetAsync("/api/actions/policy/actions/tool/file_write")).StatusCode.Should().Be(HttpStatusCode.OK,
             "the single-action read resolves to its own handler");
     }
+
+    // ── Story 43-6 AC1 — PUT /policy/groups/{group}/enforce ─────────────────
+
+    private static JsonElement PolicyRow(JsonElement policy, string key) =>
+        policy.GetProperty("actions").EnumerateArray()
+            .Single(a => a.GetProperty("key").GetString() == key);
+
+    [Test]
+    public async Task GroupEnforce_MissingField_UnknownGroup_AndMember_AreRejected_AndWriteNothing()
+    {
+        var user = Guid.NewGuid();
+        using (var admin = Client(user, "admin"))
+        {
+            var missing = await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/enforce", new { });
+            missing.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await missing.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("code").GetString().Should().Be("ACTION_POLICY.MISSING_FIELD");
+
+            var unknown = await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/not-a-group/enforce", new { enforce = true });
+            unknown.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+            (await unknown.Content.ReadFromJsonAsync<JsonElement>())
+                .GetProperty("code").GetString().Should().Be("ACTION_POLICY.UNKNOWN_GROUP");
+
+            (await admin.PutAsJsonAsync(
+                    "/api/actions/policy/groups/Code-Write/enforce", new { enforce = true }))
+                .StatusCode.Should().Be(HttpStatusCode.BadRequest, "group wires are case-sensitive");
+        }
+
+        using (var member = Client(user, "member"))
+        {
+            (await member.PutAsJsonAsync(
+                    "/api/actions/policy/groups/code-write/enforce", new { enforce = true }))
+                .StatusCode.Should().Be(HttpStatusCode.Forbidden,
+                    "a member 403s at the ActionsManage policy, like every sibling write");
+        }
+
+        await using var db = Db();
+        db.ActionAssignments.Count().Should().Be(0, "no rejected write may land a row");
+    }
+
+    [Test]
+    public async Task GroupEnforce_OnAnExistingRow_SetsEnforce_AndNeverTouchesTheStoredThreshold()
+    {
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/threshold", new { minAutonomy = 90 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        // Tighten behind the snapshot's back (the F4 cross-pod shape): the enforce
+        // write must read the row FRESH and pass a null threshold.
+        await using (var db = Db())
+        {
+            await db.Database.ExecuteSqlRawAsync(
+                """UPDATE action_assignments SET "MinAutonomy" = 101 WHERE "TargetKind" = 'group' AND "TargetKey" = 'code-write';""");
+        }
+
+        var put = await admin.PutAsJsonAsync(
+            "/api/actions/policy/groups/code-write/enforce", new { enforce = false });
+        put.StatusCode.Should().Be(HttpStatusCode.OK);
+        var body = await put.Content.ReadFromJsonAsync<JsonElement>();
+        body.GetProperty("group").GetString().Should().Be("code-write");
+        body.GetProperty("value").GetBoolean().Should().BeFalse();
+
+        await using (var db = Db())
+        {
+            var row = db.ActionAssignments.Single();
+            row.TargetKind.Should().Be("group");
+            row.TargetKey.Should().Be("code-write");
+            row.MinAutonomy.Should().Be(101, "an enforce write never re-derives a stored threshold");
+            row.Enforce.Should().BeFalse();
+            row.Enabled.Should().BeNull("the write is single-field");
+            row.UserId.Should().Be(user);
+        }
+    }
+
+    [Test]
+    public async Task GroupEnforce_FirstWrite_MaterializesWithoutMovingTheEffectiveThreshold_AndTheEvaluatorHonoursIt()
+    {
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        var before = PolicyRow(
+            await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "tool:file_write");
+        var effectiveBefore = before.GetProperty("minAutonomy").GetInt32();
+        before.GetProperty("enforce").GetBoolean().Should().BeTrue("v1 default with no rows (epic D1)");
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var db = Db())
+        {
+            var row = db.ActionAssignments.Single();
+            row.TargetKind.Should().Be("group");
+            row.MinAutonomy.Should().Be(effectiveBefore,
+                "code-write's only dial member is tool:file_write, so the materialized group "
+                + "threshold is its current effective value — nothing is re-levelled");
+            row.Enforce.Should().BeFalse();
+        }
+
+        // The evaluator (GET /policy's `enforce` is decision.Enforced) now reports the
+        // group value for a member with NO action row.
+        var after = PolicyRow(
+            await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "tool:file_write");
+        after.GetProperty("minAutonomy").GetInt32().Should().Be(effectiveBefore);
+        after.GetProperty("enforce").GetBoolean().Should().BeFalse();
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/enforce", new { enforce = true }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        PolicyRow(await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "tool:file_write")
+            .GetProperty("enforce").GetBoolean().Should().BeTrue();
+    }
+
+    [Test]
+    public async Task GroupEnforce_FirstWrite_OnAGroupWhoseMembersSitAtDifferentLevels_Is409_AndWritesNothing()
+    {
+        // deploy-control's members ship at 70..95: any one group threshold would
+        // re-level some of them, so a first enforce write is refused instead.
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        var put = await admin.PutAsJsonAsync(
+            "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false });
+        put.StatusCode.Should().Be(HttpStatusCode.Conflict);
+        (await put.Content.ReadFromJsonAsync<JsonElement>())
+            .GetProperty("code").GetString().Should().Be("ACTION_POLICY.GROUP_THRESHOLD_REQUIRED");
+
+        await using (var db = Db())
+        {
+            db.ActionAssignments.Count().Should().Be(0);
+        }
+
+        // With a group threshold in place the enforce write goes through.
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/deploy-control/threshold", new { minAutonomy = 95 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GroupEnforceMember_DisabledRow_DoesNotLockAPersonOut_AndDeleteRecoversIt()
+    {
+        // The route is BOUND to a machinery member but does not opt into
+        // enforcement (no .EnforcesGovernance), and a person is CallerKind.Human,
+        // which the evaluator passes before reading any row. So enabled=false on
+        // the member — which DOES deny a non-human caller (pinned in
+        // GroupEnforceMemberTests, Tamma.Core.Tests) — never blocks the admin
+        // screen, and the row stays removable through the ungoverned DELETE.
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+        const string member = "/api/actions/policy/actions/effect/governance.policy.group-enforce.set";
+
+        (await admin.PutAsJsonAsync($"{member}/enabled", new { enabled = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK, "enabled stays writable on machinery (43-13 D7)");
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await admin.DeleteAsync(member)).StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var db = Db();
+        db.ActionAssignments.Any(a => a.TargetKey == "effect:governance.policy.group-enforce.set")
+            .Should().BeFalse("DELETE removed the disabling row");
+    }
 }

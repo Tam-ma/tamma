@@ -51,7 +51,7 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void ExternalEffect_has_62_members()
+    public void ExternalEffect_has_63_members()
     {
         // Derivation: grep 'RequireAuthorization("EngineServiceOnly")'
         // src/Tamma.Api/Program.cs → 26 routes, 17 MUTATING (5 engine-group
@@ -102,7 +102,8 @@ public class ActionVocabularyCountTests
         // 61 -> 62 (Story 40-1 AC7): git.runner.install — the tenant-admin runner
         // scaffold route (POST /api/v1/repos/{owner}/{repo}/runner/install), born
         // bound + enforced.
-        Enum.GetValues<ExternalEffect>().Should().HaveCount(62);
+        // 62 -> 63 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
+        Enum.GetValues<ExternalEffect>().Should().HaveCount(63);
     }
 
     [Test]
@@ -164,7 +165,7 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void TotalCatalogMembers_is_227()
+    public void TotalCatalogMembers_is_228()
     {
         // 96 + 17 + 8 + 62 + 35 + 8 = 226 — was 225 (effect 61): Story 40-1 AC7
         // minted effect:git.runner.install (see ExternalEffect_has_62_members).
@@ -203,7 +204,8 @@ public class ActionVocabularyCountTests
         // 41-1a), the document-type plane by 6 (Story 41-1b), and
         // effect/automation by 3 + 1 (Story 41-30).
         // 226 → 227 — automation 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        ActionCatalog.All.Should().HaveCount(227);
-        ActionCatalog.ByKey.Should().HaveCount(227);
+        // 227 → 228 — effect 62 → 63 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
+        ActionCatalog.All.Should().HaveCount(228);
+        ActionCatalog.ByKey.Should().HaveCount(228);
     }
 }

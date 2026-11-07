@@ -34,7 +34,7 @@ public class MachineryInventoryTests
     /// </summary>
     private static readonly string[] MachineryInventory =
     {
-        // ── Effects fired only by plumbing (6) ─────────────────────────────
+        // ── Effects fired only by plumbing (7) ─────────────────────────────
         "effect:secret.reveal",
         "effect:engine.events.append",
         "effect:engine.platform-events.append",
@@ -48,6 +48,10 @@ public class MachineryInventoryTests
         // decision is the human's connect action; the registration is the
         // deterministic write executing it, audited via GIT.WEBHOOK_REGISTER.*.
         "effect:git.webhook.register",
+        // Story 43-6 (2026-11-07): the group-enforce policy write. A person
+        // configuring the gate must not be gated by it (43-9 D17's /decide
+        // circularity); the member exists only so the route can be bound.
+        "effect:governance.policy.group-enforce.set",
 
         // ── Background services — all 32 automation:* ─────────────────────
         "automation:action-catalog-startup-validator",
@@ -143,7 +147,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(50, "6 + 36 + 8 = 50 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler)");
+        MachineryInventory.Should().HaveCount(51, "7 + 36 + 8 = 51 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler; Story 43-6 2026-11-07: +1 effect — governance.policy.group-enforce.set, the group-enforce policy write)");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(

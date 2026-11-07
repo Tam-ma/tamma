@@ -660,6 +660,17 @@ public static partial class ActionCatalog
         // not treated as a bookkeeping callback.
         Effect(ExternalEffect.LlmTaskExecute, ActionGroup.ModelInvocation, ActionRisk.Mutating, "Execute LLM task", "Run an LLM-driven task (optionally with tools) via the engine callback.",
             "POST /api/engine/execute-task — EngineEndpoints.ExecuteTask", reversible: false, min: 20),
+        // Story 43-6 (2026-11-07) — the group-enforce policy write. Machinery
+        // (43-13): a person configuring the gate is never gated by it (43-9 D17's
+        // /decide circularity), and the only reason this member exists is that
+        // 43-9's shrink-only ratchets forbid a new ungoverned mutating route —
+        // binding it to a machinery member keeps both ratchets unchanged.
+        // enabled=false on this row still denies a NON-human caller; a person
+        // short-circuits to Automated before any row is read (CallerKind.Human).
+        // Reversible: writing the opposite value (or DELETE /policy/groups/{group})
+        // restores the previous state.
+        Effect(ExternalEffect.GovernancePolicyGroupEnforceSet, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Set group enforcement", "Write the enforce flag on the caller's group-scope autonomy policy row (policy administration — machinery, never dial-governed).",
+            "PUT /api/actions/policy/groups/{group}/enforce — ActionPolicyEndpoints.PutGroupEnforce", machinery: true),
 
         // ── automation (27) — EscalatableToHuman=false for the whole plane ────
 

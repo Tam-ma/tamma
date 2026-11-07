@@ -263,6 +263,13 @@ public class MediationClientEffectSweepTests
                 "POST /api/Mentorship/sessions/{sessionId:guid}/cancel — terminates the mentorship "
                 + "workflow instance; reached from the UI, never through the mediation client"),
 
+            // Story 43-6 (2026-11-07) — the group-enforce policy write. Reached by a
+            // tenant admin (ActionsManage) from the policy UI/API, never through the
+            // engine's mediation client.
+            [ExternalEffect.GovernancePolicyGroupEnforceSet] = new(SiteKind.RouteOnly, null,
+                "PUT /api/actions/policy/groups/{group}/enforce — admin policy write (machinery member), "
+                + "no TammaApiClient method"),
+
             // ── In-process: no HTTP hop, so no route sweep can ever see them ──
             [ExternalEffect.ProcessSpawn] = new(SiteKind.InProcess, null,
                 "ShellExecuteTool's ProcessStartInfo, inside the tool loop — invisible to any route sweep"),
