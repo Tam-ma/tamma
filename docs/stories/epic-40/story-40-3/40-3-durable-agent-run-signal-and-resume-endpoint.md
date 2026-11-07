@@ -1,6 +1,6 @@
 # Story 40-3: Durable Agent-Run Signal Plane + Resume Endpoint (cross-pod, restart-safe)
 
-Status: drafted
+Status: review
 
 ## MANDATORY: Before You Code
 
@@ -235,9 +235,87 @@ contexts, SaaS rows in the tenant schema via `ITenantDbContextFactory` and singl
 election. If the epic's schedule cannot absorb it, split the AC4 reconciler into its own story
 rather than shrinking the estimate.*
 
+## Delivery Record (2026-11-06)
+
+Built on Story 40-2 (`story/40-2-wait-for-agent-run`, PR #518). **GitHub Actions runs now resume
+from the `workflow_run.completed` webhook** instead of always taking 40-2's ~35-min `Timeout` edge.
+
+**Flow.** Engine `WaitForAgentRunActivity` sends `bookmarkName` + `workflowInstanceId` +
+`bookmarkTenantId` on the mediated dispatch → Tamma.Api writes the `agent_run_waits` row on a
+successful trigger → the webhook (any pod, no ambient tenant) resolves the principal from the
+installation, finds the pending row by `(installation_id, repository, head_branch)`, and POSTs the
+engine's `AgentRunResumeEndpoint`, which recomputes the name, claims the bookmark, and runs the
+instance with the 40-2 `AgentRunCompletionSignal` payload → the row moves `pending → received` (CAS).
+
+**Built**
+- `Tamma.Data/Entities/AgentRunWait.cs` + `TammaModelConfiguration.ConfigureAgentRunWaits` (mapped in
+  `TenantDbContext` and `ControlPlaneDbContext`): `ck_agent_run_waits_principal_xor`,
+  `ck_agent_run_waits_status` (`pending|received|timed_out`), unique
+  `(TenantId, UserId, Repository, BranchName, SessionId)` NULLS NOT DISTINCT, index
+  `(InstallationId, Repository, BranchName, Status)`.
+- **Migrations (two):** `Migrations/Tenant/20261107021946_AddAgentRunWaits` (TenantDbContext — joins
+  the tenant chain after `20260729070033_AddDocumentInstanceAudience`) and
+  `Migrations/ControlPlane/20261107021953_AddAgentRunWaits`. Generated with `dotnet ef migrations add`
+  against the design-time factories; both snapshot diffs are additive only.
+- `Tamma.Data/Repositories/IAgentRunWaitRepository` + `AgentRunWaitRepository` — parallel user/tenant
+  planes, no join; the tenant plane takes the tenant id explicitly (never `ITenantContext`). Re-dispatch
+  under the same session re-arms the one row; `TryMarkReceived*` is a single conditional UPDATE.
+- `Tamma.Api/Services/AgentDispatch/AgentRunWaitRecorder` — the API-side writer, called by
+  `AgentDispatchMediationService.TriggerRunCoreAsync` on both success arms. SaaS → tenant row (bookmark
+  must be folded with the dispatching tenant); single-user → sole-user CP row (no tenant needed). A name
+  that is not `ForAgentRun` of the request is refused. Never throws: a missing row degrades to `Timeout`.
+- `Tamma.Api/Services/AgentDispatch/AgentRunResumer` — principal from the installation (SaaS) or the sole
+  user (single-user); D2 pick (latest dispatched ≤ run `created_at`, tie ⇒ skip); stored-vs-recomputed
+  name guard; engine 200/202/404 ⇒ received, 409/5xx ⇒ stays pending. Emits `AGENT_RUN.RECEIVED` /
+  `AGENT_RUN.RESUME_UNRESOLVED` (local constants pinned to 40-6's `AgentRunWaitEventTypes`, same wire strings).
+- `InstallationRouterService.HandleWorkflowRunEvent` → `HandleWorkflowRunEventAsync`: durable resume
+  first-class, in-memory `PublishSignal` kept as a fast path; no longer skips when the registry is unwired.
+- `Tamma.ElsaServer/Endpoints/AgentRunResumeEndpoint` (`POST /elsa/api/agent-runs/resume`,
+  `RequireAuthorization`): 400 malformed, 409 name drift / ambiguous / instance mismatch, 202 + buffer on a
+  bookmark miss, atomic claim, 404 on a lost claim, restore-on-failure. Never mutates caller input.
+- `Tamma.ElsaServer/Handlers/ReconcileBufferedAgentRunHandler` — `WorkflowBookmarksPersisted` handler that
+  resumes a buffered completion once the `agent-run-*` bookmark is persisted (reconcile-after-persist).
+- Contract: `bookmarkName`/`workflowInstanceId`/`bookmarkTenantId` on `AgentDispatchRunApiRequest` and
+  `DispatchAgentRunRequest`; `AgentExecutionRequest` carries them; `WaitForAgentRunActivity` fills them.
+- AC6: `AgentMonitorService` Webhook mode without the registry now polls instead of `monitor_failed`;
+  `WebhookSignalRegistry` / `IAgentDispatchMediationService` / `AgentDispatchEndpoints` docs updated.
+
+**Deviations**
+- **AC4 (hosted reconciler) split out — not built.** Per the story's own lever. Delivering it needs a
+  per-principal sweep over every tenant schema plus leader election; it is a story of its own
+  (proposed **40-3b — durable agent-run reconciler**). Until it lands, *a missed webhook is recovered only
+  by 40-2's `DelayFor` `Timeout` edge*, and rows whose webhook never arrives stay `pending` (the
+  `timed_out` status exists in the CHECK but nothing writes it yet — AC8's "mark `timed_out`" goes with 40-3b).
+- **Resumer lives in Tamma.Api, not Tamma.Activities.** The webhook and both row planes are in Tamma.Api;
+  the bookmark is resumed over the existing authenticated Api→engine hop (the `PrMergedWebhookHandler` →
+  `PrMergedResumeEndpoint` precedent). Tamma.Api has no Elsa runtime of its own.
+- **Extra column `BookmarkTenantId`.** In single-user mode the engine may fold the personal tenant id (or
+  `none`) into the name while the row's principal is the user; storing the segment lets the resume side
+  recompute and byte-compare the name (D3 drift guard) in both modes.
+- **AC3 auth** is the Elsa admin key (`RequireAuthorization`), like every engine resume seam — the endpoint
+  is engine-internal and not reachable from the public webhook path. No Tamma.Api mutating route was
+  added, so the governance catalogue is unchanged.
+- **202 (buffered) marks the row `received`.** The engine buffer + post-persist handler + the activity's
+  reconcile timer complete it in-process; an engine restart inside that seconds-wide window falls to
+  `Timeout` (40-3b would close it).
+- **AC5** is proven at the API layer: the row is written through one composition ("pod A") and the webhook
+  delivered through a separately composed one ("pod B", fresh DbContexts, registry unwired) over the same
+  real Postgres. Elsa's cross-process bookmark resume itself is 40-7's integration test.
+
+**Tests**
+- `AgentRunWaitRepositoryTests` (Testcontainers, 10): pending→received round trip, re-arm on re-dispatch,
+  installation-folded match — each on both planes (single-user with a null tenant); planes never join;
+  principal-XOR enforced by Postgres; cross-pod webhook resume + idempotent redelivery on both planes.
+  It caught a real bug (a stale tracked row made re-arm a no-op on the CP plane).
+- `AgentRunResumerTests` (15), `AgentRunWaitRecorderTests` (8), `InstallationRouterWorkflowRunResumeTests`
+  (8), `AgentDispatchMediationServiceTests` (+4).
+- `AgentRunResumeEndpointTests` (13), `ReconcileBufferedAgentRunHandlerTests` (3),
+  `WaitForAgentRunActivityTests` (+1), `AgentDispatchServiceTests` (+1), `AgentMonitorServiceTests` (AC6 rewrite).
+
 ## Change Log
 
 | Date       | Version | Changes                | Author |
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-23 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-24 | 1.1.0   | Code-verified revision: AC1 storage changed from tenant-scoped/engine-written to dual-scoped (tenant schema + control plane) and written API-side, because the engine host registers no `ITenantDbContextFactory` and single-user mode has no tenant principal; AC2 notes the webhook path is tenant-free and the handler is synchronous today; AC4 given a real owner (hosted `BackgroundService` with principal-folded advisory-lock leader election, registered in both hosts) with an explicit "drop it otherwise" clause; 39-8 and 39-10 recorded as landed; effort re-estimated 5-7 → 7-9 days | Claude |
+| 2026-11-06 | 1.2.0   | Implemented (AC1-3, AC5-8; AC4 reconciler split to a follow-up); delivery record added; Status → review | Claude |

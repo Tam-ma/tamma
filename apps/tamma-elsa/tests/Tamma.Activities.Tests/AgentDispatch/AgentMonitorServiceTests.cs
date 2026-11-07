@@ -255,17 +255,19 @@ public class AgentMonitorServiceTests
     }
 
     [Test]
-    public async Task MonitorAsync_WebhookMode_ReturnsMonitorFailed_WhenRegistryNotWired()
+    public async Task MonitorAsync_WebhookMode_WithoutRegistry_FallsBackToPoll_NotAHardFailure()
     {
-        var api = new FakeTammaApiClient();
+        // Story 40-3 (AC6) — the in-memory registry is a same-process fast path only;
+        // explicit Webhook mode without it is no longer a misconfiguration.
+        var api = new FakeTammaApiClient { DefaultDiscover = Status(12345, "completed", "success") };
         var svc = new AgentMonitorService(api, logger: null, new ImmediateDelayProvider(), signals: null);
 
         var options = new AgentMonitorOptions(PollIntervalSeconds: 30, TimeoutMinutes: 5, Mode: AgentMonitorMode.Webhook);
 
         var result = await svc.MonitorAsync(MakeRequest(), DateTime.UtcNow.AddMinutes(-1), options);
 
-        result.Conclusion.Should().Be("monitor_failed", "explicit Webhook without registry is a misconfiguration");
-        api.DiscoverCalls.Should().Be(0);
+        result.Conclusion.Should().Be("success");
+        api.DiscoverCalls.Should().BeGreaterThan(0);
     }
 
     // ── Pure wire→summary mapping (AC5) ────────────────────────────────────

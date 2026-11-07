@@ -60,7 +60,8 @@ public interface IAgentResultCollectorService
 ///     <c>workflow_run.completed</c> webhook arrives at
 ///     <c>POST /api/github/webhooks</c>. No polling at all. If the webhook
 ///     never arrives the monitor raises a <c>monitor_failed</c> result;
-///     use <see cref="Auto"/> if you want a safety-window fallback.
+///     use <see cref="Auto"/> if you want a safety-window fallback. Story 40-3
+///     (AC6): with no registry wired this mode polls instead of failing.
 ///   </item>
 ///   <item>
 ///     <b><see cref="Auto"/></b> — prefer webhook when a

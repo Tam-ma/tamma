@@ -14,9 +14,10 @@ namespace Tamma.Activities.AgentDispatch;
 /// (single-shot status GETs), so the ~35-minute loop never holds an HTTP request
 /// open on the API and the engine holds no Actions token.
 ///
-/// <para>The INBOUND <c>workflow_run.completed</c> webhook + the in-process
-/// <see cref="IWebhookSignalRegistry"/> signalling are unchanged (design §5.3);
-/// only the installation-id lookup used to scope the wait key is now mediated.</para>
+/// <para>Story 40-3: the in-process <see cref="IWebhookSignalRegistry"/> is an optional
+/// same-process fast path for this legacy blocking monitor; without it every mode polls.
+/// The suspending <see cref="WaitForAgentRunActivity"/> does not use this service's wait at
+/// all — it is resumed durably from the <c>agent_run_waits</c> row by the webhook.</para>
 /// </summary>
 public sealed class AgentMonitorService : IAgentMonitorService
 {
@@ -51,19 +52,16 @@ public sealed class AgentMonitorService : IAgentMonitorService
             return NotFoundResult($"Invalid repository format '{request.Repository}'");
         }
 
+        // Story 40-3 (AC6) — the in-memory registry is an optional same-process fast path.
+        // Without it, Auto AND explicit Webhook mode poll; correctness for the suspending
+        // WaitForAgentRunActivity rides the durable agent_run_waits row + persisted bookmark.
         var effectiveMode = options.Mode;
-        if (effectiveMode == AgentMonitorMode.Auto && _signals is null)
+        if (effectiveMode != AgentMonitorMode.Poll && _signals is null)
         {
             _logger?.LogDebug(
-                "AgentMonitor mode=Auto but IWebhookSignalRegistry not registered — falling back to Poll for {Repository}/{Branch}",
-                request.Repository, request.BranchName);
+                "AgentMonitor mode={Mode} but IWebhookSignalRegistry not registered — falling back to Poll for {Repository}/{Branch}",
+                effectiveMode, request.Repository, request.BranchName);
             effectiveMode = AgentMonitorMode.Poll;
-        }
-        if (effectiveMode == AgentMonitorMode.Webhook && _signals is null)
-        {
-            _logger?.LogError(
-                "AgentMonitor mode=Webhook but IWebhookSignalRegistry not registered — returning monitor_failed");
-            return new AgentMonitorResult(0, "error", "monitor_failed", string.Empty, 0, string.Empty);
         }
 
         if (effectiveMode == AgentMonitorMode.Poll)

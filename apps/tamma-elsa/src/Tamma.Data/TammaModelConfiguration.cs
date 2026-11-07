@@ -922,6 +922,52 @@ internal static class TammaModelConfiguration
     }
 
     /// <summary>
+    /// Story 40-3 — configure the <c>agent_run_waits</c> table (durable
+    /// agent-run correlation rows). Dual-resident like
+    /// <see cref="ConfigureAgentRoleSelections"/>: tenant schema for SaaS rows,
+    /// CP for single-user rows. Strong principal XOR; one row per
+    /// <c>(principal, repository, branch, session)</c> with NULLS NOT DISTINCT;
+    /// the webhook match index is <c>(InstallationId, Repository, BranchName, Status)</c>.
+    /// </summary>
+    public static void ConfigureAgentRunWaits(
+        ModelBuilder modelBuilder, Guid? fixedTenantId = null)
+    {
+        modelBuilder.Entity<AgentRunWait>(entity =>
+        {
+            entity.ToTable("agent_run_waits", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_agent_run_waits_principal_xor",
+                    "(\"UserId\" IS NOT NULL AND \"TenantId\" IS NULL) " +
+                    "OR (\"UserId\" IS NULL AND \"TenantId\" IS NOT NULL)");
+                t.HasCheckConstraint(
+                    "ck_agent_run_waits_status",
+                    "\"Status\" IN ('pending','received','timed_out')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Repository).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.BranchName).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.SessionId).IsRequired().HasMaxLength(256);
+            entity.Property(e => e.WorkflowInstanceId).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.BookmarkName).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(16)
+                .HasDefaultValue(AgentRunWaitStatus.Pending);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.TenantId, e.UserId, e.Repository, e.BranchName, e.SessionId })
+                .IsUnique()
+                .AreNullsDistinct(false)
+                .HasDatabaseName("UX_agent_run_waits_principal_run");
+            entity.HasIndex(e => new { e.InstallationId, e.Repository, e.BranchName, e.Status })
+                .HasDatabaseName("IX_agent_run_waits_match");
+
+            ApplyTenantFilter(entity, fixedTenantId, e => e.TenantId);
+        });
+    }
+
+    /// <summary>
     /// Story 32-16 — configure the <c>tenant_agent_enablements</c> table (which
     /// PUBLIC personas a principal exposes in its usable catalog). CP-resident in
     /// BOTH modes (it gates the CP-resident public <see cref="Agent"/> catalog and
@@ -2351,6 +2397,11 @@ internal static class TammaModelConfiguration
         // configured on the CP context for single-user user-keyed rows — one
         // physical schema, two homes (mirrors audit_records / prompt_overrides).
         ConfigureAgentRoleSelections(modelBuilder, fixedTenantId);
+
+        // ── Agent-run waits (Story 40-3) ──
+        // SaaS tenant-keyed durable agent-run correlation rows. The SAME table
+        // shape is also configured on the CP context for single-user rows.
+        ConfigureAgentRunWaits(modelBuilder, fixedTenantId);
 
         // ── Native tracker (Story 44-1) ──
         // projects / work_items / work_item_relations / iterations /

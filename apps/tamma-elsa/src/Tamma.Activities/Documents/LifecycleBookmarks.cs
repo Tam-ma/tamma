@@ -1,4 +1,5 @@
 using Tamma.Activities.ADL;
+using Tamma.Activities.AgentDispatch;
 
 namespace Tamma.Activities.Documents;
 
@@ -86,6 +87,20 @@ public static class LifecycleBookmarks
     }
 
     /// <summary>
+    /// Story 40-2 (AC2, D2) — the agent-run wait name
+    /// (<c>agent-run-{tenant}-{repo}-{branch}-{session}</c>) used by
+    /// <c>WaitForAgentRunActivity</c> on suspend and by the 40-3 resume side. Every
+    /// segment goes through <see cref="Compose"/> (so through
+    /// <see cref="WaitForMergeApprovalActivity.NormalizeSegment"/>): the same four durable
+    /// inputs give the same name on any pod, and two tenants never share a name.
+    /// </summary>
+    public static string ForAgentRun(string? tenantId, string repository, string branchName, string sessionId)
+        => Compose(AgentRunGate, tenantId, repository, branchName, sessionId);
+
+    /// <summary>Story 40-2 — the gate prefix of <see cref="ForAgentRun"/>.</summary>
+    public const string AgentRunGate = "agent-run";
+
+    /// <summary>
     /// Story 39-10 (D4) — the CANONICAL-gate registry as production data: each
     /// sanctioned suspend-activity <see cref="Type"/> mapped to its gate prefix. The
     /// structural build gate walks built graphs for activity nodes whose type is in
@@ -102,5 +117,7 @@ public static class LifecycleBookmarks
             // Story 39-13 (D3) — the generic domain-input gate (Clarify's wait-for-answers
             // rides this; the legacy WaitForClarifyingAnswersActivity is retired).
             [typeof(WaitForDocumentInputActivity)] = "document-input",
+            // Story 40-2 (AC6, D7) — the coding step's durable agent-run wait.
+            [typeof(WaitForAgentRunActivity)] = AgentRunGate,
         };
 }

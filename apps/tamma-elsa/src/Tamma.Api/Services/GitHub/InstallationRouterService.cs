@@ -39,6 +39,7 @@ public sealed class InstallationRouterService : IInstallationRouterService
     private readonly IInstallationSecretsPusher _secretsPusher;
     private readonly IApiKeyRepository _apiKeys;
     private readonly IWebhookSignalRegistry? _webhookSignals;
+    private readonly Tamma.Api.Services.AgentDispatch.IAgentRunResumer? _agentRunResumer;
     private readonly Tamma.Api.Services.Platforms.IGitHubInstallationBridge? _installationBridge;
     private readonly ILogger<InstallationRouterService> _logger;
 
@@ -62,8 +63,10 @@ public sealed class InstallationRouterService : IInstallationRouterService
         IApiKeyRepository apiKeys,
         ILogger<InstallationRouterService> logger,
         IWebhookSignalRegistry? webhookSignals = null,
-        Tamma.Api.Services.Platforms.IGitHubInstallationBridge? installationBridge = null)
+        Tamma.Api.Services.Platforms.IGitHubInstallationBridge? installationBridge = null,
+        Tamma.Api.Services.AgentDispatch.IAgentRunResumer? agentRunResumer = null)
     {
+        _agentRunResumer = agentRunResumer;
         _installationBridge = installationBridge;
         _installations = installations;
         _events = events;
@@ -346,12 +349,12 @@ public sealed class InstallationRouterService : IInstallationRouterService
             case "installation_repositories":
                 return await HandleInstallationRepositoriesEventAsync(payload, action);
 
-            // Story 19-3 AC-7 — webhook-mode monitor wake-up. Match the
-            // workflow_run to a suspended AgentMonitorService by
-            // (repo, run_id) or (repo, branch, session_id). Non-matching
-            // workflow_runs (not Tamma-dispatched) fall through to Skipped.
+            // Story 40-3 — durable resume of a suspended WaitForAgentRunActivity
+            // from the agent_run_waits row (any pod, no ambient tenant), plus the
+            // Story 19-3 AC-7 in-process fast path. Non-matching workflow_runs
+            // (not Tamma-dispatched) fall through to Skipped.
             case "workflow_run":
-                return HandleWorkflowRunEvent(payload, action);
+                return await HandleWorkflowRunEventAsync(payload, action);
 
             // Epic 31 P4 M2 — push / issues / pull_request are NO LONGER
             // deferred to the task queue: the enqueue was a dead write (no
@@ -370,21 +373,24 @@ public sealed class InstallationRouterService : IInstallationRouterService
     }
 
     /// <summary>
-    /// Story 19-3 AC-7 — match an incoming <c>workflow_run.completed</c>
-    /// webhook to a suspended <see cref="IAgentMonitorService"/> call.
-    /// Skipped when:
-    /// <list type="bullet">
-    ///   <item>the webhook-signal registry is not wired (self-hosted mode);</item>
-    ///   <item>the <c>action</c> is not <c>completed</c> (we don't care about in-flight updates — the monitor is interested in terminal states only);</item>
-    ///   <item>no waiter is registered for the matched key (not every workflow_run is Tamma-dispatched).</item>
+    /// Story 40-3 (AC2) / Story 19-3 AC-7 — act on an incoming <c>workflow_run.completed</c>.
+    /// <list type="number">
+    ///   <item><b>Durable path (correctness).</b> <see cref="Tamma.Api.Services.AgentDispatch.IAgentRunResumer"/>
+    ///     matches the pending <c>agent_run_waits</c> row by (installation, repo, head_branch) under
+    ///     the principal it resolves FROM THE INSTALLATION — this path is tenant-free, no ambient
+    ///     tenant is bound — and resumes the persisted engine bookmark.</item>
+    ///   <item><b>Fast path (optional).</b> The in-process <see cref="IWebhookSignalRegistry"/> wakes a
+    ///     co-hosted legacy <c>AgentMonitorService</c> waiter, if one is parked here.</item>
     /// </list>
+    /// Skipped when the action is not <c>completed</c>, the payload is unreadable, or neither
+    /// path matched (not every workflow_run is Tamma-dispatched).
     /// </summary>
-    private WebhookResult HandleWorkflowRunEvent(JsonElement payload, string? action)
+    private async Task<WebhookResult> HandleWorkflowRunEventAsync(JsonElement payload, string? action)
     {
-        if (_webhookSignals is null)
+        if (_webhookSignals is null && _agentRunResumer is null)
         {
             _logger.LogDebug(
-                "workflow_run event received but IWebhookSignalRegistry is not registered — skipping");
+                "workflow_run event received but neither the agent-run resumer nor the signal registry is registered — skipping");
             return new WebhookResult("workflow_run", action, Skipped: true);
         }
 
@@ -479,7 +485,30 @@ public sealed class InstallationRouterService : IInstallationRouterService
             WorkflowRunId: runId.Value,
             InstallationId: installationId);
 
-        var matched = _webhookSignals.PublishSignal(publishKey, signal);
+        var matched = _webhookSignals?.PublishSignal(publishKey, signal) ?? false;
+
+        if (_agentRunResumer is not null)
+        {
+            var outcome = await _agentRunResumer.ResumeFromWorkflowRunAsync(
+                new Tamma.Api.Services.AgentDispatch.AgentRunCompletion(
+                    InstallationId: installationId,
+                    Repository: repoFullName,
+                    HeadBranch: headBranch,
+                    WorkflowRunId: runId.Value,
+                    Status: status,
+                    Conclusion: conclusion,
+                    WorkflowRunUrl: htmlUrl,
+                    CreatedAt: createdAt,
+                    UpdatedAt: updatedAt,
+                    ArtifactsUrl: artifactsUrl)).ConfigureAwait(false);
+            _logger.LogInformation(
+                "workflow_run.completed durable agent-run resume: repo={Repo} run={RunId} outcome={Outcome}",
+                LogSanitizer.Clean(repoFullName), runId, outcome);
+            matched |= outcome is Tamma.Api.Services.AgentDispatch.AgentRunResumeOutcome.Resumed
+                or Tamma.Api.Services.AgentDispatch.AgentRunResumeOutcome.Buffered
+                or Tamma.Api.Services.AgentDispatch.AgentRunResumeOutcome.AlreadyResumed;
+        }
+
         if (matched)
         {
             _logger.LogInformation(

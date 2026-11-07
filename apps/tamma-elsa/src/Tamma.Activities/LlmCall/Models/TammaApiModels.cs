@@ -590,6 +590,18 @@ public sealed record AgentDispatchRunApiRequest
     [JsonPropertyName("ref")] public string Ref { get; init; } = string.Empty;
     [JsonPropertyName("inputs")] public Dictionary<string, string> Inputs { get; init; } = new();
     [JsonPropertyName("correlationId")] public string CorrelationId { get; init; } = string.Empty;
+
+    /// <summary>Story 40-3 — the <c>LifecycleBookmarks.ForAgentRun</c> name the engine will
+    /// suspend on. With <see cref="WorkflowInstanceId"/> it is the only part of the durable
+    /// <c>agent_run_waits</c> row the API cannot derive. Null ⇒ no row (a legacy, non-suspending caller).</summary>
+    [JsonPropertyName("bookmarkName")] public string? BookmarkName { get; init; }
+
+    /// <summary>Story 40-3 — the suspending Elsa workflow instance id.</summary>
+    [JsonPropertyName("workflowInstanceId")] public string? WorkflowInstanceId { get; init; }
+
+    /// <summary>Story 40-3 — the raw tenant segment the engine folded into
+    /// <see cref="BookmarkName"/> (empty ⇒ the <c>none</c> segment).</summary>
+    [JsonPropertyName("bookmarkTenantId")] public string? BookmarkTenantId { get; init; }
 }
 
 /// <summary>Engine-side collect parameters for <c>GET .../runs/{id}/results</c>

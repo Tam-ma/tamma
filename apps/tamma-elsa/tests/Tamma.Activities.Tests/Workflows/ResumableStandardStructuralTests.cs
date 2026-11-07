@@ -79,7 +79,8 @@ public class ResumableStandardStructuralTests
             ["PullRequestWorkflow"] = "PR side-effect workflow, no suspend gate (burn-down: 39-15+).",
             ["ReviewFixWorkflow"] = "review-fix loop, no human suspend gate (burn-down: 39-14+).",
             ["RotateSecretWorkflow"] = "platform secret-rotation saga, no document lifecycle (burn-down: n/a — platform).",
-            ["SingleIssueCycleWorkflow"] = "issue-cycle orchestration composite, delegates to sub-workflows (burn-down: 39-14+).",
+            // SingleIssueCycleWorkflow burned down (BookmarkSuspend) in Story 40-2 — its coding step
+            // suspends on the canonical WaitForAgentRunActivity; 40-4/40-5 extend it to Both.
             ["SingleReviewerWorkflow"] = "39-7 single-reviewer producer, runs to completion (burn-down: 39-12+).",
             // TaskCreationWorkflow burned down in Story 39-15 — it now declares
             // [ResumeBehavior(LatestStateReEntry)] with the ComputeReEntryPositionActivity gate

@@ -123,13 +123,15 @@ public class SingleIssueCycleSafetyTests
     {
         // Regression: the old graph wired tddForTask Failed → IncrementTask (false
         // success). It must now route to the tdd-with-debug-retry dispatch.
-        HasEdge("TddForTask", "IncrementTask", "Failed").Should().BeFalse(
+        // Story 40-2: the agent-failure leg is TddResultOk=False (Received, success=false).
+        HasEdge("TddResultOk", "IncrementTask", "False").Should().BeFalse(
             "a failed TDD task must NOT advance the loop silently (the false-success hole)");
-        HasEdge("TddForTask", "DispatchTddRetry", "Failed").Should().BeTrue(
+        HasEdge("TddResultOk", "DispatchTddRetry", "False").Should().BeTrue(
             "a failed TDD task must route through tdd-with-debug-retry");
+        HasEdge("TddForTask", "TddResultOk", "Received").Should().BeTrue();
 
-        // Completed still advances.
-        HasEdge("TddForTask", "IncrementTask", "Completed").Should().BeTrue();
+        // Success still advances.
+        HasEdge("TddResultOk", "IncrementTask", "True").Should().BeTrue();
     }
 
     [Test]

@@ -15,12 +15,11 @@ namespace Tamma.Activities.AgentDispatch;
 /// <see cref="PublishSignal"/>; any awaiter(s) complete with the payload
 /// and the monitor returns immediately.</para>
 ///
-/// <para>Scope: single process. Both the webhook receiver and the monitor
-/// run inside Tamma.Api for SaaS deployments, so this is sufficient for
-/// AC-7's "reduce GitHub API rate pressure" goal. For distributed
-/// deployments where the ElsaServer process runs the activity, webhook
-/// mode falls back to poll (Auto) or fails (explicit Webhook) — see
-/// <see cref="AgentMonitorMode"/> for the resolution rules.</para>
+/// <para>Scope: single process — a same-process FAST PATH only (Story 40-3,
+/// AC6). Correctness no longer depends on it: the suspending
+/// <see cref="WaitForAgentRunActivity"/> is resumed from the durable
+/// <c>agent_run_waits</c> row through Elsa's persisted bookmark, on any pod.
+/// Without the registry the legacy blocking monitor polls in every mode.</para>
 ///
 /// <para>The registry is intentionally a plain CAS-backed ConcurrentDictionary
 /// rather than an IBookmarkStore — it avoids any Elsa workflow-runtime

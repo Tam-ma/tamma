@@ -47,6 +47,14 @@ public sealed class AgentExecutorFactory
         };
     }
 
+    /// <summary>
+    /// Story 40-2 (D5) — the resolved mode name (<c>local</c> / <c>github_actions</c>)
+    /// without building an executor, so <c>WaitForAgentRunActivity</c> can pick between
+    /// the run-to-completion local branch and the dispatch-then-suspend GHA branch.
+    /// Same precedence as <see cref="Create"/>.
+    /// </summary>
+    public string ResolveMode(string? modeOverride = null) => Resolve(modeOverride);
+
     private string Resolve(string? modeOverride)
     {
         if (!string.IsNullOrEmpty(modeOverride))

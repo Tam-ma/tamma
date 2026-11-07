@@ -32,6 +32,21 @@ public sealed record DispatchAgentRunRequest
 
     /// <summary>The workflow instance / session id — ties the run to the audit trail.</summary>
     public string CorrelationId { get; init; } = string.Empty;
+
+    /// <summary>
+    /// Story 40-3 — the <c>LifecycleBookmarks.ForAgentRun</c> name the engine suspends on.
+    /// When set (with <see cref="WorkflowInstanceId"/>), a successful dispatch writes the
+    /// durable <c>agent_run_waits</c> row the <c>workflow_run.completed</c> webhook resumes
+    /// from. Null ⇒ no row (a non-suspending caller such as the legacy ExecuteAgent path).
+    /// </summary>
+    public string? BookmarkName { get; init; }
+
+    /// <summary>Story 40-3 — the suspending Elsa workflow instance id.</summary>
+    public string? WorkflowInstanceId { get; init; }
+
+    /// <summary>Story 40-3 — the raw tenant segment the engine folded into
+    /// <see cref="BookmarkName"/> (empty ⇒ the <c>none</c> segment).</summary>
+    public string? BookmarkTenantId { get; init; }
 }
 
 /// <summary>

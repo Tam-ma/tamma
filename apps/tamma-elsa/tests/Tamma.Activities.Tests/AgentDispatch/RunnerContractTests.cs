@@ -168,6 +168,8 @@ public class RunnerContractTests
     {
         ("src/Tamma.Activities/AgentDispatch/AgentDispatchService.cs", $"? \"{basename}\""),
         ("src/Tamma.Activities/AgentDispatch/ExecuteAgentActivity.cs", $"WorkflowFileName: \"{basename}\""),
+        // Story 40-2 — the durable agent-run wait builds the same request.
+        ("src/Tamma.Activities/AgentDispatch/WaitForAgentRunActivity.cs", $"WorkflowFileName: \"{basename}\""),
         ("src/Tamma.Activities/AgentDispatch/DispatchAgentWorkflowActivity.cs", $"new(\"{basename}\")"),
         ("src/Tamma.Activities/LlmCall/Models/TammaApiModels.cs", $"WorkflowFileName {{ get; init; }} = \"{basename}\""),
         ("src/Tamma.Api/Services/AgentDispatch/AgentDispatchRequests.cs", $"WorkflowFileName {{ get; init; }} = \"{basename}\""),

@@ -29,8 +29,10 @@ namespace Tamma.Api.Endpoints;
 ///
 /// <para>The monitor's poll LOOP stays engine-side: <c>GET .../runs</c> (discover)
 /// and <c>GET .../runs/{id}</c> (poll) are single-shot status reads the engine
-/// loops over; the endpoints never block for the ~35-minute run. The inbound
-/// <c>workflow_run.completed</c> webhook is out of scope (design §5.3, unchanged).</para>
+/// loops over; the endpoints never block for the ~35-minute run. Story 40-3: the inbound
+/// <c>workflow_run.completed</c> webhook resumes a suspended wait durably (the
+/// <c>agent_run_waits</c> row written by <c>POST .../runs</c>; see
+/// <see cref="IAgentRunResumer"/>).</para>
 /// </summary>
 public static class AgentDispatchEndpoints
 {
