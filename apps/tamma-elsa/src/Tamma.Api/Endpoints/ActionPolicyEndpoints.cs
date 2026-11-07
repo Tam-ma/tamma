@@ -177,6 +177,24 @@ public static class ActionPolicyEndpoints
     }
 
     /// <summary>
+    /// Whether an action runs without a person at <paramref name="level"/>, given the
+    /// gate's decision for it. Mirrors <see cref="AutonomyGateEvaluator"/> plus the seams
+    /// that act on its decision (<c>GovernanceEnforcement</c>, <c>BackgroundActionGate</c>:
+    /// "proceed when <c>!Enforced</c> or <c>Automated</c>"):
+    /// <list type="bullet">
+    /// <item>not enforced (advisory, a non-enforceable member, or an enabled machinery
+    /// member — the evaluator stamps those <c>Enforced=false</c>) → it proceeds at any level;</item>
+    /// <item>disabled and enforced → denied before the dial is consulted, so never automated;</item>
+    /// <item>otherwise → automated iff <c>level &gt;= EffectiveMinAutonomy</c>.</item>
+    /// </list>
+    /// A role restriction is NOT applied: it depends on the caller's role, and this view has
+    /// no caller. A degraded read forces <c>Enforced</c> and an AlwaysHuman threshold, so it
+    /// reads as not automated.
+    /// </summary>
+    internal static bool AutomatedAtLevel(AutonomyDecision decision, int level) =>
+        !decision.Enforced || (decision.Enabled && level >= decision.EffectiveMinAutonomy);
+
+    /// <summary>
     /// One action's resolved, level-parameterized view — the row <c>GET /policy</c> lists and
     /// <c>GET /policy/actions/{ns}/{key}</c> returns alone (Story 43-6 AC1/AC5). One method, so
     /// the two can never disagree.
@@ -244,9 +262,10 @@ public static class ActionPolicyEndpoints
             // The ladder-without-the-action-row resolution the 409/greying
             // rule keys on (Amendment 2-E).
             ladderWithoutRow = withoutRow.EffectiveMinAutonomy,
-            // Computed with THE SAME comparison the gate applies, so the
+            // Whether the action runs without a person at viewLevel — the same
+            // rule the gate and its seams apply (see AutomatedAtLevel), so the
             // UI's greying rule cannot drift from the enforcement rule.
-            automatedAtLevel = viewLevel >= decision.EffectiveMinAutonomy,
+            automatedAtLevel = AutomatedAtLevel(decision, viewLevel),
             // Story 43-15 AC8 — levelOwned / editable = !levelOwned / reason,
             // replacing the old unconditional editable = true (S3 deleted).
             levelOwned,

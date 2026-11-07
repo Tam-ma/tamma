@@ -61,6 +61,58 @@ public class AutonomyGateEvaluatorTests
             new AutonomyQuery(key, User, role), snapshot, baseRules: null);
 
     // ─────────────────────────────────────────────────────────────────────
+    // 2026-11-07 audit — a DISABLE or a ROLE restriction is a deny control, so
+    // it must block even when the row is advisory (enforce=false). Every
+    // consumer (GovernanceEnforcement, BackgroundActionGate, the engine's
+    // CheckActionGateActivity) lets a decision through when !Enforced, so a
+    // denial that inherited enforce=false was a no-op.
+    // ─────────────────────────────────────────────────────────────────────
+
+    [Test]
+    public void DisabledAdvisoryRow_IsAnEnforcedDenial()
+    {
+        var snapshot = Snapshot(principalActions: new(StringComparer.Ordinal)
+        {
+            ["tool:shell_execute"] = Value(enforce: false, enabled: false),
+        });
+
+        var decision = Evaluate(Key("tool:shell_execute"), snapshot);
+
+        decision.Outcome.Should().Be(AutonomyOutcome.Denied);
+        decision.Reason.Should().Be(AutonomyGateEvaluator.ReasonDisabled);
+        decision.Enforced.Should().BeTrue("turning an action off must stop it even when the row is advisory");
+    }
+
+    [Test]
+    public void RoleNotAllowedOnAdvisoryRow_IsAnEnforcedDenial()
+    {
+        var snapshot = Snapshot(principalActions: new(StringComparer.Ordinal)
+        {
+            ["tool:file_write"] = Value(enforce: false, roles: new[] { "architect" }),
+        });
+
+        var decision = Evaluate(Key("tool:file_write"), snapshot, role: "qa_engineer");
+
+        decision.Outcome.Should().Be(AutonomyOutcome.Denied);
+        decision.Reason.Should().Be(AutonomyGateEvaluator.ReasonRoleNotAllowed);
+        decision.Enforced.Should().BeTrue("a role restriction must hold even when the row is advisory");
+    }
+
+    [Test]
+    public void AdvisoryRowBelowThreshold_StaysUnenforced()
+    {
+        var snapshot = Snapshot(principalActions: new(StringComparer.Ordinal)
+        {
+            ["tool:shell_execute"] = Value(min: 99, enforce: false),
+        });
+
+        var decision = Evaluate(Key("tool:shell_execute"), snapshot);
+
+        decision.Outcome.Should().NotBe(AutonomyOutcome.Automated);
+        decision.Enforced.Should().BeFalse("enforce=false still makes the DIAL advisory — only deny controls are forced");
+    }
+
+    // ─────────────────────────────────────────────────────────────────────
     // AC10 — THE ZERO-ROWS GOLDEN PROOF (behaviour-preserving mandate):
     // with an empty table, EVERY catalog member resolves to its shipped
     // DefaultMinAutonomy with source system-default. Iterates tree-truth
