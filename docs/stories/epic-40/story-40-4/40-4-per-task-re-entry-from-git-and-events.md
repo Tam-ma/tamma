@@ -1,6 +1,35 @@
 # Story 40-4: Per-Task Re-Entry — Reconstruct Landed Tasks from Git + DCB Events
 
-Status: drafted
+Status: done
+
+> **Delivered 2026-11-07.** All ten ACs. Shipped switched OFF (`Coding:TaskReEntryDisabled`
+> defaults to `true`, `TaskReEntryRegistration.DisabledByDefault`); 40-7 flips that literal.
+>
+> **How it is built (differs from the plan in three places, on purpose):**
+> - **Where the real read runs.** The plan put `TaskLoopReEntryService` in `Tamma.Activities`.
+>   It needs the tenant's event store, document store and git driver, which only Tamma.Api has,
+>   so it lives in `Tamma.Api/Services/AgentDispatch/` behind
+>   `GET /api/engine/issues/{n}/task-resume` (read-only, `WorkflowsView`). The engine calls it via
+>   `HttpTaskLoopReEntryService` — the same split as 39-10's `HttpLifecycleReEntryService`.
+> - **Git evidence is changed files, not commits.** The platform layer has no commit-list or
+>   ancestry verb, so "on the branch" means: the files the task's run reported (else the files
+>   its stored task names) all appear in the branch's changed-file list
+>   (`IAgentDispatchMediationService.ListBranchChangedFilesAsync`, new, read-only).
+> - **"Finished" also counts a later task's run.** A task fixed by the debug-retry leg records no
+>   successful `AGENT_RUN.RECEIVED` of its own, but the loop only dispatches task j after task i
+>   passed, so any run for a later task proves task i finished.
+>
+> **Rules** (`TaskLoopResumeCalculator`, pure): no runs ⇒ 0; no stored list / git unreadable /
+> recorded `taskId` ≠ stored id at that index ⇒ 0 with the reason; finished-but-files-missing ⇒
+> `CODE.REENTRY.INCONSISTENT_STATE`; first unfinished task is the resume index, unless no run of
+> it ever finished yet the files only it touches are on the branch ⇒ inconsistent. Inconsistent
+> routes to `NotifyTddFailed` + `EmitStepFailed`; any other read failure starts at 0 (today).
+>
+> **Known limits.** (1) If `task-review` revised the list on the original run, the stored
+> task-creation list will not match the recorded ids, so re-entry restarts at 0 (safe, no skip).
+> (2) Compare-based file lists are capped by the platform (GitHub: 300 files); a larger diff can
+> read as "file missing" and fail loud. (3) Single-user needs a tenant in the request scope (the
+> personal tenant); with none, re-entry starts at 0.
 
 ## MANDATORY: Before You Code
 

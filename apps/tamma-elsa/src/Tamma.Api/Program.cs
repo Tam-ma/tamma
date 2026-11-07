@@ -229,6 +229,15 @@ else
     builder.Services.AddScoped<Tamma.Activities.Documents.ILifecycleReEntryService,
         Tamma.Activities.Documents.LifecycleReEntryService>();
 
+// Story 40-4 (AC6) — task-loop crash re-entry. Coding:TaskReEntryDisabled defaults to TRUE
+// (TaskReEntryRegistration.DisabledByDefault) until Story 40-7 proves it and flips the default.
+if (Tamma.Activities.AgentDispatch.TaskReEntryRegistration.IsDisabled(builder.Configuration))
+    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
+        Tamma.Activities.AgentDispatch.NullTaskLoopReEntryService>();
+else
+    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
+        Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService>();
+
 // ── Story 28-4 / unified-tenancy Phase 3 — tenant connection pool ──
 //
 // The LRU-cached LruPooledTenantConnectionResolver is the ONLY tenant
@@ -3236,6 +3245,9 @@ engine.MapGet("/events/query", EngineEndpoints.QueryEvents);
 // null-tenant fails closed (404). ?upTo={seq|timestamp} = as-of point; ?from={seq}
 // adds a diff (AC6).
 engine.MapGet("/runs/{correlationId}/replay", EngineEndpoints.ReplayRun);
+// Story 40-4 — where a restarted cycle's task loop resumes (git + AGENT_RUN.* events +
+// the accepted task list). Read-only; inherits WorkflowsView; tenant-scoped.
+engine.MapGet("/issues/{issueNumber:int}/task-resume", TaskResumeEndpoints.GetTaskResume);
 engine.MapGet("/events/state", EngineEndpoints.GetEventsState);
 engine.MapGet("/events/logs", EngineEndpoints.GetEventsLogs);
 engine.MapPost("/store-context", EngineEndpoints.StoreContext).RequireAuthorization("WorkflowsManage");

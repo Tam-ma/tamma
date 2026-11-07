@@ -544,6 +544,34 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     // Resolve installation id (webhook wait-key scoping — NO DCB event)
     // ===================================================================
 
+    /// <inheritdoc />
+    public async Task<IReadOnlyList<string>?> ListBranchChangedFilesAsync(
+        Guid? tenantId, string repo, string branch, CancellationToken ct = default)
+    {
+        var (owner, name, parsed) = ParseRepo(repo);
+        if (!parsed || string.IsNullOrWhiteSpace(branch)) return null;
+        try
+        {
+            var authz = await _authorizer.AuthorizeAsync(tenantId, repo, ct).ConfigureAwait(false);
+            if (!authz.Allowed) return null;
+
+            var driver = await ResolveDriverAsync(tenantId, repo, ct).ConfigureAwait(false);
+            if (driver is null) return null;
+
+            var res = await driver.Client.ListBranchFileChangesAsync(
+                new Tamma.Platforms.Abstractions.Models.ListBranchFileChangesRequest(owner, name, branch), ct).ConfigureAwait(false);
+            return res is Tamma.Platforms.Abstractions.PlatformResult<IReadOnlyList<Tamma.Platforms.Abstractions.Models.PrFile>>.Ok ok
+                ? ok.Value.Select(f => f.Path).ToList()
+                : null;
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException || !ct.IsCancellationRequested)
+        {
+            _logger.LogWarning(ex, "Branch file-change read failed for {Repo}@{Branch}",
+                LogSanitizer.Clean(repo), LogSanitizer.Clean(branch));
+            return null;
+        }
+    }
+
     public async Task<AgentInstallationResult> ResolveInstallationAsync(
         Guid? tenantId, string repo, string? correlationId, CancellationToken ct = default)
     {

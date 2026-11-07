@@ -549,6 +549,47 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             catch { return (object)0; }
         }, "InitTaskLoop", "Init Task Loop");
 
+        // Story 40-4 — crash re-entry for the task loop. A restarted cycle starts at the first
+        // task that has not landed (git + AGENT_RUN.* events) instead of task 0, and runs the
+        // STORED task list those indices refer to. A fresh issue, a switched-off seam or any
+        // doubt gives index 0 (today's behaviour). Git/events disagreement fails the cycle loud.
+        // Scope: the task loop only — earlier stages re-run as before.
+        var taskResumeIndex = builder.WithVariable<int>("TaskResumeIndex", 0).Persisted();
+        var taskResumeTasksJson = builder.WithVariable<string>("TaskResumeTasksJson", "").Persisted();
+        var taskResumeInconsistency = builder.WithVariable<string>("TaskResumeInconsistency", "").Persisted();
+
+        var computeTaskResumeIndex = new ComputeTaskResumeIndexActivity
+        {
+            Id = "ComputeTaskResumeIndex",
+            Name = "Compute Task Resume Index",
+            Repository = new Input<string>(ctx => repository.Get(ctx)),
+            BranchName = new Input<string>(ctx => branchName.Get(ctx)),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            ResumeIndex = new Output<int>(taskResumeIndex),
+            TasksJson = new Output<string>(taskResumeTasksJson),
+            InconsistencyDetail = new Output<string>(taskResumeInconsistency),
+        };
+        computeTaskResumeIndex.SetDisplayText("Compute Task Resume Index");
+
+        var taskResumeOk = StepGate("TaskResumeOk", "Task Re-Entry Consistent?",
+            ctx => string.IsNullOrEmpty(taskResumeInconsistency.Get(ctx)),
+            failedStepId, failedDetail, "task-reentry",
+            ctx => taskResumeInconsistency.Get(ctx));
+
+        var applyTaskResume = Assign(currentTaskIndex, ctx =>
+        {
+            var stored = taskResumeTasksJson.Get(ctx);
+            var resume = taskResumeIndex.Get(ctx);
+            if (resume > 0 && !string.IsNullOrWhiteSpace(stored))
+            {
+                tasksJson.Set(ctx, stored);
+                totalTasks.Set(ctx, CountTasks(stored));
+                return (object)resume;
+            }
+            return (object)0;
+        }, "ApplyTaskResume", "Apply Task Resume");
+
         var hasMoreTasks = new FlowDecision(ctx => currentTaskIndex.Get(ctx) < totalTasks.Get(ctx))
         {
             Id = "HasMoreTasks",
@@ -1201,7 +1242,8 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 createBranch, extractBranch, branchOutcomeSwitch, notifyBranchFailed,
                 createPR, extractPR, prOk,
                 createTestCases,
-                initTaskLoop, hasMoreTasks, extractCurrentTask, tddForTask, incrementTask,
+                initTaskLoop, computeTaskResumeIndex, taskResumeOk, applyTaskResume,
+                hasMoreTasks, extractCurrentTask, tddForTask, incrementTask,
                 tddResultOk, tddWaitEscalate,
                 dispatchTddRetry, tddRetryOk, notifyTddRetry, notifyTddFailed,
                 checkCiSupported, markCiSkipped, ciGate, ciUnsupportedRouter, ciOk, notifyCiPassed,
@@ -1338,7 +1380,14 @@ public class SingleIssueCycleWorkflow : WorkflowBase
 
                 // 9. Create Test Cases → 10. TDD Loop
                 Connect(createTestCases, initTaskLoop),
-                Connect(initTaskLoop, hasMoreTasks),
+                // Story 40-4 — re-entry: init → compute resume index → consistent? → apply → loop.
+                // Inconsistent (git vs events) → loud failure, never a guess.
+                Connect(initTaskLoop, computeTaskResumeIndex),
+                Connect(computeTaskResumeIndex, taskResumeOk),
+                ConnectOutcome(taskResumeOk, "True", applyTaskResume),
+                ConnectOutcome(taskResumeOk, "False", notifyTddFailed),
+                ConnectOutcome(taskResumeOk, "False", emitStepFailed),
+                Connect(applyTaskResume, hasMoreTasks),
 
                 // TDD Loop: more tasks? → extract task → TDD → (recover|advance) → loop
                 // Story 19-5 AC-6 (node now WaitForAgentRunActivity, Story 40-2).
@@ -1595,6 +1644,21 @@ public class SingleIssueCycleWorkflow : WorkflowBase
     /// the slice has none or does not parse. Never throws: a missing id only means 40-4 cannot
     /// verify the task and restarts the loop at 0.
     /// </summary>
+    /// <summary>Story 40-4 — the number of tasks in a tasks JSON array (0 when unreadable).</summary>
+    internal static int CountTasks(string? tasksJson)
+    {
+        if (string.IsNullOrWhiteSpace(tasksJson)) return 0;
+        try
+        {
+            using var doc = JsonDocument.Parse(tasksJson);
+            return doc.RootElement.ValueKind == JsonValueKind.Array ? doc.RootElement.GetArrayLength() : 0;
+        }
+        catch (JsonException)
+        {
+            return 0;
+        }
+    }
+
     internal static string? ReadTaskId(string? taskJson)
     {
         if (string.IsNullOrWhiteSpace(taskJson)) return null;

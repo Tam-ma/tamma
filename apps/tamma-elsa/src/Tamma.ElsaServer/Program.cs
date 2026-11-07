@@ -264,6 +264,16 @@ else
     builder.Services.AddScoped<Tamma.Activities.Documents.ILifecycleReEntryService,
         Tamma.Activities.Documents.HttpLifecycleReEntryService>();
 
+// Story 40-4 (AC6) — task-loop crash re-entry. The real read lives in Tamma.Api (tenant
+// stores + git driver); the engine asks it over HTTP. Coding:TaskReEntryDisabled defaults to
+// TRUE (TaskReEntryRegistration.DisabledByDefault) until Story 40-7 flips it.
+if (Tamma.Activities.AgentDispatch.TaskReEntryRegistration.IsDisabled(builder.Configuration))
+    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
+        Tamma.Activities.AgentDispatch.NullTaskLoopReEntryService>();
+else
+    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
+        Tamma.Activities.AgentDispatch.HttpTaskLoopReEntryService>();
+
 // Round-2 review M3 — bridge that polls platform_events for new
 // TENANT.CLEANUP.REQUESTED rows and re-publishes the matching Elsa
 // event so CleanUpFailedTenantWorkflow's starter trigger fires. The

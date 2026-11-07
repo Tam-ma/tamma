@@ -1,6 +1,6 @@
 # Story 40-6: Agent-Run Lifecycle Event Family + Re-Entry Feed
 
-Status: in-progress
+Status: done
 
 > **Progress 2026-11-07 (PR "40-6 part 1").** Shipped: AC1 (`AgentRunWaitEventTypes`, five frozen
 > strings + `WakePaths` + `StatusFor`), AC2 for 40-2/40-3 (`WaitForAgentRunActivity` emits
@@ -13,6 +13,10 @@ Status: in-progress
 > **Left for 40-4:** the `TASK_REENTERED` emission (AC2's last item) and AC6 (re-entry reads
 > this feed end to end) — both need 40-4's `TaskLoopReEntryService` / `ComputeTaskResumeIndexActivity`.
 > `TaskSessionId` (`adl-{issue}-task-{index}` build/parse) is shared with 40-4.
+> **Completed with 40-4 (2026-11-07):** `ComputeTaskResumeIndexActivity` emits `TASK_REENTERED`
+> (AC2), and `AgentRunWaitEventsQueryTests.ReEntry_reads_the_saved_feed_and_resumes_after_the_landed_task`
+> drives suspend→received through the real handler into Postgres and has the real
+> `TaskLoopReEntryService` resume after the landed task (AC6).
 
 ## MANDATORY: Before You Code
 

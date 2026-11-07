@@ -42,4 +42,14 @@ public interface IAgentDispatchMediationService
     /// owning the repo, used only to scope the inbound webhook-signal wait key.</summary>
     Task<AgentInstallationResult> ResolveInstallationAsync(
         Guid? tenantId, string repo, string? correlationId, CancellationToken ct = default);
+
+    /// <summary>
+    /// Story 40-4 — the paths changed on <paramref name="branch"/> relative to the default
+    /// branch, read through the tenant's own platform driver after the same repo guard as
+    /// every other op. A read only: no event, no effect. <c>null</c> when the repo is not the
+    /// tenant's, no driver resolves, the platform cannot answer, or the read fails — the
+    /// caller must then treat git as unknown, never as "nothing committed".
+    /// </summary>
+    Task<IReadOnlyList<string>?> ListBranchChangedFilesAsync(
+        Guid? tenantId, string repo, string branch, CancellationToken ct = default);
 }
