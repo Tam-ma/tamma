@@ -299,6 +299,9 @@ public class AgentDispatchEndpointsTests
             LastTenantId = tenantId; LastRepo = repo;
             return Task.FromResult(new AgentInstallationResult { Success = true, InstallationId = 100 });
         }
+
+        public Task<IReadOnlyList<string>?> ListBranchChangedFilesAsync(Guid? tenantId, string repo, string branch, CancellationToken ct = default)
+            => Task.FromResult<IReadOnlyList<string>?>(null);
     }
 
     private sealed class StubTenantContext : ITenantContext

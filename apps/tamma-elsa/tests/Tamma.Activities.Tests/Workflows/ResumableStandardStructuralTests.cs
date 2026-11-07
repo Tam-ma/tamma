@@ -2,7 +2,9 @@ using System.Reflection;
 using Elsa.Workflows;
 using FluentAssertions;
 using NUnit.Framework;
+using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Documents;
+using Tamma.Activities.Resume;
 using Tamma.Core.Documents.Resume;
 using Tamma.ElsaServer.Workflows;
 
@@ -243,29 +245,86 @@ public class ResumableStandardStructuralTests
             Environment.NewLine + string.Join(Environment.NewLine, violations));
     }
 
-    // ── (c) LatestStateReEntry/Both ⇒ ComputeReEntryPositionActivity node ──
+    // ── (c) LatestStateReEntry/Both ⇒ a registered re-entry node (Story 40-4 widened) ──
 
     [Test]
     public void EveryReEntryWorkflow_HasAComputeReEntryNode()
     {
-        var violations = new List<string>();
+        var violations = ClauseCViolations(ConcreteWorkflows());
 
-        foreach (var type in ConcreteWorkflows())
+        violations.Should().BeEmpty(
+            "every LatestStateReEntry/Both workflow must wire a registered re-entry node:" +
+            Environment.NewLine + string.Join(Environment.NewLine, violations));
+    }
+
+    /// <summary>
+    /// Clause (c). Story 40-4 (AC10) widened it from one hardcoded type to the canonical
+    /// re-entry registry: any registered node satisfies it (exact type identity, as before),
+    /// and a workflow cannot nominate its own.
+    /// </summary>
+    private static List<string> ClauseCViolations(IEnumerable<Type> workflows)
+    {
+        var violations = new List<string>();
+        foreach (var type in workflows)
         {
             var decl = Declaration(type);
             if (decl is null || decl.Mode is not (ResumeMode.LatestStateReEntry or ResumeMode.Both))
                 continue;
 
             var nodeTypes = BuiltGraphNodeTypes(type);
-            if (!nodeTypes.Contains(typeof(ComputeReEntryPositionActivity)))
+            if (!nodeTypes.Any(CanonicalReEntryActivities.Registry.ContainsKey))
                 violations.Add(
-                    $"  {type.Name}: declares {decl.Mode} (crash re-entry) but its built graph contains no " +
-                    "ComputeReEntryPositionActivity node (the generic re-entry wiring, D6).");
+                    $"  {type.Name}: declares {decl.Mode} (crash re-entry) but its built graph contains none of the " +
+                    $"registered re-entry nodes {{{RegisteredReEntryNames()}}} (CanonicalReEntryActivities).");
         }
+        return violations;
+    }
 
-        violations.Should().BeEmpty(
-            "every LatestStateReEntry/Both workflow must wire the generic ComputeReEntryPositionActivity:" +
-            Environment.NewLine + string.Join(Environment.NewLine, violations));
+    private static string RegisteredReEntryNames()
+        => string.Join(", ", CanonicalReEntryActivities.Registry.Keys.Select(t => t.Name).OrderBy(n => n, StringComparer.Ordinal));
+
+    /// <summary>Story 40-4 (AC10) — the registry holds exactly the two sanctioned re-entry nodes.</summary>
+    [Test]
+    public void ReEntryRegistry_IsTheDocumentAndTaskNodes()
+    {
+        CanonicalReEntryActivities.Registry.Should().BeEquivalentTo(new Dictionary<Type, string>
+        {
+            [typeof(ComputeReEntryPositionActivity)] = "document-position",
+            [typeof(ComputeTaskResumeIndexActivity)] = "task-index",
+        });
+    }
+
+    /// <summary>
+    /// Story 40-4 (AC10) — the clause still bites: a workflow declaring re-entry whose graph has
+    /// neither registered node is reported by name, with the registered types listed.
+    /// </summary>
+    [Test]
+    public void ClauseC_StillRejects_ADeclaringWorkflowWithNoRegisteredNode()
+    {
+        var violations = ClauseCViolations(new[] { typeof(ReEntryWithoutNodeFixture) });
+
+        violations.Should().ContainSingle().Which.Should()
+            .Contain(nameof(ReEntryWithoutNodeFixture))
+            .And.Contain("ComputeReEntryPositionActivity, ComputeTaskResumeIndexActivity");
+    }
+
+    /// <summary>Story 40-4 (AC10) — the new task-loop node satisfies the clause on its own.</summary>
+    [Test]
+    public void ClauseC_Accepts_TheTaskResumeNode()
+        => ClauseCViolations(new[] { typeof(BothWithTaskResumeNodeFixture) }).Should().BeEmpty();
+
+    [ResumeBehavior(ResumeMode.LatestStateReEntry)]
+    private sealed class ReEntryWithoutNodeFixture : WorkflowBase
+    {
+        protected override void Build(IWorkflowBuilder builder)
+            => builder.Root = new Elsa.Workflows.Activities.Sequence { Activities = { new Elsa.Workflows.Activities.WriteLine("no re-entry node") } };
+    }
+
+    [ResumeBehavior(ResumeMode.Both, SuspendActivities = new[] { typeof(WaitForAgentRunActivity) })]
+    private sealed class BothWithTaskResumeNodeFixture : WorkflowBase
+    {
+        protected override void Build(IWorkflowBuilder builder)
+            => builder.Root = new Elsa.Workflows.Activities.Sequence { Activities = { new ComputeTaskResumeIndexActivity() } };
     }
 
     // ── Universal pin (Story 39-15 D7c) — every remaining allowlist entry is a NON-producer ──

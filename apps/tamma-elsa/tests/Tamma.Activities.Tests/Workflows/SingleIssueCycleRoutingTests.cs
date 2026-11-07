@@ -264,6 +264,43 @@ public class SingleIssueCycleRoutingTests
     // Story 40-2 — that node is now the durable WaitForAgentRunActivity
     // ================================================================
 
+    // ================================================================
+    // Story 40-4 — task-loop crash re-entry
+    // ================================================================
+
+    private bool Edge(string from, string? port, string to) => _flowchart.Connections.Any(c =>
+        c.Source.Activity.Id == from && (port is null || c.Source.Port == port) && c.Target.Activity.Id == to);
+
+    [Test]
+    public void TaskResume_SitsBetweenInitAndTheLoop()
+    {
+        _flowchart.Activities.Single(a => a.Id == "ComputeTaskResumeIndex")
+            .Should().BeOfType<ComputeTaskResumeIndexActivity>("40-5/40-6/40-7 reference this exact type");
+
+        Edge("InitTaskLoop", null, "ComputeTaskResumeIndex").Should().BeTrue();
+        Edge("ComputeTaskResumeIndex", null, "TaskResumeOk").Should().BeTrue();
+        Edge("TaskResumeOk", "True", "ApplyTaskResume").Should().BeTrue();
+        Edge("ApplyTaskResume", null, "HasMoreTasks").Should().BeTrue();
+        Edge("InitTaskLoop", null, "HasMoreTasks").Should().BeFalse("the loop may only start after the resume index is applied");
+    }
+
+    [Test]
+    public void TaskResume_Inconsistency_FailsTheCycleLoud()
+    {
+        Edge("TaskResumeOk", "False", "EmitStepFailed").Should().BeTrue();
+        Edge("TaskResumeOk", "False", "NotifyTddFailed").Should().BeTrue();
+        Edge("TaskResumeOk", "False", "ApplyTaskResume").Should().BeFalse();
+    }
+
+    [Test]
+    public void TaskResume_UsesTheSameSessionIdsAsTheWait()
+    {
+        // The re-entry read joins on adl-{issue}-task-{index}; the wait must build it the same way.
+        var src = File.ReadAllText(Path.Combine(TestContext.CurrentContext.TestDirectory,
+            "..", "..", "..", "..", "..", "src", "Tamma.ElsaServer", "Workflows", "SingleIssueCycleWorkflow.cs"));
+        src.Should().Contain("TaskSessionId.For(issueNumber.Get(ctx), currentTaskIndex.Get(ctx))");
+    }
+
     [Test]
     public void TddForTask_IsWaitForAgentRunActivity_NotDispatchWorkflow()
     {

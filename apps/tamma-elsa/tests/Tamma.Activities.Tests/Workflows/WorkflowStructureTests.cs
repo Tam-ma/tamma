@@ -462,8 +462,10 @@ public class WorkflowStructureTests
         // and tripped the old strict-less-than bound. This is a SANITY bound against
         // runaway growth, not a budget — it is raised deliberately here, with the
         // reason recorded, rather than being nudged by one each time a step lands.
-        flowchart.Activities.Count.Should().BeLessThan(90,
-            "SingleIssueCycleWorkflow should not exceed 90 activities");
+        // 90 → 100: Story 40-4's task-loop crash re-entry adds three nodes
+        // (ComputeTaskResumeIndex, TaskResumeOk, ApplyTaskResume), taking it to exactly 90.
+        flowchart.Activities.Count.Should().BeLessThan(100,
+            "SingleIssueCycleWorkflow should not exceed 100 activities");
     }
 
     [Test]

@@ -1,6 +1,7 @@
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Moq;
 using NUnit.Framework;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Core;
@@ -90,10 +91,57 @@ public class AgentRunWaitEventsQueryTests
         tags.GetProperty("branchName").GetString().Should().Be(Branch);
     }
 
-    private static TammaEvent Wait(string type, Guid tenant, int issue, int index, string taskId)
+    /// <summary>
+    /// Story 40-6 AC6 / 40-4 — the feed is usable, not just audit: a suspend→received sequence
+    /// for task 0 and a suspend for task 1, saved through the real handler into real Postgres,
+    /// is read back by the real <see cref="TaskLoopReEntryService"/> as "task 0 landed, resume
+    /// at task 1" (git and the stored task list faked).
+    /// </summary>
+    [Test]
+    public async Task ReEntry_reads_the_saved_feed_and_resumes_after_the_landed_task()
+    {
+        var tenant = Guid.Parse("cccccccc-4060-4060-4060-cccccccccccc");
+        const int issue = 77;
+        await AppendAsync(tenant,
+            Wait(AgentRunWaitEventTypes.WaitSuspended, tenant, issue, 0, "T1"),
+            Wait(AgentRunWaitEventTypes.Received, tenant, issue, 0, "T1", "src/a.cs"),
+            Wait(AgentRunWaitEventTypes.WaitSuspended, tenant, issue, 1, "T2"));
+
+        var documents = new Mock<IDocumentInstanceRepository>();
+        documents.Setup(d => d.GetLatestAcceptedAsync(tenant, $"{Repo}#{issue}#task-creation", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[]
+            {
+                new Tamma.Data.Entities.DocumentInstance
+                {
+                    DocumentType = "plan",
+                    BodyJson = "{\"tasks\":[{\"id\":\"T1\",\"files\":[\"src/a.cs\"]},{\"id\":\"T2\",\"files\":[\"src/b.cs\"]}]}",
+                },
+            });
+        var git = new Mock<Tamma.Api.Services.AgentDispatch.IAgentDispatchMediationService>();
+        git.Setup(g => g.ListBranchChangedFilesAsync(tenant, Repo, Branch, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { "src/a.cs" });
+
+        var tc = new TenantContext();
+        tc.SetTenantId(tenant);
+        var service = new Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService(
+            new EventRepository(_factory, tc, platformEvents: null), documents.Object, git.Object,
+            Microsoft.Extensions.Logging.Abstractions.NullLogger<Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService>.Instance);
+
+        var position = await service.ReconstructAsync(tenant, Repo, Branch, issue, CancellationToken.None);
+
+        position.ResumeIndex.Should().Be(1);
+        position.LandedIndices.Should().Equal(0);
+    }
+
+    private static TammaEvent Wait(string type, Guid tenant, int issue, int index, string taskId, string? file = null)
         => WaitForAgentRunActivity.BuildWaitEvent(
             type, TaskSessionId.For(issue, index), issue, Repo, Branch, tenant, index, taskId,
-            new Dictionary<string, object?> { ["wakePath"] = AgentRunWaitEventTypes.WakePaths.Webhook, ["success"] = true });
+            new Dictionary<string, object?>
+            {
+                ["wakePath"] = AgentRunWaitEventTypes.WakePaths.Webhook,
+                ["success"] = true,
+                ["filesChanged"] = file is null ? Array.Empty<string>() : new[] { file },
+            });
 
     /// <summary>Send the engine's own wire records through the API's engine-events handler.</summary>
     private async Task AppendAsync(Guid tenant, params TammaEvent[] events)
