@@ -93,7 +93,7 @@ public class SingleIssueCycleCrashReEntryTests
 
         // Host B: a FRESH cycle for the same issue. Task creation now returns a reordered list;
         // the loop must run the STORED list its indices refer to (40-4 AC9).
-        Stubs.TasksJson = TasksJson(StoredTasks.Reverse().ToArray());
+        Stubs.TasksJson = TasksJson(Enumerable.Reverse(StoredTasks).ToArray());
         await using var b = await HostAsync("github_actions");
         await StartCycleAsync(b);
         await DeliverAsync(b, taskIndex: 2);
