@@ -986,4 +986,48 @@ public class ActionPolicyEndpointsTests
         catalog.GetArrayLength().Should().Be(Tamma.Core.Actions.ActionCatalog.All.Count,
             "the full tree-truth vocabulary is published so no client needs a local copy");
     }
+
+    // ── Story 43-6 AC1 — the single-action read ─────────────────────────────
+
+    [Test]
+    public async Task SingleActionView_IsTheSameRowAsThePolicyList()
+    {
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+        (await admin.PutAsJsonAsync("/api/actions/policy/actions/agent-action/deploy/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var member = Client(user, "member");
+        var one = await member.GetFromJsonAsync<JsonElement>("/api/actions/policy/actions/agent-action/deploy?level=80");
+        var all = await member.GetFromJsonAsync<JsonElement>("/api/actions/policy?level=80");
+
+        var fromList = all.GetProperty("actions").EnumerateArray()
+            .Single(a => a.GetProperty("key").GetString() == "agent-action:deploy");
+        one.GetProperty("action").GetRawText().Should().Be(fromList.GetRawText(),
+            "the single-action view and the list share one projection");
+        one.GetProperty("dial").GetProperty("viewLevel").GetInt32().Should().Be(80);
+        one.GetProperty("principalRow").GetProperty("enforce").GetBoolean().Should().BeFalse();
+        one.GetProperty("platformRow").ValueKind.Should().Be(JsonValueKind.Null);
+    }
+
+    [Test]
+    public async Task SingleActionView_RejectsUnknownAndMisCasedWires_AndBadLevels()
+    {
+        using var member = Client(Guid.NewGuid(), "member");
+        (await member.GetAsync("/api/actions/policy/actions/tool/not_a_tool")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await member.GetAsync("/api/actions/policy/actions/tool/File_Write")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await member.GetAsync("/api/actions/policy/actions/tool/file_write?level=999")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await member.GetAsync("/api/actions/policy/actions/tool/file_write")).StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task RouteOrder_LiteralsBeatParameterized()
+    {
+        // The literal siblings resolve to their own handlers, never to a {ns}/{key} or {group} route.
+        using var admin = Client(Guid.NewGuid(), "admin");
+        (await admin.GetAsync("/api/actions/policy/diff?from=70&to=80")).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PostAsJsonAsync("/api/actions/policy/reset", new { })).StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.GetAsync("/api/actions/policy/actions/tool/file_write")).StatusCode.Should().Be(HttpStatusCode.OK,
+            "the single-action read resolves to its own handler");
+    }
 }

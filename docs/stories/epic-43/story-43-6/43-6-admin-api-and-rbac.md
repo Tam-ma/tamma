@@ -1,6 +1,24 @@
 # Story 43-6: Admin API + RBAC for the Action Catalog
 
-Status: in-progress — reconciled 2026-11-06 (corrected the same day): most of this landed under 43-5/43-15. AC3 is now met (ActionsManage was already in the Development-permissive array; DevelopmentPolicyParityTests pins it). Still missing: the PUT /policy/groups/{group}/enforce and GET /policy/actions/{ns}/{key} routes (AC1), and the AC-named tests RouteOrder_LiteralsBeatParameterized, UnknownWire_400/WrongCasing_400, SingleUser_KeysOnUserId/SaaS_KeysOnTenantId, Delete_FallsBackToNextTier and the Permissions.Matrix.Keys pin (AC4) — some behaviours may be covered under other names, not checked.
+Status: in-progress — one item blocked on a governance decision (2026-11-07)
+
+> **2026-11-07.** Shipped: `GET /api/actions/policy/actions/{ns}/{key}` (AC1) — the same row
+> `GET /policy` lists (one shared projection, `ActionView`) plus the stored principal/platform rows
+> and the dial block; and the `Permissions.Matrix.Keys` pin + `actions:manage` role rows (AC4).
+> Most AC-named tests already existed under other names (`UnknownWire_AndWrongCasing_Are400`,
+> `Delete_FallsBackToTheNextTier`, `PutThreshold_DoesNotResetEnforceEnabledOrRoles`,
+> `Member_Gets403OnWrite_…`); `RouteOrder_LiteralsBeatParameterized` is now added.
+>
+> **Blocked: `PUT /policy/groups/{group}/enforce`.** Built and tested, then removed. 43-9's
+> ratchets make a NEW ungoverned mutating route impossible by design: the backlog pin and the
+> D17 reviewed-exception pin (`ExceptionPinHistory = [2]`) are both shrink-only. The only legal
+> path is `.Governs(...)` on a catalog member, which would put the autonomy gate in front of the
+> screen people use to configure the gate (the circularity D17 names for `/decide`). Options:
+> (1) mint an effect member classified as machinery and bind it (metadata only, never gates a
+> person); (2) amend D17 to allow one more reviewed exception for human-operated policy edits;
+> (3) drop the route — group-level enforce is reachable today by per-action `enforce` writes.
+> A group row also needs a threshold (`ck_action_assignments_mode_row`), so the built version
+> answered 409 `ACTION_POLICY.GROUP_THRESHOLD_REQUIRED` when no group threshold existed.
 
 ## MANDATORY: Before You Code
 
