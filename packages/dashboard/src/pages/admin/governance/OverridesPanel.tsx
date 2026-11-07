@@ -15,6 +15,16 @@
  * The dial range is server-owned: the group threshold input mirrors the
  * min/max the API reports as an affordance only — no value is validated here,
  * and a server rejection is shown as the error it returns.
+ *
+ * Story 43-7 (re-scoped against this tab, 2026-11-07):
+ * - A row with no enforcement site says "Not enforced" — the page must not imply
+ *   protection no route provides.
+ * - Any change that LOWERS protection on a destructive action (force on, stop
+ *   enforcing, or a group threshold below a destructive member's level) asks for
+ *   confirmation first, naming what it un-gates.
+ * - A display-only level preview dims the rows that level would automate. It
+ *   never writes and never refetches: the comparison is the gate's own
+ *   (level >= effective minimum), over data already loaded.
  */
 
 import { useCallback, useEffect, useState, type JSX } from 'react';
@@ -95,8 +105,38 @@ function GroupThresholdEditor({
   );
 }
 
+/** Story 43-7 — a change that lowers protection on a destructive action. */
+interface PendingConfirm {
+  message: string;
+  run: () => Promise<unknown>;
+}
+
+const isDestructive = (a: PolicyAction): boolean => a.risk === 'destructive' && !a.isMachinery;
+
+/**
+ * Destructive members a group threshold of `value` would un-gate: members whose
+ * effective level comes from the group or the default (an action override is
+ * unaffected by a group row) and sits above the new value.
+ */
+export function destructiveLoweredByGroup(
+  actions: PolicyAction[],
+  group: string,
+  value: number,
+): PolicyAction[] {
+  return actions.filter(
+    (a) =>
+      a.group === group &&
+      isDestructive(a) &&
+      (a.source === 'system-default' || a.source === 'group-override') &&
+      value < a.minAutonomy,
+  );
+}
+
 export function OverridesPanel(): JSX.Element {
   const [policy, setPolicy] = useState<ActionPolicyResponse | null>(null);
+  const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
+  // Display-only preview level; null = the current dial. Never written, never refetched.
+  const [previewLevel, setPreviewLevel] = useState<number | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
@@ -155,6 +195,15 @@ export function OverridesPanel(): JSX.Element {
     );
   }
 
+  const confirmOrRun = (needsConfirm: boolean, message: string, run: () => Promise<unknown>): void => {
+    if (needsConfirm) setPendingConfirm({ message, run });
+    else void mutate(run);
+  };
+
+  const viewLevel = previewLevel ?? policy.dial.current;
+  const automatedAtPreview = (a: PolicyAction): boolean =>
+    previewLevel !== null && !a.isMachinery && viewLevel >= a.minAutonomy;
+
   const dialGoverned = policy.actions.filter((a) => !a.isMachinery);
   const machinery = policy.actions.filter((a) => a.isMachinery);
 
@@ -162,11 +211,31 @@ export function OverridesPanel(): JSX.Element {
     <tr
       key={action.key}
       data-testid={`override-row-${action.key}`}
-      className="border-t border-gray-100 dark:border-gray-800"
+      data-automated-at-preview={automatedAtPreview(action) ? 'true' : undefined}
+      className={`border-t border-gray-100 dark:border-gray-800 ${automatedAtPreview(action) ? 'opacity-60' : ''}`}
+      title={
+        automatedAtPreview(action)
+          ? `At level ${viewLevel} this action runs without a person. Its controls still work.`
+          : undefined
+      }
     >
       <td className="px-4 py-2">
         <div className="text-gray-900 dark:text-gray-100">{action.title}</div>
         <div className="font-mono text-xs text-gray-500 dark:text-gray-400">{action.key}</div>
+        {action.enforcementSites.length === 0 && (
+          <span
+            data-testid={`not-enforced-${action.key}`}
+            title="No route or activity checks this action yet, so changing its policy changes nothing until one does."
+            className="mt-1 inline-block px-2 py-0.5 rounded text-xs font-medium bg-amber-100 text-amber-800 dark:bg-amber-950 dark:text-amber-300"
+          >
+            Not enforced
+          </span>
+        )}
+        {isDestructive(action) && (
+          <span className="mt-1 ml-1 inline-block px-2 py-0.5 rounded text-xs font-medium bg-red-100 text-red-800 dark:bg-red-950 dark:text-red-300">
+            Destructive
+          </span>
+        )}
       </td>
       <td className="px-4 py-2 text-gray-700 dark:text-gray-300">
         {action.isMachinery
@@ -213,7 +282,11 @@ export function OverridesPanel(): JSX.Element {
             type="button"
             aria-label={`${action.enforce ? 'Stop enforcing' : 'Enforce'} ${action.key}`}
             onClick={() =>
-              void mutate(() => actionsPolicyApi.setActionEnforce(action.key, !action.enforce))
+              confirmOrRun(
+                action.enforce && isDestructive(action),
+                `Stop enforcing ${action.key}? It is destructive; the gate will only advise, not block.`,
+                () => actionsPolicyApi.setActionEnforce(action.key, !action.enforce),
+              )
             }
             className={`px-2 py-1 text-xs font-medium rounded border ${
               action.enforce
@@ -233,8 +306,10 @@ export function OverridesPanel(): JSX.Element {
               aria-label={`Force ${action.key} on`}
               title="Run this action automatically even though the dial has not reached its level. The stored value is the server's own minimum — nothing is computed here."
               onClick={() =>
-                void mutate(() =>
-                  actionsPolicyApi.setActionThreshold(action.key, policy.dial.min),
+                confirmOrRun(
+                  isDestructive(action),
+                  `Force ${action.key} on? It is destructive and will run without a person.`,
+                  () => actionsPolicyApi.setActionThreshold(action.key, policy.dial.min),
                 )
               }
               className="px-2 py-1 text-xs font-medium text-white bg-blue-600 rounded hover:bg-blue-700"
@@ -270,6 +345,36 @@ export function OverridesPanel(): JSX.Element {
           className="bg-red-50 border border-red-200 rounded-md p-3 text-sm text-red-700 dark:bg-red-950 dark:text-red-300 dark:border-red-800"
         >
           {actionError}
+        </div>
+      )}
+
+      {pendingConfirm !== null && (
+        <div
+          role="alertdialog"
+          aria-label="Confirm lowering protection"
+          className="flex items-center justify-between gap-3 bg-amber-50 border border-amber-300 rounded-md p-3 text-sm text-amber-900 dark:bg-amber-950 dark:text-amber-200 dark:border-amber-800"
+        >
+          <span>{pendingConfirm.message}</span>
+          <div className="flex shrink-0 gap-2">
+            <button
+              type="button"
+              onClick={() => {
+                const { run } = pendingConfirm;
+                setPendingConfirm(null);
+                void mutate(run);
+              }}
+              className="px-3 py-1.5 text-xs font-medium text-white bg-red-600 rounded-md hover:bg-red-700"
+            >
+              Yes, continue
+            </button>
+            <button
+              type="button"
+              onClick={() => setPendingConfirm(null)}
+              className="px-3 py-1.5 text-xs font-medium text-gray-700 border border-gray-300 rounded-md hover:bg-gray-50 dark:text-gray-200 dark:border-gray-600 dark:hover:bg-gray-800"
+            >
+              Cancel
+            </button>
+          </div>
         </div>
       )}
 
@@ -349,9 +454,15 @@ export function OverridesPanel(): JSX.Element {
                       currentOverride={group.principalRow?.minAutonomy ?? null}
                       min={policy.dial.min}
                       max={policy.dial.max}
-                      onSet={(value) =>
-                        void mutate(() => actionsPolicyApi.setGroupThreshold(group.group, value))
-                      }
+                      onSet={(value) => {
+                        const lowered = destructiveLoweredByGroup(policy.actions, group.group, value);
+                        confirmOrRun(
+                          lowered.length > 0,
+                          `Setting ${group.group} to ${value} lowers protection on destructive ` +
+                            `action(s): ${lowered.map((a) => a.key).join(', ')}. Continue?`,
+                          () => actionsPolicyApi.setGroupThreshold(group.group, value),
+                        );
+                      }}
                       onClear={() =>
                         void mutate(() => actionsPolicyApi.deleteGroupOverride(group.group))
                       }
@@ -366,7 +477,28 @@ export function OverridesPanel(): JSX.Element {
 
       {/* Per-action rows */}
       <div>
-        <h3 className="text-sm font-semibold text-gray-900 mb-2 dark:text-gray-100">Actions</h3>
+        <div className="flex items-center justify-between mb-2">
+          <h3 className="text-sm font-semibold text-gray-900 dark:text-gray-100">Actions</h3>
+          <label className="flex items-center gap-2 text-xs text-gray-600 dark:text-gray-400">
+            Preview at level
+            <input
+              type="range"
+              aria-label="Preview level"
+              // Bounds from the /policy dial block, never literals.
+              min={policy.dial.min}
+              max={policy.dial.max}
+              value={viewLevel}
+              onChange={(e) => setPreviewLevel(Number(e.target.value))}
+            />
+            <span data-testid="preview-level" className="w-8 font-mono">{viewLevel}</span>
+            {previewLevel !== null && (
+              <button type="button" onClick={() => setPreviewLevel(null)} className="underline">
+                back to dial
+              </button>
+            )}
+            <span className="text-gray-400">(preview only — changes nothing)</span>
+          </label>
+        </div>
         <div className="overflow-x-auto border border-gray-200 rounded-md dark:border-gray-700">
           <table className="min-w-full text-sm">
             <thead className="bg-gray-50 dark:bg-gray-800">

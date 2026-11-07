@@ -1,6 +1,29 @@
 # Story 43-7: Action Catalog Admin UI
 
-Status: in-progress — reconciled 2026-11-06: a working admin Governance tab shipped (932f159a) in a different shape than this story (no /admin/actions route, primitives or three-state control). Re-scope against it before building more. See docs/sprint-status.yaml.
+Status: done — RE-SCOPED 2026-11-07 against the shipped admin Governance tab (932f159a)
+
+> ## Re-scope (2026-11-07) — read this before the original ACs below
+>
+> A working Governance tab shipped in the admin panel on 2026-08-21 (`pages/admin/governance/`:
+> DialPanel, OverridesPanel, AuthorizationsPanel; `actions-policy-api-client.ts`). It does the job
+> this story describes in a different shape. Rebuilding it as `/admin/actions` with new shared
+> primitives would be churn, so the story is re-scoped to the tab: keep what it does, add only what
+> was missing **for safety or honesty**.
+>
+> | Original AC | Decision |
+> |---|---|
+> | 1–2 route `/admin/actions` + sidebar entries | **Dropped.** The tab lives in the admin panel. |
+> | 3–5 RowToggle / GroupedTable / DimmedRow primitives | **Dropped.** Not needed by the tab; 44-6 may build them. |
+> | 6 API client pinned to DTOs | **Already met** (`actions-policy-api-client.ts` + its URL/method/body test matrix). |
+> | 7 load-on-mount, mutate-then-reload, preview never writes | **Met**: the panels already did load/mutate/reload; the preview is added here and never writes or refetches. |
+> | 8 dial header, provenance legend, pending authorizations | **Already met** (DialPanel, source badges, AuthorizationsPanel). |
+> | 9 three-state ThresholdControl | **Obsolete.** Story 43-15 made the per-action threshold a toggle (`dial.min` only); the tab's "Force on" is that toggle, using the server's minimum. |
+> | 10 "not enforced" badge | **Added** — rows whose `enforcementSites` is empty say "Not enforced". |
+> | 11 confirm before lowering a destructive action | **Added** — Force on, Stop enforcing, and a group threshold that would lower a destructive member all ask first, naming what they un-gate. |
+> | 12 tests | The named tests that still apply are in `OverridesPanel.test.tsx` (`zero_enforcement_sites_renders_not_enforced_badge`, `lowering_destructive_threshold_requires_confirm`, `level_preview_does_not_issue_a_write…`, plus cancel / no-confirm-needed / group-lowering cases). |
+>
+> A display-only **level preview** (slider bounded by the server's dial block) dims rows the previewed
+> level would automate, using the gate's own comparison over data already loaded.
 
 ## MANDATORY: Before You Code
 
