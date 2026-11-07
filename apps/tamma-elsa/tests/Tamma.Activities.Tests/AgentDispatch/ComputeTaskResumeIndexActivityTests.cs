@@ -127,11 +127,11 @@ public class ComputeTaskResumeIndexActivityTests
     // ── AC6: the switch ───────────────────────────────────────────────────
 
     [Test]
-    public void Shipped_default_is_switched_on_since_40_7()
+    public void Shipped_default_is_switched_off_until_reads_are_scoped_to_one_attempt()
     {
-        TaskReEntryRegistration.DisabledByDefault.Should().BeFalse(
-            "Story 40-7 proved crash re-entry end to end and flipped the default");
-        TaskReEntryRegistration.IsDisabled(Config()).Should().BeFalse();
+        TaskReEntryRegistration.DisabledByDefault.Should().BeTrue(
+            "re-entry reads AGENT_RUN events across every attempt at an issue (2026-11-07 audit)");
+        TaskReEntryRegistration.IsDisabled(Config()).Should().BeTrue();
     }
 
     [TestCase("true", true)]
