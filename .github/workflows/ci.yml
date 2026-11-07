@@ -263,6 +263,8 @@ jobs:
   # and every other project runs in one more slice. Target: each slice's tests
   # take under ~2 min, so a whole job (~2.5 min of setup + tests) stays under 5. When a slice grows
   # past that, raise API_SHARDS (and the matrix list) or regenerate the weights.
+  # Coverage collection (COVERAGE=1) adds ~25-40% to test time on these 2-core
+  # runners; 12 shards ran 5-5.3 min with it, hence 16.
   dotnet-tests-slice:
     name: .NET Tests (${{ matrix.slice }})
     runs-on: ubuntu-latest
@@ -273,9 +275,9 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8, api-9, api-10, api-11, api-12]
+        slice: [other, api-1, api-2, api-3, api-4, api-5, api-6, api-7, api-8, api-9, api-10, api-11, api-12, api-13, api-14, api-15, api-16]
     env:
-      API_SHARDS: 12
+      API_SHARDS: 16  # keep in sync with the matrix list above
     defaults:
       run:
         working-directory: apps/tamma-elsa
@@ -402,8 +404,8 @@ jobs:
         env:
           SLICES_RESULT: ${{ needs.dotnet-tests-slice.result }}
         run: |
-          expected=13  # one per dotnet-tests-slice matrix entry — keep in sync
-          got=$(find coverage-in -maxdepth 1 -type d -name 'coverage-*' | wc -l)
+          expected=17  # one per dotnet-tests-slice matrix entry (other + api-1..16) — keep in sync
+          got=$(find coverage-in -mindepth 1 -maxdepth 1 -type d -name 'coverage-*' | wc -l)
           {
             python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \
               --title 'C# coverage' --floor .github/coverage-floor.json
