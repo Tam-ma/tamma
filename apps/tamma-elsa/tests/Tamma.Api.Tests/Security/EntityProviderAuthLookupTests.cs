@@ -38,7 +38,14 @@ public class EntityProviderAuthLookupTests
         _cs = _postgres.GetConnectionString();
 
         var services = new ServiceCollection();
-        services.AddDbContext<ControlPlaneDbContext>(o => o.UseNpgsql(_cs));
+        // EnableServiceProviderCaching(false): EF Core caches its internal
+        // service provider process-wide by options shape, and an earlier
+        // WebApplicationFactory test (e.g. BillingWebhookRoutesTests) leaves a
+        // cached one whose Npgsql data source it disposed on shutdown. Reusing it
+        // here threw ObjectDisposedException('Npgsql.PoolingDataSource') — only
+        // when that class ran first, which CI sharding made happen. A private
+        // provider makes this fixture independent of test order.
+        services.AddDbContext<ControlPlaneDbContext>(o => o.UseNpgsql(_cs).EnableServiceProviderCaching(false));
         _sp = services.BuildServiceProvider();
 
         await using var ctx = NewContext();
