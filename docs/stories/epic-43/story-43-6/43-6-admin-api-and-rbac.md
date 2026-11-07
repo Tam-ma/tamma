@@ -1,6 +1,6 @@
 # Story 43-6: Admin API + RBAC for the Action Catalog
 
-Status: in-progress — reconciled 2026-11-06: most of this landed under 43-5/43-15; `actions:manage` in the Development-permissive array (AC3) and its test were not found. See docs/sprint-status.yaml.
+Status: in-progress — reconciled 2026-11-06 (corrected the same day): most of this landed under 43-5/43-15. AC3 is now met (ActionsManage was already in the Development-permissive array; DevelopmentPolicyParityTests pins it). Still missing: the PUT /policy/groups/{group}/enforce and GET /policy/actions/{ns}/{key} routes (AC1), and the AC-named tests RouteOrder_LiteralsBeatParameterized, UnknownWire_400/WrongCasing_400, SingleUser_KeysOnUserId/SaaS_KeysOnTenantId, Delete_FallsBackToNextTier and the Permissions.Matrix.Keys pin (AC4) — some behaviours may be covered under other names, not checked.
 
 ## MANDATORY: Before You Code
 
