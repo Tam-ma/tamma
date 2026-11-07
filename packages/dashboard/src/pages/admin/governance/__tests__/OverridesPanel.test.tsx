@@ -1,7 +1,7 @@
 // @vitest-environment jsdom
 import { render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { OverridesPanel } from '../OverridesPanel.js';
+import { OverridesPanel, destructiveLoweredByGroup } from '../OverridesPanel.js';
 import type {
   ActionPolicyResponse,
   PolicyAction,
@@ -223,5 +223,121 @@ describe('OverridesPanel', () => {
       'member role may not edit policy',
     );
     expect(screen.getByTestId('override-row-scw:pr.merge')).toBeInTheDocument();
+  });
+
+  // ── Story 43-7 (re-scoped): not-enforced badge, destructive confirm, level preview ──
+
+  describe('story 43-7', () => {
+    const destructive = (overrides?: Partial<PolicyAction>) =>
+      makePolicyAction({
+        key: 'deploy:prod',
+        group: 'deploy-control',
+        risk: 'destructive',
+        title: 'Deploy to production',
+        minAutonomy: 95,
+        ...overrides,
+      });
+
+    function withActions(...actions: PolicyAction[]) {
+      const policy = makePolicy();
+      policy.actions = actions;
+      policy.groups = [
+        { group: 'deploy-control', description: 'Deploys.', members: actions.length, principalRow: null, platformRow: null },
+      ];
+      mockGetPolicy.mockResolvedValue(policy);
+    }
+
+    it('zero_enforcement_sites_renders_not_enforced_badge', async () => {
+      withActions(destructive({ enforcementSites: [] }), makePolicyAction());
+      render(<OverridesPanel />);
+
+      expect(await screen.findByTestId('not-enforced-deploy:prod')).toBeInTheDocument();
+      expect(screen.queryByTestId('not-enforced-scw:pr.merge')).not.toBeInTheDocument();
+    });
+
+    it('lowering_destructive_threshold_requires_confirm (force on)', async () => {
+      withActions(destructive());
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Force deploy:prod on' }));
+      expect(mockSetActionThreshold).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('destructive');
+
+      await user.click(screen.getByRole('button', { name: 'Yes, continue' }));
+      await waitFor(() => expect(mockSetActionThreshold).toHaveBeenCalledWith('deploy:prod', 1));
+    });
+
+    it('cancelling the confirm writes nothing', async () => {
+      withActions(destructive());
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Stop enforcing deploy:prod' }));
+      await user.click(screen.getByRole('button', { name: 'Cancel' }));
+
+      expect(mockSetActionEnforce).not.toHaveBeenCalled();
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('a non-destructive change needs no confirm', async () => {
+      withActions(makePolicyAction());
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Force scw:pr.merge on' }));
+      await waitFor(() => expect(mockSetActionThreshold).toHaveBeenCalledWith('scw:pr.merge', 1));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('a group threshold that lowers a destructive member asks first, naming it', async () => {
+      withActions(destructive());
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      const input = await screen.findByLabelText('Threshold for deploy-control');
+      await user.clear(input);
+      await user.type(input, '50');
+      await user.click(screen.getByRole('button', { name: 'Set' }));
+
+      expect(mockSetGroupThreshold).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('deploy:prod');
+      await user.click(screen.getByRole('button', { name: 'Yes, continue' }));
+      await waitFor(() => expect(mockSetGroupThreshold).toHaveBeenCalledWith('deploy-control', 50));
+    });
+
+    it('destructiveLoweredByGroup ignores action overrides, higher values and other groups', () => {
+      const actions = [
+        destructive(),
+        destructive({ key: 'deploy:pinned', source: 'action-override' }),
+        destructive({ key: 'deploy:low', minAutonomy: 40 }),
+        destructive({ key: 'other:x', group: 'secrets' }),
+        makePolicyAction({ group: 'deploy-control' }),
+      ];
+      expect(destructiveLoweredByGroup(actions, 'deploy-control', 50).map((a) => a.key)).toEqual(['deploy:prod']);
+      expect(destructiveLoweredByGroup(actions, 'deploy-control', 99)).toEqual([]);
+    });
+
+    it('level_preview_does_not_issue_a_write and dims rows from data already held', async () => {
+      withActions(destructive(), makePolicyAction({ key: 'scw:low', minAutonomy: 60 }));
+      render(<OverridesPanel />);
+
+      const slider = await screen.findByLabelText('Preview level');
+      expect(slider).toHaveAttribute('min', '1');
+      expect(slider).toHaveAttribute('max', '100');
+      expect(screen.getByTestId('override-row-scw:low')).not.toHaveAttribute('data-automated-at-preview');
+
+      const { fireEvent } = await import('@testing-library/react');
+      fireEvent.change(slider, { target: { value: '80' } });
+
+      expect(screen.getByTestId('preview-level')).toHaveTextContent('80');
+      expect(screen.getByTestId('override-row-scw:low')).toHaveAttribute('data-automated-at-preview', 'true');
+      expect(screen.getByTestId('override-row-deploy:prod')).not.toHaveAttribute('data-automated-at-preview');
+      expect(mockGetPolicy).toHaveBeenCalledTimes(1);
+      expect(mockSetActionThreshold).not.toHaveBeenCalled();
+      expect(mockSetGroupThreshold).not.toHaveBeenCalled();
+      // The dimmed row's controls still work (the greyed-row contract).
+      expect(screen.getByRole('button', { name: 'Force scw:low on' })).toBeEnabled();
+    });
   });
 });
