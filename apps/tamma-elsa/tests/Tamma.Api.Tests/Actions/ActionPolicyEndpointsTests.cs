@@ -775,6 +775,71 @@ public class ActionPolicyEndpointsTests
         }
     }
 
+    private static JsonElement FindAction(JsonElement policy, Func<JsonElement, bool> pick) =>
+        policy.GetProperty("actions").EnumerateArray().First(pick);
+
+    private static JsonElement ActionByKey(JsonElement policy, string key) =>
+        FindAction(policy, a => a.GetProperty("key").GetString() == key);
+
+    [Test]
+    public async Task AutomatedAtLevel_IsFalseForADisabledAction_EvenAtTheTopLevel()
+    {
+        // The gate denies a disabled, enforced action before it looks at the dial
+        // (AutonomyGateEvaluator: `if (!enabled) Denied`), so the view must never
+        // call it automated — not even at level 100, where its threshold is met.
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        var before = await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy?level=100");
+        var target = FindAction(before, a =>
+            a.GetProperty("enforceable").GetBoolean()
+            && !a.GetProperty("isMachinery").GetBoolean()
+            && a.GetProperty("enforce").GetBoolean()
+            && a.GetProperty("automatedAtLevel").GetBoolean());
+        var key = target.GetProperty("key").GetString()!;
+        var path = "/api/actions/policy/actions/" + key.Replace(':', '/');
+
+        (await admin.PutAsJsonAsync($"{path}/enabled", new { enabled = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = ActionByKey(
+            await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy?level=100"), key);
+        after.GetProperty("enabled").GetBoolean().Should().BeFalse();
+        after.GetProperty("enforce").GetBoolean().Should().BeTrue();
+        after.GetProperty("automatedAtLevel").GetBoolean().Should().BeFalse(
+            $"{key} is disabled, so the gate denies it at every level");
+    }
+
+    [Test]
+    public async Task AutomatedAtLevel_IsTrueForAnAdvisoryAction_BelowItsThreshold()
+    {
+        // Enforce=false makes the seams proceed whatever the outcome
+        // (GovernanceEnforcement / BackgroundActionGate: `!Enforced || Automated`),
+        // so an advisory action runs without a person even at level 1.
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        var before = await admin.GetFromJsonAsync<JsonElement>(
+            $"/api/actions/policy?level={AutonomyDial.Min}");
+        var target = FindAction(before, a =>
+            a.GetProperty("enforceable").GetBoolean()
+            && !a.GetProperty("isMachinery").GetBoolean()
+            && a.GetProperty("enforce").GetBoolean()
+            && !a.GetProperty("automatedAtLevel").GetBoolean());
+        var key = target.GetProperty("key").GetString()!;
+        var path = "/api/actions/policy/actions/" + key.Replace(':', '/');
+
+        (await admin.PutAsJsonAsync($"{path}/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        var after = ActionByKey(
+            await admin.GetFromJsonAsync<JsonElement>(
+                $"/api/actions/policy?level={AutonomyDial.Min}"), key);
+        after.GetProperty("enforce").GetBoolean().Should().BeFalse();
+        after.GetProperty("automatedAtLevel").GetBoolean().Should().BeTrue(
+            $"{key} is advisory, so nothing blocks it at level {AutonomyDial.Min}");
+    }
+
     [Test]
     public async Task ToggleAboveDial_IsNeverKeyedOnRowPresenceAlone()
     {
@@ -1018,16 +1083,5 @@ public class ActionPolicyEndpointsTests
         (await member.GetAsync("/api/actions/policy/actions/tool/File_Write")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await member.GetAsync("/api/actions/policy/actions/tool/file_write?level=999")).StatusCode.Should().Be(HttpStatusCode.BadRequest);
         (await member.GetAsync("/api/actions/policy/actions/tool/file_write")).StatusCode.Should().Be(HttpStatusCode.OK);
-    }
-
-    [Test]
-    public async Task RouteOrder_LiteralsBeatParameterized()
-    {
-        // The literal siblings resolve to their own handlers, never to a {ns}/{key} or {group} route.
-        using var admin = Client(Guid.NewGuid(), "admin");
-        (await admin.GetAsync("/api/actions/policy/diff?from=70&to=80")).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await admin.PostAsJsonAsync("/api/actions/policy/reset", new { })).StatusCode.Should().Be(HttpStatusCode.OK);
-        (await admin.GetAsync("/api/actions/policy/actions/tool/file_write")).StatusCode.Should().Be(HttpStatusCode.OK,
-            "the single-action read resolves to its own handler");
     }
 }

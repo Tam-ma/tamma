@@ -19,11 +19,14 @@ Status: done — RE-SCOPED 2026-11-07 against the shipped admin Governance tab (
 > | 8 dial header, provenance legend, pending authorizations | **Already met** (DialPanel, source badges, AuthorizationsPanel). |
 > | 9 three-state ThresholdControl | **Obsolete.** Story 43-15 made the per-action threshold a toggle (`dial.min` only); the tab's "Force on" is that toggle, using the server's minimum. |
 > | 10 "not enforced" badge | **Added** — rows whose `enforcementSites` is empty say "Not enforced". |
-> | 11 confirm before lowering a destructive action | **Added** — Force on, Stop enforcing, and a group threshold that would lower a destructive member all ask first, naming what they un-gate. |
-> | 12 tests | The named tests that still apply are in `OverridesPanel.test.tsx` (`zero_enforcement_sites_renders_not_enforced_badge`, `lowering_destructive_threshold_requires_confirm`, `level_preview_does_not_issue_a_write…`, plus cancel / no-confirm-needed / group-lowering cases). |
+> | 11 confirm before lowering a destructive action | **Added** — every path that can lower protection on a destructive action asks first, naming what it un-gates: Force on, Stop enforcing, Enable (a disabled, enforced action is always denied, so enabling it un-gates it), a group threshold below a destructive member, Clear on a group row (when the row raised a destructive member above its shipped level, or disabled it), and Reset all (its confirm lists the destructive actions it un-gates). Enable, group Clear and Reset-all were added in the 2026-11-07 audit follow-up. Limit: the panel cannot see per-action platform ceilings, so Clear/Reset compare against the shipped level and can ask when a ceiling would in fact hold the level — they over-ask, never under-ask. |
+> | 12 tests | The named tests that still apply are in `OverridesPanel.test.tsx` (`zero_enforcement_sites_renders_not_enforced_badge`, `lowering_destructive_threshold_requires_confirm`, `level_preview_does_not_issue_a_write…`, plus cancel / no-confirm-needed / group-lowering / enable / group-clear / reset-all cases). |
 >
 > A display-only **level preview** (slider bounded by the server's dial block) dims rows the previewed
-> level would automate, using the gate's own comparison over data already loaded.
+> level would automate, over data already loaded. It uses the gate's rule, not just the level comparison:
+> an advisory row (`enforce=false`) is never blocked, a disabled enforced row is denied at every level,
+> otherwise the level must reach the effective minimum. The server's `automatedAtLevel` applies the same rule
+> (`ActionPolicyEndpoints.AutomatedAtLevel`). Role restrictions are not applied — they depend on the caller.
 
 ## MANDATORY: Before You Code
 

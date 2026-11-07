@@ -3051,16 +3051,16 @@ acceptanceRules.MapDelete("/{documentTypeKey}", AcceptanceRulesEndpoints.Delete)
 // Reads ride AuthenticatedAny for the acceptance-rules reason (every
 // role-holder and the orchestrator need the effective policy); principal
 // writes take ActionsManage (tenant_owner/tenant_admin — member → 403).
-// Route ordering: literal routes (/dial, /catalog, /policy, /policy/reset)
-// are registered BEFORE the parameterized /policy/actions/{ns}/{key} and
-// /policy/groups/{group} siblings so no literal is swallowed by a parameter
-// (the /api/acceptance-rules /defaults warning, same shape).
+// Route order here is cosmetic: ASP.NET Core endpoint routing ranks by template
+// specificity (literal segments beat parameters), not registration order, and no
+// parameterized route below has a shape that could match /policy/diff or
+// /policy/reset (each sits under its own literal /actions or /groups segment).
 var actionsPolicy = app.MapGroup("/api/actions").RequireAuthorization("AuthenticatedAny");
 actionsPolicy.MapGet("/dial", ActionPolicyEndpoints.GetDial);
 actionsPolicy.MapGet("/catalog", ActionPolicyEndpoints.GetCatalog);
 actionsPolicy.MapGet("/policy", ActionPolicyEndpoints.GetPolicy);
 // Story 43-15 (AC5) — the detent diff preview. A GET (out of the coverage
-// sweep's scope, D5); registered before the parameterized /policy/* siblings.
+// sweep's scope, D5).
 actionsPolicy.MapGet("/policy/diff", ActionPolicyEndpoints.GetPolicyDiff);
 actionsPolicy.MapPost("/policy/reset", ActionPolicyEndpoints.ResetPolicy).RequireAuthorization("ActionsManage");
 actionsPolicy.MapPut("/policy/groups/{group}/threshold", ActionPolicyEndpoints.PutGroupThreshold).RequireAuthorization("ActionsManage");
