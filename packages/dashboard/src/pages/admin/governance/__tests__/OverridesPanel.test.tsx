@@ -131,6 +131,31 @@ describe('OverridesPanel', () => {
     );
   });
 
+  it('renders a group row with no threshold as "no group threshold", without a Clear button', async () => {
+    // Story 43-6: PUT /policy/groups/{group}/enforce writes a group row whose
+    // minAutonomy is NULL. It must not render as 0, and Clear (which DELETEs the
+    // whole row, enforce included) is not offered for a threshold that is not set.
+    const policy = makePolicy();
+    policy.groups = [
+      {
+        group: 'deploy-control',
+        description: 'Deploys.',
+        members: 6,
+        principalRow: { minAutonomy: null, enforce: false, enabled: null, allowedRoles: null },
+        platformRow: null,
+      },
+    ];
+    mockGetPolicy.mockResolvedValue(policy);
+    render(<OverridesPanel />);
+
+    const cell = await screen.findByTestId('group-override-deploy-control');
+    expect(cell).toHaveTextContent('no group threshold');
+    expect(cell).toHaveTextContent('observe-only');
+    expect(cell).not.toHaveTextContent('0');
+    expect(screen.getByLabelText('Threshold for deploy-control')).toHaveValue(null);
+    expect(screen.getByTestId('group-row-deploy-control')).not.toHaveTextContent('Clear');
+  });
+
   it('sets a group threshold through PUT and reloads', async () => {
     setup();
     render(<OverridesPanel />);

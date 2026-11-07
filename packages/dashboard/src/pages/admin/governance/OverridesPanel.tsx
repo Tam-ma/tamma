@@ -445,8 +445,20 @@ export function OverridesPanel(): JSX.Element {
                     <div className="text-xs text-gray-500 dark:text-gray-400">{group.description}</div>
                   </td>
                   <td className="px-4 py-2 text-gray-700 dark:text-gray-300">{group.members}</td>
-                  <td className="px-4 py-2 text-gray-700 dark:text-gray-300">
-                    {group.principalRow?.minAutonomy ?? '—'}
+                  <td
+                    className="px-4 py-2 text-gray-700 dark:text-gray-300"
+                    data-testid={`group-override-${group.group}`}
+                  >
+                    {/* Story 43-6: a group row may hold only an enforce opinion
+                        (MinAutonomy NULL) — say so rather than render 0/blank. */}
+                    {group.principalRow === null
+                      ? '—'
+                      : group.principalRow.minAutonomy !== null
+                        ? group.principalRow.minAutonomy
+                        : 'no group threshold'}
+                    {group.principalRow?.enforce === false && (
+                      <div className="text-xs text-gray-500 dark:text-gray-400">observe-only</div>
+                    )}
                   </td>
                   <td className="px-4 py-2">
                     <GroupThresholdEditor

@@ -1109,15 +1109,92 @@ public class ActionPolicyEndpointsTests
         }
     }
 
+    private static Dictionary<string, int> EffectiveThresholds(JsonElement policy, string group) =>
+        policy.GetProperty("actions").EnumerateArray()
+            .Where(a => a.GetProperty("group").GetString() == group)
+            .ToDictionary(
+                a => a.GetProperty("key").GetString()!,
+                a => a.GetProperty("minAutonomy").GetInt32());
+
     [Test]
-    public async Task GroupEnforce_FirstWrite_MaterializesWithoutMovingTheEffectiveThreshold_AndTheEvaluatorHonoursIt()
+    public async Task GroupEnforce_FirstWrite_OnAMixedLevelGroup_WritesANullThresholdRow_AndMovesNoMember()
+    {
+        // deploy-control's members ship at different levels (70..95), so no single
+        // group threshold could preserve them — the row carries NONE instead.
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        var before = EffectiveThresholds(
+            await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "deploy-control");
+        before.Values.Distinct().Should().HaveCountGreaterThan(1, "the premise: a mixed-level group");
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var db = Db())
+        {
+            var row = db.ActionAssignments.Single();
+            row.TargetKind.Should().Be("group");
+            row.TargetKey.Should().Be("deploy-control");
+            row.MinAutonomy.Should().BeNull("an enforce-only write never invents a threshold");
+            row.Enforce.Should().BeFalse();
+        }
+
+        var policy = await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy");
+        EffectiveThresholds(policy, "deploy-control").Should().Equal(before,
+            "a threshold-less group row leaves every member on its own ladder");
+        foreach (var a in policy.GetProperty("actions").EnumerateArray()
+                     .Where(a => a.GetProperty("group").GetString() == "deploy-control"))
+        {
+            a.GetProperty("source").GetString().Should().NotBe("group-override");
+            a.GetProperty("enforce").GetBoolean().Should().BeFalse(
+                $"{a.GetProperty("key").GetString()} has no action row, so the group's enforce reaches it");
+        }
+
+        var groupView = policy.GetProperty("groups").EnumerateArray()
+            .Single(g => g.GetProperty("group").GetString() == "deploy-control");
+        var principalRow = groupView.GetProperty("principalRow");
+        principalRow.GetProperty("minAutonomy").ValueKind.Should().Be(JsonValueKind.Null);
+        principalRow.GetProperty("enforce").GetBoolean().Should().BeFalse();
+
+        // GET /policy/diff resolves through the same ladder and must not trip on the NULL.
+        (await admin.GetAsync("/api/actions/policy/diff?from=70&to=90")).StatusCode
+            .Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task GroupThreshold_OnANullThresholdRow_SetsTheThreshold_AndKeepsEnforce()
+    {
+        var user = Guid.NewGuid();
+        using var admin = Client(user, "admin");
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/deploy-control/threshold", new { minAutonomy = 95 }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using (var db = Db())
+        {
+            var row = db.ActionAssignments.Single();
+            row.MinAutonomy.Should().Be(95);
+            row.Enforce.Should().BeFalse("a threshold write is single-field");
+        }
+
+        var policy = await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy");
+        EffectiveThresholds(policy, "deploy-control").Values.Should().OnlyContain(v => v == 95);
+    }
+
+    [Test]
+    public async Task GroupEnforce_FirstWrite_OnASingleMemberGroup_AlsoLeavesTheThresholdNull_AndTheEvaluatorHonoursIt()
     {
         var user = Guid.NewGuid();
         using var admin = Client(user, "admin");
 
         var before = PolicyRow(
             await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "tool:file_write");
-        var effectiveBefore = before.GetProperty("minAutonomy").GetInt32();
         before.GetProperty("enforce").GetBoolean().Should().BeTrue("v1 default with no rows (epic D1)");
 
         (await admin.PutAsJsonAsync(
@@ -1126,19 +1203,13 @@ public class ActionPolicyEndpointsTests
 
         await using (var db = Db())
         {
-            var row = db.ActionAssignments.Single();
-            row.TargetKind.Should().Be("group");
-            row.MinAutonomy.Should().Be(effectiveBefore,
-                "code-write's only dial member is tool:file_write, so the materialized group "
-                + "threshold is its current effective value — nothing is re-levelled");
-            row.Enforce.Should().BeFalse();
+            db.ActionAssignments.Single().MinAutonomy.Should().BeNull();
         }
 
-        // The evaluator (GET /policy's `enforce` is decision.Enforced) now reports the
-        // group value for a member with NO action row.
         var after = PolicyRow(
             await admin.GetFromJsonAsync<JsonElement>("/api/actions/policy"), "tool:file_write");
-        after.GetProperty("minAutonomy").GetInt32().Should().Be(effectiveBefore);
+        after.GetProperty("minAutonomy").GetInt32().Should().Be(before.GetProperty("minAutonomy").GetInt32());
+        after.GetProperty("source").GetString().Should().Be(before.GetProperty("source").GetString());
         after.GetProperty("enforce").GetBoolean().Should().BeFalse();
 
         (await admin.PutAsJsonAsync(
@@ -1149,31 +1220,25 @@ public class ActionPolicyEndpointsTests
     }
 
     [Test]
-    public async Task GroupEnforce_FirstWrite_OnAGroupWhoseMembersSitAtDifferentLevels_Is409_AndWritesNothing()
+    public async Task DeleteGroup_And_Reset_RemoveANullThresholdRow()
     {
-        // deploy-control's members ship at 70..95: any one group threshold would
-        // re-level some of them, so a first enforce write is refused instead.
         var user = Guid.NewGuid();
         using var admin = Client(user, "admin");
 
-        var put = await admin.PutAsJsonAsync(
-            "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false });
-        put.StatusCode.Should().Be(HttpStatusCode.Conflict);
-        (await put.Content.ReadFromJsonAsync<JsonElement>())
-            .GetProperty("code").GetString().Should().Be("ACTION_POLICY.GROUP_THRESHOLD_REQUIRED");
-
-        await using (var db = Db())
-        {
-            db.ActionAssignments.Count().Should().Be(0);
-        }
-
-        // With a group threshold in place the enforce write goes through.
-        (await admin.PutAsJsonAsync(
-                "/api/actions/policy/groups/deploy-control/threshold", new { minAutonomy = 95 }))
-            .StatusCode.Should().Be(HttpStatusCode.OK);
         (await admin.PutAsJsonAsync(
                 "/api/actions/policy/groups/deploy-control/enforce", new { enforce = false }))
             .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.DeleteAsync("/api/actions/policy/groups/deploy-control"))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        (await admin.PutAsJsonAsync(
+                "/api/actions/policy/groups/code-write/enforce", new { enforce = false }))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+        (await admin.PostAsync("/api/actions/policy/reset", null))
+            .StatusCode.Should().Be(HttpStatusCode.OK);
+
+        await using var db = Db();
+        db.ActionAssignments.Count().Should().Be(0);
     }
 
     [Test]

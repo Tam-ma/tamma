@@ -21,12 +21,12 @@ Status: done (2026-11-07)
 > member still denies a non-human caller (pinned in `GroupEnforceMemberTests`), and that row is
 > removable through the ungoverned `DELETE /policy/actions/effect/governance.policy.group-enforce.set`.
 >
-> A group row must carry a threshold (`ck_action_assignments_mode_row`). An existing group row's
-> threshold is never touched (fresh read, null threshold — the F4 pattern). A first write on a group
-> with no row materializes a threshold chosen so that no member's effective threshold changes
-> (`ActionPolicyEndpoints.PreservingGroupThreshold`); when the members sit at different levels no
-> such value exists, and the write answers `409 ACTION_POLICY.GROUP_THRESHOLD_REQUIRED` (set the
-> group threshold first) instead of re-levelling the group.
+> A group row no longer has to carry a threshold: migration `RelaxGroupRowThreshold` (2026-11-07)
+> changes `ck_action_assignments_mode_row` to "mode rows NULL, action rows NOT NULL, group rows
+> either". A first enforce write on a group with no row stores `MinAutonomy = NULL` and the enforce
+> flag, so no member's effective threshold moves (the evaluator already treats a group threshold as
+> optional). An existing group row's threshold is never touched, and a later `PUT …/threshold`
+> sets it while keeping `enforce`. The dashboard shows such a row as "no group threshold".
 
 ## MANDATORY: Before You Code
 

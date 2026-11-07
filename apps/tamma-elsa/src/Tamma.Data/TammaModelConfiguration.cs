@@ -1317,10 +1317,14 @@ internal static class TammaModelConfiguration
                 t.HasCheckConstraint(
                     "ck_action_assignments_target_kind",
                     "\"TargetKind\" IN ('action','group','mode')");
-                // Mode rows carry no threshold; action/group rows always do.
+                // Mode rows carry no threshold; action rows always do; group
+                // rows MAY omit it (Story 43-6, 2026-11-07: a group row can hold
+                // only an enforce/enabled/roles opinion — the evaluator already
+                // treats a group threshold as optional and falls through to each
+                // member's shipped level).
                 t.HasCheckConstraint(
                     "ck_action_assignments_mode_row",
-                    "(\"TargetKind\" = 'mode') = (\"MinAutonomy\" IS NULL)");
+                    "(\"TargetKind\" = 'mode' AND \"MinAutonomy\" IS NULL) OR (\"TargetKind\" = 'action' AND \"MinAutonomy\" IS NOT NULL) OR \"TargetKind\" = 'group'");
                 // NO CHECK on the MinAutonomy VALUE — deliberate (AC3/D5): a
                 // numeric CHECK frozen into a migration snapshot would be a
                 // second permanent hardcoding of the AutonomyDial bound.
