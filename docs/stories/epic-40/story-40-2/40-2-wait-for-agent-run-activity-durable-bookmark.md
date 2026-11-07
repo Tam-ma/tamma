@@ -1,6 +1,6 @@
 # Story 40-2: `WaitForAgentRunActivity` — Durable Bookmark Suspend + `DelayFor` Timeout
 
-Status: review
+Status: done — 2026-11-06, merged with 40-3 in PR #525.
 
 ## MANDATORY: Before You Code
 

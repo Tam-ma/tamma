@@ -1,6 +1,6 @@
 # Story 40-3: Durable Agent-Run Signal Plane + Resume Endpoint (cross-pod, restart-safe)
 
-Status: review
+Status: done — 2026-11-06, PR #525. AC4 (hosted reconciler) split out to 40-3b.
 
 ## MANDATORY: Before You Code
 

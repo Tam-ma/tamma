@@ -1,6 +1,6 @@
 # Story 40-1: The `tamma-agent.yml` Runner Contract & Repo Scaffolding (+ single-user CLI parity)
 
-Status: review — AC1-AC6, AC8, AC9, AC10 delivered 2026-08-18; AC7's server-side
+Status: done — 2026-11-06. AC7 (server-side scaffold) merged in PR #519; everything else shipped 2026-08-18.
 half delivered 2026-11-06 (see [AC7 delivery record](#ac7-delivery-record-2026-11-06)).
 
 ## MANDATORY: Before You Code
