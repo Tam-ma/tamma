@@ -277,9 +277,11 @@ public class WaitForAgentRunActivityTests
     // ── Early completion: the signal must not be lost ─────────────────────
 
     [Test]
-    public async Task EarlySignal_BufferedBeforeExecute_CompletesWithoutSuspending()
+    public async Task EarlySignal_BufferedDuringDispatch_CompletesWithoutSuspending()
     {
-        _buffer.Record(ExpectedBookmark, Completion(201, "success"));
+        // The run finished and its completion was buffered while the dispatch call was still
+        // returning — the only window a real early completion can land in before Reconcile 1.
+        BufferDuringDispatch(Completion(201, "success"));
         await using var sp = BuildProvider("github_actions");
 
         var (result, _) = await RunAsync(sp);
@@ -287,6 +289,58 @@ public class WaitForAgentRunActivityTests
         Terminal(result).Should().Be("Received");
         Output(result, "success").Should().Be("True");
         result.WorkflowState.Bookmarks.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task StaleCompletion_BufferedBeforeThisDispatch_DoesNotCompleteTheReDispatch()
+    {
+        // Session ids are fixed per issue + task, so the previous dispatch of this task waits on
+        // the same bookmark name. Its completion was buffered (bookmark already gone) before
+        // this dispatch began; it must not be taken as this run's result.
+        _buffer.Record(ExpectedBookmark, Completion(101, "success"));
+        await using var sp = BuildProvider("github_actions");
+
+        var (result, wf) = await RunAsync(sp);
+
+        result.WorkflowState.SubStatus.Should().Be(WorkflowSubStatus.Suspended);
+        result.WorkflowState.Bookmarks.Should().Contain(b => b.Name == ExpectedBookmark);
+        _collector.Verify(c => c.CollectAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<AgentMonitorResult>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+
+        // …nor on the post-commit reconcile.
+        var afterTick = await ResumeAsync(sp, wf, result.WorkflowState, CallbackOf(result, "OnReconcileAsync")!.Id,
+            new Dictionary<string, object>());
+        afterTick.WorkflowState.SubStatus.Should().Be(WorkflowSubStatus.Suspended);
+        _collector.Verify(c => c.CollectAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<AgentMonitorResult>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task LateCompletion_OfARunCreatedBeforeThisDispatch_DoesNotCompleteTheReDispatch()
+    {
+        // The previous run's completion reaches the buffer after this dispatch began, but the
+        // run itself was created well before it.
+        BufferDuringDispatch(Completion(101, "success", runCreatedAt: DateTime.UtcNow.AddMinutes(-10)));
+        await using var sp = BuildProvider("github_actions");
+
+        var (result, _) = await RunAsync(sp);
+
+        result.WorkflowState.SubStatus.Should().Be(WorkflowSubStatus.Suspended);
+        _collector.Verify(c => c.CollectAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<AgentMonitorResult>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    [Test]
+    public async Task EarlyCompletion_OfARunCreatedAfterThisDispatch_Completes()
+    {
+        BufferDuringDispatch(Completion(201, "success", runCreatedAt: DateTime.UtcNow.AddSeconds(5)));
+        await using var sp = BuildProvider("github_actions");
+
+        var (result, _) = await RunAsync(sp);
+
+        Terminal(result).Should().Be("Received");
+        _collector.Verify(c => c.CollectAsync(It.IsAny<AgentExecutionRequest>(),
+            It.Is<AgentMonitorResult>(m => m.WorkflowRunId == 201), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -445,7 +499,7 @@ public class WaitForAgentRunActivityTests
     [Test]
     public async Task EarlySignal_EmitsReceived_WithoutASuspend()
     {
-        _buffer.Record(ExpectedBookmark, Completion(201, "success"));
+        BufferDuringDispatch(Completion(201, "success"));
         await using var sp = BuildProvider("github_actions");
 
         await RunAsync(sp);
@@ -505,9 +559,15 @@ public class WaitForAgentRunActivityTests
                 100, 60, null, "ok", r.AgentProvider, "1.0", ExecutionModeNames.GitHubActions)
             : AgentExecutionResult.Failed($"agent concluded {m.Conclusion}", r.AgentProvider, ExecutionModeNames.GitHubActions);
 
-    private static Dictionary<string, object> Completion(long runId, string conclusion)
+    private static Dictionary<string, object> Completion(long runId, string conclusion, DateTime? runCreatedAt = null)
         => AgentRunCompletionSignal.ToInput(new AgentMonitorResult(runId, "completed", conclusion,
-            $"https://gh.test/run/{runId}", 60, $"https://gh.test/run/{runId}/artifacts"));
+            $"https://gh.test/run/{runId}", 60, $"https://gh.test/run/{runId}/artifacts"), runCreatedAt: runCreatedAt);
+
+    /// <summary>The resume endpoint buffers <paramref name="input"/> while the dispatch call is in flight.</summary>
+    private void BufferDuringDispatch(Dictionary<string, object> input)
+        => _dispatch.Setup(d => d.DispatchAsync(It.IsAny<AgentExecutionRequest>(), It.IsAny<CancellationToken>()))
+            .Callback(() => _buffer.Record(ExpectedBookmark, input))
+            .ReturnsAsync(new AgentDispatchResult(true, null, null, DateTime.UtcNow));
 
     private static Elsa.Workflows.Models.Bookmark? CallbackOf(RunWorkflowResult result, string callback)
         => result.WorkflowState.Bookmarks.SingleOrDefault(b => b.CallbackMethodName == callback);

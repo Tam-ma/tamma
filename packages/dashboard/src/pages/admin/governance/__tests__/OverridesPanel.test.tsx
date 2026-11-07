@@ -1,7 +1,13 @@
 // @vitest-environment jsdom
-import { render, screen, waitFor } from '@testing-library/react';
+import { fireEvent, render, screen, waitFor } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
-import { OverridesPanel, destructiveLoweredByGroup } from '../OverridesPanel.js';
+import {
+  OverridesPanel,
+  automatedAt,
+  destructiveLoweredByGroup,
+  destructiveLoweredByGroupClear,
+  destructiveLoweredByReset,
+} from '../OverridesPanel.js';
 import type {
   ActionPolicyResponse,
   PolicyAction,
@@ -264,10 +270,17 @@ describe('OverridesPanel', () => {
       });
 
     function withActions(...actions: PolicyAction[]) {
+      withGroupRow(null, ...actions);
+    }
+
+    function withGroupRow(
+      principalRow: ActionPolicyResponse['groups'][number]['principalRow'],
+      ...actions: PolicyAction[]
+    ) {
       const policy = makePolicy();
       policy.actions = actions;
       policy.groups = [
-        { group: 'deploy-control', description: 'Deploys.', members: actions.length, principalRow: null, platformRow: null },
+        { group: 'deploy-control', description: 'Deploys.', members: actions.length, principalRow, platformRow: null },
       ];
       mockGetPolicy.mockResolvedValue(policy);
     }
@@ -352,7 +365,6 @@ describe('OverridesPanel', () => {
       expect(slider).toHaveAttribute('max', '100');
       expect(screen.getByTestId('override-row-scw:low')).not.toHaveAttribute('data-automated-at-preview');
 
-      const { fireEvent } = await import('@testing-library/react');
       fireEvent.change(slider, { target: { value: '80' } });
 
       expect(screen.getByTestId('preview-level')).toHaveTextContent('80');
@@ -363,6 +375,124 @@ describe('OverridesPanel', () => {
       expect(mockSetGroupThreshold).not.toHaveBeenCalled();
       // The dimmed row's controls still work (the greyed-row contract).
       expect(screen.getByRole('button', { name: 'Force scw:low on' })).toBeEnabled();
+    });
+
+    // ── AC11 follow-up: enable, group clear and reset-all also lower protection ──
+
+    it('enabling a disabled destructive action asks first, naming it', async () => {
+      withActions(destructive({ enabled: false }));
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Enable deploy:prod' }));
+      expect(mockSetActionEnabled).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('deploy:prod');
+
+      await user.click(screen.getByRole('button', { name: 'Yes, continue' }));
+      await waitFor(() => expect(mockSetActionEnabled).toHaveBeenCalledWith('deploy:prod', true));
+    });
+
+    it('disabling a destructive action, or enabling an advisory one, needs no confirm', async () => {
+      withActions(destructive(), destructive({ key: 'deploy:advisory', enabled: false, enforce: false }));
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Disable deploy:prod' }));
+      await waitFor(() => expect(mockSetActionEnabled).toHaveBeenCalledWith('deploy:prod', false));
+      await user.click(screen.getByRole('button', { name: 'Enable deploy:advisory' }));
+      await waitFor(() => expect(mockSetActionEnabled).toHaveBeenCalledWith('deploy:advisory', true));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('clearing a group row above a destructive member asks first, naming it', async () => {
+      withGroupRow(
+        { minAutonomy: 98, enforce: null, enabled: null, allowedRoles: null },
+        destructive({ source: 'group-override', minAutonomy: 98, shippedLevel: 95 }),
+      );
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Clear' }));
+      expect(mockDeleteGroupOverride).not.toHaveBeenCalled();
+      expect(screen.getByRole('alertdialog')).toHaveTextContent('deploy:prod');
+
+      await user.click(screen.getByRole('button', { name: 'Yes, continue' }));
+      await waitFor(() => expect(mockDeleteGroupOverride).toHaveBeenCalledWith('deploy-control'));
+    });
+
+    it('clearing a group row that only lowers non-destructive members needs no confirm', async () => {
+      withGroupRow(
+        { minAutonomy: 40, enforce: null, enabled: null, allowedRoles: null },
+        // The group row sits BELOW the destructive member's shipped level, so removing it raises it.
+        destructive({ source: 'system-default', minAutonomy: 95, shippedLevel: 95 }),
+      );
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByRole('button', { name: 'Clear' }));
+      await waitFor(() => expect(mockDeleteGroupOverride).toHaveBeenCalledWith('deploy-control'));
+      expect(screen.queryByRole('alertdialog')).not.toBeInTheDocument();
+    });
+
+    it('destructiveLoweredByGroupClear covers raised thresholds and group-row disables only', () => {
+      const actions = [
+        destructive({ source: 'group-override', minAutonomy: 98, shippedLevel: 95 }),
+        destructive({ key: 'deploy:same', source: 'group-override', minAutonomy: 95, shippedLevel: 95 }),
+        destructive({ key: 'deploy:pinned', source: 'action-override', minAutonomy: 99, shippedLevel: 95 }),
+        destructive({ key: 'deploy:off', enabled: false }),
+        destructive({ key: 'other:x', group: 'secrets', source: 'group-override', minAutonomy: 98 }),
+        makePolicyAction({ group: 'deploy-control', source: 'group-override', minAutonomy: 98 }),
+      ];
+      expect(destructiveLoweredByGroupClear(actions, 'deploy-control', false).map((a) => a.key)).toEqual([
+        'deploy:prod',
+      ]);
+      expect(destructiveLoweredByGroupClear(actions, 'deploy-control', true).map((a) => a.key)).toEqual([
+        'deploy:prod',
+        'deploy:off',
+      ]);
+    });
+
+    it('reset-all names the destructive actions it un-gates', async () => {
+      withActions(
+        destructive({ source: 'action-override', minAutonomy: 99, shippedLevel: 95 }),
+        destructive({ key: 'deploy:off', enabled: false }),
+        destructive({ key: 'deploy:forced', source: 'action-override', minAutonomy: 1, shippedLevel: 95 }),
+      );
+      const user = userEvent.setup();
+      render(<OverridesPanel />);
+
+      await user.click(await screen.findByText('Reset all overrides'));
+      const confirm = screen.getByTestId('reset-confirm');
+      expect(confirm).toHaveTextContent('lowers protection on destructive action(s): deploy:prod, deploy:off.');
+      expect(confirm).not.toHaveTextContent('deploy:forced');
+      expect(mockResetPolicy).not.toHaveBeenCalled();
+    });
+
+    it('reset-all with nothing destructive to un-gate keeps the plain confirm', async () => {
+      setup();
+      render(<OverridesPanel />);
+
+      await userEvent.click(await screen.findByText('Reset all overrides'));
+      expect(screen.getByTestId('reset-confirm')).toHaveTextContent(/^Remove every stored override\?$/);
+      expect(destructiveLoweredByReset(makePolicy().actions)).toEqual([]);
+    });
+
+    // ── Preview must match the gate: disabled denies, advisory never blocks ──
+
+    it('automatedAt: disabled is never automated, advisory always is', () => {
+      expect(automatedAt(makePolicyAction({ minAutonomy: 60 }), 80)).toBe(true);
+      expect(automatedAt(makePolicyAction({ minAutonomy: 60 }), 50)).toBe(false);
+      expect(automatedAt(makePolicyAction({ minAutonomy: 60, enabled: false }), 100)).toBe(false);
+      expect(automatedAt(makePolicyAction({ minAutonomy: 101, enforce: false }), 1)).toBe(true);
+    });
+
+    it('the preview does not dim a disabled action whose level is reached', async () => {
+      withActions(makePolicyAction({ key: 'scw:off', minAutonomy: 60, enabled: false }));
+      render(<OverridesPanel />);
+
+      fireEvent.change(await screen.findByLabelText('Preview level'), { target: { value: '80' } });
+      expect(screen.getByTestId('preview-level')).toHaveTextContent('80');
+      expect(screen.getByTestId('override-row-scw:off')).not.toHaveAttribute('data-automated-at-preview');
     });
   });
 });

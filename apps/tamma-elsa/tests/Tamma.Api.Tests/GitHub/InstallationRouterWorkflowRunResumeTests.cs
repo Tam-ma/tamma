@@ -32,6 +32,8 @@ public class InstallationRouterWorkflowRunResumeTests
             "html_url": "https://github.com/acme/widgets/actions/runs/77777777",
             "artifacts_url": "https://api.github.com/repos/acme/widgets/actions/runs/77777777/artifacts",
             "head_branch": "tamma/issue-42",
+            "path": ".github/workflows/tamma-agent.yml",
+            "event": "workflow_dispatch",
             "created_at": "2026-04-18T10:00:00Z",
             "updated_at": "2026-04-18T10:05:00Z"
           },
@@ -74,6 +76,22 @@ public class InstallationRouterWorkflowRunResumeTests
         _seen.Conclusion.Should().Be("success");
         _seen.ArtifactsUrl.Should().EndWith("/artifacts");
         (_seen.UpdatedAt - _seen.CreatedAt).Should().Be(TimeSpan.FromMinutes(5));
+        _seen.WorkflowPath.Should().Be(".github/workflows/tamma-agent.yml");
+        _seen.Event.Should().Be("workflow_dispatch");
+    }
+
+    [Test]
+    public async Task A_payload_without_path_or_event_forwards_empty_strings_so_the_resumer_fails_closed()
+    {
+        var payload = Payload
+            .Replace("\"path\": \".github/workflows/tamma-agent.yml\",", "")
+            .Replace("\"event\": \"workflow_dispatch\",", "");
+
+        await Router().HandleWebhookAsync("workflow_run", JsonDocument.Parse(payload).RootElement);
+
+        _seen.Should().NotBeNull();
+        _seen!.WorkflowPath.Should().BeEmpty("null would mean 'already identified' (the reconciler's poll)");
+        _seen.Event.Should().BeEmpty();
     }
 
     [TestCase(AgentRunResumeOutcome.NoMatch, true)]

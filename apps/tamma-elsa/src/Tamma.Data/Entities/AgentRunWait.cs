@@ -56,6 +56,14 @@ public class AgentRunWait
     /// </summary>
     public Guid? BookmarkTenantId { get; set; }
 
+    /// <summary>
+    /// The workflow file the run was dispatched with (the runner file by default). The
+    /// webhook only resumes this wait for a <c>workflow_run</c> of this file, so the repo's
+    /// own CI finishing on the agent's branch is never taken as the agent's result. NULL on
+    /// rows written before the column existed ⇒ the default runner file.
+    /// </summary>
+    public string? WorkflowFile { get; set; }
+
     /// <summary>One of <see cref="AgentRunWaitStatus"/>.</summary>
     public string Status { get; set; } = AgentRunWaitStatus.Pending;
 

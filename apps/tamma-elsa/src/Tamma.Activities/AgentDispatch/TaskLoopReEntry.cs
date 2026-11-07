@@ -38,11 +38,14 @@ public static class TaskReEntryRegistration
     public const string ConfigKey = "Coding:TaskReEntryDisabled";
 
     /// <summary>
-    /// The shipped default: re-entry ON. Story 40-4 shipped this as <c>true</c> (off); Story 40-7
-    /// flipped it once <c>SingleIssueCycleCrashReEntryTests</c> proved crash re-entry end to end.
-    /// Set the key to <c>true</c> to switch it off (operator kill-switch).
+    /// The shipped default: re-entry OFF. Story 40-4 shipped it off; Story 40-7 turned it on; the
+    /// 2026-11-07 audit turned it back off: <c>TaskLoopReEntryService.ReadRunsAsync</c> reads
+    /// <c>AGENT_RUN.*</c> events by issue/repo/branch only, so a re-run of an issue (fixed branch
+    /// <c>tamma/issue-N</c>) inherits an EARLIER attempt's task results and can fail with
+    /// <c>CODE.REENTRY.INCONSISTENT_STATE</c> before dispatching anything. Turn it back on only
+    /// once those reads are scoped to the crashed attempt. Set the key to <c>false</c> to opt in.
     /// </summary>
-    public const bool DisabledByDefault = false;
+    public const bool DisabledByDefault = true;
 
     public static bool IsDisabled(IConfiguration configuration)
         => configuration.GetValue(ConfigKey, DisabledByDefault);

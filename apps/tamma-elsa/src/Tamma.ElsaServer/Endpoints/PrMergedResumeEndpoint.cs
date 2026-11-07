@@ -106,16 +106,37 @@ public static class PrMergedResumeEndpoint
             // suspending. A late/duplicate delivery for an already-resumed wait
             // is still harmless — the buffered entry expires unconsumed.
             pendingMerges.Record(qualified, request.MergeSha);
-            logger.LogInformation(
-                "No suspended pr-merged bookmark {Bookmark} — buffered for reconcile-on-register " +
-                "(wait not yet registered, already resumed, timed out, or not this tenant/repo)",
-                qualified);
-            return Results.Accepted(value: new
+
+            // The miss above and the Record are not atomic with
+            // ReconcileBufferedPrMergeHandler: the wait's bookmark can be persisted
+            // in between, and the handler then finds an EMPTY buffer — the entry
+            // would never be read. Re-check after Record. The buffer's TryConsume
+            // removes the entry atomically, so exactly one of this endpoint and the
+            // handler wins it and resumes; the loser does nothing.
+            var recheck = (await bookmarkStore
+                .FindManyAsync(new BookmarkFilter { Name = qualified }, ct)
+                .ConfigureAwait(false)).ToList();
+            if (recheck.Count == 1 && pendingMerges.TryConsume(qualified, out _))
             {
-                buffered = true,
-                bookmark = qualified,
-                detail = "No PR-merged wait is suspended yet; the notification is buffered for the wait's registration.",
-            });
+                logger.LogInformation(
+                    "pr-merged bookmark {Bookmark} was persisted while the notification was being buffered — " +
+                    "consumed the buffered entry and resuming here", qualified);
+                bookmarks = recheck;
+                matchedName = qualified;
+            }
+            else
+            {
+                logger.LogInformation(
+                    "No suspended pr-merged bookmark {Bookmark} — buffered for reconcile-on-register " +
+                    "(wait not yet registered, already resumed, timed out, or not this tenant/repo)",
+                    qualified);
+                return Results.Accepted(value: new
+                {
+                    buffered = true,
+                    bookmark = qualified,
+                    detail = "No PR-merged wait is suspended yet; the notification is buffered for the wait's registration.",
+                });
+            }
         }
 
         if (bookmarks.Count > 1)

@@ -49,20 +49,50 @@ public static class AgentRunCompletionSignal
     public const string WakePath = "WakePath";
 
     /// <summary>
+    /// Optional. The GitHub run's <c>created_at</c> (ISO 8601, UTC). Lets a buffered completion
+    /// be matched to the dispatch it belongs to (<see cref="PendingAgentRunCompletionBuffer"/>).
+    /// </summary>
+    public const string RunCreatedAt = "RunCreatedAt";
+
+    /// <summary>
     /// Build a resume input from a monitor result — the shape the 40-3 resume side sends.
     /// </summary>
     public static Dictionary<string, object> ToInput(
-        AgentMonitorResult result, string wakePath = AgentRunWaitEventTypes.WakePaths.Webhook) => new()
+        AgentMonitorResult result, string wakePath = AgentRunWaitEventTypes.WakePaths.Webhook,
+        DateTime? runCreatedAt = null)
     {
-        [WakePath] = wakePath,
-        [Completed] = true,
-        [WorkflowRunId] = result.WorkflowRunId,
-        [Status] = result.Status,
-        [Conclusion] = result.Conclusion,
-        [WorkflowRunUrl] = result.WorkflowRunUrl,
-        [ArtifactsUrl] = result.ArtifactsUrl,
-        [DurationSeconds] = result.DurationSeconds,
-    };
+        var input = new Dictionary<string, object>
+        {
+            [WakePath] = wakePath,
+            [Completed] = true,
+            [WorkflowRunId] = result.WorkflowRunId,
+            [Status] = result.Status,
+            [Conclusion] = result.Conclusion,
+            [WorkflowRunUrl] = result.WorkflowRunUrl,
+            [ArtifactsUrl] = result.ArtifactsUrl,
+            [DurationSeconds] = result.DurationSeconds,
+        };
+        if (runCreatedAt is { } created)
+            input[RunCreatedAt] = DateTime.SpecifyKind(created.ToUniversalTime(), DateTimeKind.Utc)
+                .ToString("O", CultureInfo.InvariantCulture);
+        return input;
+    }
+
+    /// <summary>
+    /// The run's <c>created_at</c> (UTC), when the payload carries it. False when absent or
+    /// unparseable.
+    /// </summary>
+    public static bool TryReadRunCreatedAt(IDictionary<string, object>? input, out DateTime runCreatedAt)
+    {
+        runCreatedAt = default;
+        var raw = input is null ? null : Text(input, RunCreatedAt);
+        if (raw is null) return false;
+        if (!DateTime.TryParse(raw, CultureInfo.InvariantCulture,
+                DateTimeStyles.AssumeUniversal | DateTimeStyles.AdjustToUniversal, out var parsed))
+            return false;
+        runCreatedAt = parsed;
+        return true;
+    }
 
     /// <summary>
     /// Read a resume input into an <see cref="AgentMonitorResult"/>. Returns <c>false</c>

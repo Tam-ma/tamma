@@ -951,6 +951,7 @@ internal static class TammaModelConfiguration
             entity.Property(e => e.SessionId).IsRequired().HasMaxLength(256);
             entity.Property(e => e.WorkflowInstanceId).IsRequired().HasMaxLength(128);
             entity.Property(e => e.BookmarkName).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.WorkflowFile).HasMaxLength(256);
             entity.Property(e => e.Status).IsRequired().HasMaxLength(16)
                 .HasDefaultValue(AgentRunWaitStatus.Pending);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");

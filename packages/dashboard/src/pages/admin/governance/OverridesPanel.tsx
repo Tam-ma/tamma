@@ -19,12 +19,13 @@
  * Story 43-7 (re-scoped against this tab, 2026-11-07):
  * - A row with no enforcement site says "Not enforced" — the page must not imply
  *   protection no route provides.
- * - Any change that LOWERS protection on a destructive action (force on, stop
- *   enforcing, or a group threshold below a destructive member's level) asks for
- *   confirmation first, naming what it un-gates.
+ * - Any change that LOWERS protection on a destructive action asks for
+ *   confirmation first, naming what it un-gates: force on, stop enforcing,
+ *   enabling a disabled action, a group threshold below a destructive member's
+ *   level, clearing a group row, and reset-all (which names them in its confirm).
  * - A display-only level preview dims the rows that level would automate. It
- *   never writes and never refetches: the comparison is the gate's own
- *   (level >= effective minimum), over data already loaded.
+ *   never writes and never refetches: the rule is the gate's own (see
+ *   `automatedAt`), over data already loaded.
  */
 
 import { useCallback, useEffect, useState, type JSX } from 'react';
@@ -132,6 +133,72 @@ export function destructiveLoweredByGroup(
   );
 }
 
+/**
+ * Whether the gate lets `a` run without a person at `level` — the same rule as the
+ * server's `automatedAtLevel` (ActionPolicyEndpoints.AutomatedAtLevel): an
+ * advisory row (enforce=false, which also covers non-enforceable members) is never
+ * blocked; a disabled row is denied before the dial is consulted (and since the
+ * 2026-11-07 gate fix that denial is always enforced, so the server reports
+ * enforce=true for it); otherwise the
+ * level must reach the effective minimum. Role restrictions are caller-dependent
+ * and not applied.
+ */
+export function automatedAt(a: PolicyAction, level: number): boolean {
+  return !a.enforce || (a.enabled && level >= a.minAutonomy);
+}
+
+/**
+ * Enabling `a` lowers protection when it is destructive, disabled and enforced:
+ * the gate denies it today and would let it through once the dial reaches its
+ * level. (A disabled advisory row is already not blocked, so enabling it changes
+ * nothing a person would notice.)
+ */
+export function enablingLowersProtection(a: PolicyAction): boolean {
+  return isDestructive(a) && !a.enabled && a.enforce;
+}
+
+/**
+ * Destructive actions that removing stored rows could un-gate. `fromRows` says which
+ * actions' threshold came from a removed row (the source tiers being deleted);
+ * `mayReEnable` says whether a removed row could be what disables the action.
+ * A threshold counts as lowered when it sits above the shipped level — the next
+ * tier may be a platform ceiling in between, so this can over-ask, never under-ask.
+ */
+function destructiveUngatedByRemoval(
+  actions: PolicyAction[],
+  fromRows: (a: PolicyAction) => boolean,
+  mayReEnable: (a: PolicyAction) => boolean,
+): PolicyAction[] {
+  return actions.filter(
+    (a) =>
+      isDestructive(a) &&
+      ((fromRows(a) && a.shippedLevel < a.minAutonomy) ||
+        (mayReEnable(a) && enablingLowersProtection(a))),
+  );
+}
+
+/** Destructive members un-gated by deleting `group`'s stored row (threshold and enabled). */
+export function destructiveLoweredByGroupClear(
+  actions: PolicyAction[],
+  group: string,
+  groupRowDisables: boolean,
+): PolicyAction[] {
+  return destructiveUngatedByRemoval(
+    actions.filter((a) => a.group === group),
+    (a) => a.source === 'group-override',
+    () => groupRowDisables,
+  );
+}
+
+/** Destructive actions un-gated by reset-all (every stored group and action row removed). */
+export function destructiveLoweredByReset(actions: PolicyAction[]): PolicyAction[] {
+  return destructiveUngatedByRemoval(
+    actions,
+    (a) => a.source === 'group-override' || a.source === 'action-override',
+    () => true,
+  );
+}
+
 export function OverridesPanel(): JSX.Element {
   const [policy, setPolicy] = useState<ActionPolicyResponse | null>(null);
   const [pendingConfirm, setPendingConfirm] = useState<PendingConfirm | null>(null);
@@ -202,7 +269,8 @@ export function OverridesPanel(): JSX.Element {
 
   const viewLevel = previewLevel ?? policy.dial.current;
   const automatedAtPreview = (a: PolicyAction): boolean =>
-    previewLevel !== null && !a.isMachinery && viewLevel >= a.minAutonomy;
+    previewLevel !== null && !a.isMachinery && automatedAt(a, viewLevel);
+  const resetUngates = destructiveLoweredByReset(policy.actions);
 
   const dialGoverned = policy.actions.filter((a) => !a.isMachinery);
   const machinery = policy.actions.filter((a) => a.isMachinery);
@@ -263,7 +331,12 @@ export function OverridesPanel(): JSX.Element {
           type="button"
           aria-label={`${action.enabled ? 'Disable' : 'Enable'} ${action.key}`}
           onClick={() =>
-            void mutate(() => actionsPolicyApi.setActionEnabled(action.key, !action.enabled))
+            confirmOrRun(
+              enablingLowersProtection(action),
+              `Enable ${action.key}? It is destructive. The gate denies it while disabled; ` +
+                'once enabled it can run without a person when the dial reaches its level.',
+              () => actionsPolicyApi.setActionEnabled(action.key, !action.enabled),
+            )
           }
           className={`px-2 py-1 text-xs font-medium rounded border ${
             action.enabled
@@ -386,8 +459,12 @@ export function OverridesPanel(): JSX.Element {
         </p>
         {confirmingReset ? (
           <div className="flex items-center gap-2">
-            <span className="text-sm text-red-700 dark:text-red-300">
+            <span data-testid="reset-confirm" className="text-sm text-red-700 dark:text-red-300">
               Remove every stored override?
+              {resetUngates.length > 0 &&
+                ` This lowers protection on destructive action(s): ${resetUngates
+                  .map((a) => a.key)
+                  .join(', ')}.`}
             </span>
             <button
               type="button"
@@ -475,9 +552,19 @@ export function OverridesPanel(): JSX.Element {
                           () => actionsPolicyApi.setGroupThreshold(group.group, value),
                         );
                       }}
-                      onClear={() =>
-                        void mutate(() => actionsPolicyApi.deleteGroupOverride(group.group))
-                      }
+                      onClear={() => {
+                        const lowered = destructiveLoweredByGroupClear(
+                          policy.actions,
+                          group.group,
+                          group.principalRow?.enabled === false,
+                        );
+                        confirmOrRun(
+                          lowered.length > 0,
+                          `Clearing ${group.group} lowers protection on destructive ` +
+                            `action(s): ${lowered.map((a) => a.key).join(', ')}. Continue?`,
+                          () => actionsPolicyApi.deleteGroupOverride(group.group),
+                        );
+                      }}
                     />
                   </td>
                 </tr>

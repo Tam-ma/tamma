@@ -126,6 +126,18 @@ public class AgentRunResumeEndpointTests
     }
 
     [Test]
+    public async Task A_buffered_completion_carries_the_run_created_at()
+    {
+        var created = new DateTime(2026, 11, 1, 10, 1, 0, DateTimeKind.Utc);
+
+        await Call(Request() with { RunCreatedAt = created });
+
+        _buffer.TryConsume(Name(), out var buffered).Should().BeTrue();
+        AgentRunCompletionSignal.TryReadRunCreatedAt(buffered, out var read).Should().BeTrue();
+        read.Should().Be(created);
+    }
+
+    [Test]
     public async Task Stored_name_that_drifts_from_the_recomputed_name_is_refused()
     {
         // Principal fold: a caller stating tenant A cannot resume by naming tenant B's bookmark.

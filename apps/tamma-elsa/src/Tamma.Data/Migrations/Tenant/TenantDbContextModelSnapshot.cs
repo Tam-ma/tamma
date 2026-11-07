@@ -520,6 +520,10 @@ namespace Tamma.Data.Migrations.Tenant
                     b.Property<Guid?>("UserId")
                         .HasColumnType("uuid");
 
+                    b.Property<string>("WorkflowFile")
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
                     b.Property<string>("WorkflowInstanceId")
                         .IsRequired()
                         .HasMaxLength(128)

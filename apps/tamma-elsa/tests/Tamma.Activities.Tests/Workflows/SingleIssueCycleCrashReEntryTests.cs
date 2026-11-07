@@ -189,13 +189,16 @@ public class SingleIssueCycleCrashReEntryTests
         Data(_world.Events(AgentRunWaitEventTypes.TaskReentered).Single()).GetProperty("resumeIndex").GetInt32().Should().Be(1);
     }
 
-    // ── AC9: the switch is on by default now ─────────────────────────────
+    // ── AC9: the switch (default OFF again since the 2026-11-07 audit) ───
 
     [Test]
-    public void Reentry_is_on_by_default_and_the_switch_still_turns_it_off()
+    public void Reentry_is_off_by_default_and_the_switch_turns_it_on()
     {
-        TaskReEntryRegistration.DisabledByDefault.Should().BeFalse("Story 40-7 proved crash re-entry and flipped the default");
-        TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder().Build()).Should().BeFalse();
+        TaskReEntryRegistration.DisabledByDefault.Should().BeTrue("re-entry reads events across attempts (2026-11-07 audit)");
+        TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder().Build()).Should().BeTrue();
+        TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?> { [TaskReEntryRegistration.ConfigKey] = "false" })
+            .Build()).Should().BeFalse();
         TaskReEntryRegistration.IsDisabled(new ConfigurationBuilder()
             .AddInMemoryCollection(new Dictionary<string, string?> { [TaskReEntryRegistration.ConfigKey] = "true" })
             .Build()).Should().BeTrue("the key stays as the operator kill-switch");
@@ -282,6 +285,7 @@ public class SingleIssueCycleCrashReEntryTests
             ["Tamma:ApiUrl"] = "http://tamma.test",
             ["Engine:CallbackUrl"] = "http://engine.test",
             ["Agent:ExecutorMode"] = mode,
+            [TaskReEntryRegistration.ConfigKey] = "false",
         }).Build();
         services.AddSingleton<IConfiguration>(config);
 

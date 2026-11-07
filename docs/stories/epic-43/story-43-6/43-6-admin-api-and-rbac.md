@@ -7,7 +7,10 @@ Status: done (2026-11-07)
 > and the dial block; and the `Permissions.Matrix.Keys` pin + `actions:manage` role rows (AC4).
 > Most AC-named tests already existed under other names (`UnknownWire_AndWrongCasing_Are400`,
 > `Delete_FallsBackToTheNextTier`, `PutThreshold_DoesNotResetEnforceEnabledOrRoles`,
-> `Member_Gets403OnWrite_…`); `RouteOrder_LiteralsBeatParameterized` is now added.
+> `Member_Gets403OnWrite_…`). A `RouteOrder_LiteralsBeatParameterized` test was added, then deleted
+> in the 2026-11-07 audit follow-up: ASP.NET Core endpoint routing ranks by template specificity, not
+> registration order, and no parameterized route in this group can match `/policy/diff` or `/policy/reset`,
+> so the test could not fail. See "Route ordering" below.
 >
 > **`PUT /policy/groups/{group}/enforce` — shipped (decision recorded 2026-11-07).** 43-9's
 > ratchets forbid a new ungoverned mutating route (the backlog pin and the D17 exception pin are
@@ -93,6 +96,12 @@ route MUST be registered before `/{documentTypeKey}` or "defaults" is swallowed 
 story's group has the same shape and more of it — `/policy/reset` and `/authorizations` are literals under a
 group that also has `/policy/actions/{ns}/{key}`. Register literals first.
 
+> **Correction (2026-11-07).** Registration order does not decide this. ASP.NET Core endpoint routing ranks
+> candidates by template specificity (a literal segment beats a parameter), so a literal is never "swallowed"
+> by a parameter registered before it. In this group the question does not even arise: every parameterized
+> route sits under its own literal `/actions` or `/groups` segment and has a different segment count from
+> `/policy/diff` and `/policy/reset`. Order is kept for readability only.
+
 Reads ride `AuthenticatedAny`, for the same deliberate reason the acceptance-rules and convention stores do
 (rationale in the comment at `Program.cs:2716-2727`): every role-holder and the orchestrator need the
 effective policy, not just admins. Only writes take `ActionsManage`.
@@ -130,7 +139,7 @@ mitigate with a per-endpoint test.
 ## Acceptance Criteria
 
 1. **The route group exists, registered immediately after the acceptance-rules group
-   (`Program.cs:2731-2734`), literals before parameterized:**
+   (`Program.cs:2731-2734`):**
 
    ```
    GET    /api/actions/dial                                     AuthenticatedAny
@@ -150,8 +159,10 @@ mitigate with a per-endpoint test.
    POST   /api/actions/authorizations/{id:guid}/decide          ActionsManage
    ```
 
-   Tested by `RouteOrder_LiteralsBeatParameterized`: `GET /api/actions/policy/reset`-shaped literals are not
-   captured by a parameterized sibling.
+   No route-order test: routing ranks by template specificity, not registration order, and no parameterized
+   route above can match a literal sibling's path (see the 2026-11-07 correction under "Route ordering").
+   The literal routes are exercised by their own tests (`/policy/reset` and `/policy/diff` cases in
+   `ActionPolicyEndpointsTests`).
 
 2. **Every write DTO is single-field, required, and non-defaulted.**
    `SetThresholdRequest(int MinAutonomy)`, `SetEnforceRequest(bool Enforce)`, `SetEnabledRequest(bool Enabled)`,

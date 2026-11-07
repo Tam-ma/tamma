@@ -6,7 +6,8 @@ using Tamma.Activities.ADL;
 namespace Tamma.ElsaServer.Handlers;
 
 /// <summary>
-/// Closes the last reconcile-on-register gap for <see cref="WaitForPRMergedActivity"/>.
+/// Reconciles a buffered merged-PR notification once <see cref="WaitForPRMergedActivity"/>'s
+/// bookmark is persisted.
 /// <para>
 /// The activity checks <see cref="PendingPrMergeBuffer"/> before and after creating its
 /// <c>pr-merged-*</c> bookmark, but that bookmark only reaches the store when the
@@ -21,8 +22,15 @@ namespace Tamma.ElsaServer.Handlers;
 /// saved, so a buffered notification consumed here always has a stored bookmark to
 /// resume. The resume goes through Elsa's own bookmark queue (the mechanism it uses to
 /// resume a parent after a child completes), which runs after the commit releases the
-/// instance and burns the bookmark — so it cannot double-advance with the endpoint:
-/// the buffer entry is consumed at most once.
+/// instance and burns the bookmark.
+/// </para>
+/// <para>
+/// This handler alone does not close the race: if the bookmark is persisted after the
+/// endpoint's lookup miss but before its <c>Record</c>, this handler finds an empty
+/// buffer. <c>PrMergedResumeEndpoint</c> covers that order by re-checking for the
+/// bookmark after <c>Record</c>. Both sides go through
+/// <see cref="PendingPrMergeBuffer.TryConsume"/>, which removes the entry atomically,
+/// so exactly one of them resumes the wait.
 /// </para>
 /// </summary>
 public sealed class ReconcileBufferedPrMergeHandler(

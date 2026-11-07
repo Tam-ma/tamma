@@ -98,7 +98,11 @@ public sealed class AgentRunWaitRecorder(
     private static AgentRunWaitRegistration Registration(
         string repo, DispatchAgentRunRequest body, long? installationId, Guid? bookmarkTenant, DateTime dispatchedAt)
         => new(repo, body.Ref, body.CorrelationId, installationId, body.WorkflowInstanceId!, body.BookmarkName!,
-            bookmarkTenant, dispatchedAt);
+            bookmarkTenant, dispatchedAt,
+            // Same fallback the mediated dispatch applies before calling the platform.
+            WorkflowFile: string.IsNullOrWhiteSpace(body.WorkflowFileName)
+                ? AgentRunResumer.DefaultWorkflowFile
+                : body.WorkflowFileName);
 
     private bool Refuse(string repo, string reason)
     {

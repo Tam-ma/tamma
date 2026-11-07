@@ -38,9 +38,11 @@ namespace Tamma.Activities.Tests.Workflows;
 /// </list>
 ///
 /// <para>AC2's literal full-cycle pin (SingleIssueCycle driven end-to-end through a
-/// real awaited dispatch) is not writable today — the only full-runtime dispatch
-/// harness is <c>[Explicit]</c> and diagnosed broken
-/// (<c>DocumentLifecycleExecutionTests</c>, 2026-07-29). The layered substitute is:
+/// real awaited dispatch) is not written here. When this fixture was written the only
+/// full-runtime dispatch harness (<c>DocumentLifecycleExecutionTests</c>) was
+/// <c>[Explicit]</c> and broken; since 2026-11-07 it runs in CI's <c>workflow-exec</c>
+/// slice on <c>ElsaRuntimeHarness</c> (see <c>.dev/findings/explicit-execution-suites.md</c>),
+/// so that pin is now writable but not yet written. The layered substitute is:
 /// the existing Defer/Split routing pins + <c>DispatchTargetStructuralTests</c>'
 /// resolution sweep + THIS fixture's real-runner execution of the child +
 /// <c>SingleIssueCycleRoutingTests</c>' dispatch-input pins.</para>

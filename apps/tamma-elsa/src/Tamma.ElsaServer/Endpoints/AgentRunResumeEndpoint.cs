@@ -28,8 +28,11 @@ namespace Tamma.ElsaServer.Endpoints;
 ///     yet; the completion is recorded in <see cref="PendingAgentRunCompletionBuffer"/> and
 ///     consumed by the activity's reconcile reads or by
 ///     <c>ReconcileBufferedAgentRunHandler</c> once the bookmark is persisted.</item>
-///   <item><b>Lost claim → 404</b> — a concurrent resume (GitHub redelivery) already burned the
-///     bookmark; a benign no-op, never a double-advance.</item>
+///   <item><b>Lost claim → 404</b> — the bookmark was found but deleting it (the atomic claim)
+///     removed nothing, because a concurrent resume (e.g. a GitHub redelivery) claimed it between
+///     the lookup and the delete; a benign no-op, never a double-advance. A bookmark that is
+///     already gone before the lookup is NOT a 404 — that is the bookmark-miss case above (202,
+///     buffered).</item>
 ///   <item><b>Never mutates a caller dictionary</b> — the resume input is built fresh.</item>
 /// </list>
 /// </summary>
@@ -52,7 +55,10 @@ public static class AgentRunResumeEndpoint
         string? ArtifactsUrl,
         int DurationSeconds,
         // Story 40-6 — how the completion was observed (webhook | poll). Absent ⇒ webhook.
-        string? WakePath = null);
+        string? WakePath = null,
+        // The GitHub run's created_at. Carried into a buffered completion so it can only
+        // satisfy the dispatch it belongs to.
+        DateTime? RunCreatedAt = null);
 
     public static async Task<IResult> Resume(
         [FromBody] ResumeRequest request,
@@ -95,7 +101,8 @@ public static class AgentRunResumeEndpoint
             WorkflowRunUrl: request.WorkflowRunUrl ?? string.Empty,
             DurationSeconds: Math.Max(0, request.DurationSeconds),
             ArtifactsUrl: request.ArtifactsUrl ?? string.Empty),
-            AgentRunCompletionSignal.NormalizeWakePath(request.WakePath));
+            AgentRunCompletionSignal.NormalizeWakePath(request.WakePath),
+            request.RunCreatedAt);
 
         var bookmarks = (await bookmarkStore
             .FindManyAsync(new BookmarkFilter { Name = name }, ct)
