@@ -215,6 +215,68 @@ public class PrMergedResumeEndpointTests
         sha.Should().Be("abc123", "the buffered entry must carry the merge SHA");
     }
 
+    // ================================================================
+    // Record-vs-persist interleaving (audit fix, PR #516). The endpoint's
+    // lookup miss and its Record are not atomic with
+    // ReconcileBufferedPrMergeHandler's TryConsume: the bookmark can be
+    // persisted (and the handler find an empty buffer) in between. The
+    // endpoint therefore re-checks after Record; whichever side removes the
+    // buffer entry first owns the resume, the other side does nothing.
+    // ================================================================
+
+    [Test]
+    public async Task Resume_BookmarkPersistedBetweenMissAndRecord_EndpointRechecks_ConsumesAndResumes()
+    {
+        // 1st qualified lookup: miss. Then the wait's bookmark is persisted and
+        // the handler runs against an EMPTY buffer (nothing to reconcile).
+        // 2nd qualified lookup (the re-check after Record): the bookmark exists.
+        var qualified = WaitForPRMergedActivity.BookmarkName(Tenant, Repo, Pr);
+        _bookmarks
+            .SetupSequence(b => b.FindManyAsync(
+                It.Is<BookmarkFilter>(f => f.Name == qualified), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Enumerable.Empty<StoredBookmark>())
+            .ReturnsAsync(new[] { Bookmark("bm-1", qualified, "wf-1") });
+
+        var result = await Call();
+
+        StatusCodeOf(result).Should().Be(StatusCodes.Status200OK,
+            "without the re-check the buffered entry is never read and the cycle waits for the 12h SLA");
+        _client.Verify(c => c.RunInstanceAsync(
+            It.Is<RunWorkflowInstanceRequest>(r =>
+                r.BookmarkId == "bm-1" && (string)r.Input!["mergeSha"] == "abc123"),
+            It.IsAny<CancellationToken>()), Times.Once);
+        _pendingMerges.TryConsume(qualified, out _).Should().BeFalse(
+            "the endpoint consumed its own entry, so a later handler run cannot resume a second time");
+    }
+
+    [Test]
+    public async Task Resume_HandlerConsumedTheEntryFirst_EndpointRecheckFindsBookmark_DoesNotResumeAgain()
+    {
+        // The bookmark is persisted AFTER Record: the handler consumes the
+        // entry and queues the resume before the endpoint's re-check runs.
+        var qualified = WaitForPRMergedActivity.BookmarkName(Tenant, Repo, Pr);
+        var lookups = 0;
+        _bookmarks
+            .Setup(b => b.FindManyAsync(
+                It.Is<BookmarkFilter>(f => f.Name == qualified), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() =>
+            {
+                if (Interlocked.Increment(ref lookups) == 1)
+                    return Enumerable.Empty<StoredBookmark>();
+                // Handler ran between Record and the re-check.
+                _pendingMerges.TryConsume(qualified, out _).Should().BeTrue();
+                return new[] { Bookmark("bm-1", qualified, "wf-1") };
+            });
+
+        var result = await Call();
+
+        StatusCodeOf(result).Should().Be(StatusCodes.Status202Accepted);
+        _bookmarks.Verify(b => b.DeleteAsync(It.IsAny<BookmarkFilter>(), It.IsAny<CancellationToken>()), Times.Never);
+        _client.Verify(c => c.RunInstanceAsync(
+            It.IsAny<RunWorkflowInstanceRequest>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the handler owns the resume; the endpoint must not double-advance the workflow");
+    }
+
     [Test]
     public async Task Resume_AmbiguousLegacyName_Refuses409_NeverPicksArbitrarily()
     {

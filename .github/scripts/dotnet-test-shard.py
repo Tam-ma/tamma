@@ -13,15 +13,16 @@ How it splits:
     dotnet-test-weights.json; a class missing from it (new tests) gets the
     median weight, so new tests are always run, just less evenly balanced.
   * The result is deterministic: every shard job computes the same partition
-    from the same inputs, and each class lands in exactly ONE shard. `--check`
-    proves that (every listed class assigned once, none twice).
+    from the same inputs, and each class lands in exactly ONE shard. `check`
+    proves it against the real filter strings: every listed test must be
+    matched by exactly one shard's `FullyQualifiedName~X.` filter.
 
 Usage:
   list    dotnet-test-shard.py filter  --tests TESTS.txt --shard I --total N
           -> prints the `dotnet test --filter` expression for shard I (1-based)
   check   dotnet-test-shard.py check   --tests TESTS.txt --total N
-          -> prints per-shard class counts and estimated seconds; exits 1 on
-             any overlap or gap
+          -> prints per-shard class counts and estimated seconds; exits 1 if
+             any listed test is matched by no shard's filter or by more than one
   weigh   dotnet-test-shard.py weights --trx RESULTS.trx > dotnet-test-weights.json
           -> regenerate the weights file from a full local or CI .trx run
 
@@ -49,11 +50,15 @@ def class_of(fqn: str) -> str:
     return head.rsplit(".", 1)[0] if "." in head else head
 
 
-def load_classes(tests_file: Path) -> list[str]:
+def load_tests(tests_file: Path) -> list[str]:
     names = [ln.strip() for ln in tests_file.read_text().splitlines() if ln.strip()]
     if not names:
         sys.exit(f"no tests listed in {tests_file}")
-    return sorted({class_of(n) for n in names})
+    return names
+
+
+def load_classes(tests_file: Path) -> list[str]:
+    return sorted({class_of(n) for n in load_tests(tests_file)})
 
 
 def load_weights() -> dict[str, float]:
@@ -101,26 +106,53 @@ def cmd_filter(a: argparse.Namespace) -> None:
     print(filter_for(mine))
 
 
+FILTER_PREFIX = "FullyQualifiedName~"
+# Characters with meaning in a `dotnet test --filter` expression.
+FILTER_SPECIAL = set("()&|=!~\\")
+
+
+def filter_terms(expr: str) -> list[str]:
+    """Parse a filter_for() string back into its `~` (contains) operands."""
+    terms = []
+    for part in expr.split("|"):
+        if not part.startswith(FILTER_PREFIX):
+            sys.exit(f"unexpected filter term {part!r}")
+        terms.append(part[len(FILTER_PREFIX):])
+    return terms
+
+
 def cmd_check(a: argparse.Namespace) -> None:
-    classes = load_classes(a.tests)
+    tests = load_tests(a.tests)
+    classes = sorted({class_of(n) for n in tests})
     weights = load_weights()
     shards = partition(classes, a.total, weights)
-    seen: dict[str, int] = {}
+    # Check the filter STRINGS each shard will run, not the partition they came
+    # from: `~` is a substring match, so a class name that is a prefix of
+    # another, or that appears in a test's arguments, can pull a test into two
+    # shards. VSTest compares case-insensitively; so does this check.
+    shard_terms: list[list[str]] = []
     for i, s in enumerate(shards, 1):
-        for c in s:
-            if c in seen:
-                sys.exit(f"class {c} is in shard {seen[c]} and shard {i}")
-            seen[c] = i
-    missing = set(classes) - set(seen)
-    if missing:
-        sys.exit(f"{len(missing)} classes in no shard, e.g. {sorted(missing)[:3]}")
+        if not s:
+            sys.exit(f"shard {i}/{a.total} is empty — lower --total")
+        terms = filter_terms(filter_for(s))
+        for t in terms:
+            if FILTER_SPECIAL & set(t):
+                sys.exit(f"filter term {t!r} (shard {i}) contains a filter metacharacter")
+        shard_terms.append([t.lower() for t in terms])
+    for test in tests:
+        name = test.lower()
+        hits = [i for i, terms in enumerate(shard_terms, 1) if any(t in name for t in terms)]
+        if len(hits) != 1:
+            where = "no shard" if not hits else "shards " + ", ".join(map(str, hits))
+            sys.exit(f"test {test} is matched by {where}")
     known = [weights[c] for c in classes if c in weights]
     default = statistics.median(known) if known else 1.0
     unweighted = sum(1 for c in classes if c not in weights)
     for i, s in enumerate(shards, 1):
         est = sum(weights.get(c, default) for c in s)
         print(f"shard {i}/{a.total}: {len(s):4d} classes, ~{est:6.0f}s")
-    print(f"{len(classes)} classes, each in exactly one shard; {unweighted} without a recorded weight")
+    print(f"{len(tests)} tests in {len(classes)} classes, each matched by exactly one shard's filter; "
+          f"{unweighted} classes without a recorded weight")
 
 
 def cmd_weights(a: argparse.Namespace) -> None:

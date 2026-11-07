@@ -19,7 +19,11 @@
 # COVERAGE=1 also collects line/branch coverage (coverlet, settings in
 # coverage.runsettings). Each project writes
 # tests/<project>/TestResults/<guid>/coverage.cobertura.xml; the CI
-# `coverage-report` job merges every slice's files. Costs ~10% test time.
+# `coverage-report` job merges every slice's files. Adds ~25-40% to test time on
+# the 2-core CI runners (see the dotnet-tests-slice comment in ci.yml).
+#
+# No `set -e`: a failing project must not stop the loop or the recap. Steps
+# whose failure must fail the job check their exit status explicitly.
 set -uo pipefail
 
 mode="${1:?usage: dotnet-test-run.sh other | workflow-exec | api <shard> <total>}"
@@ -79,10 +83,26 @@ case "$mode" in
     total="${3:?shard total required}"
     dll=tests/Tamma.Api.Tests/bin/Release/net8.0/Tamma.Api.Tests.dll
     list="$logs/api-tests.txt"
-    dotnet vstest "$dll" --ListFullyQualifiedTests --ListTestsTargetPath:"$list" > /dev/null
-    # Prove the partition before running anything: every class in exactly one shard.
-    python3 "$script_dir/dotnet-test-shard.py" check --tests "$list" --total "$total"
-    filter="$(python3 "$script_dir/dotnet-test-shard.py" filter --tests "$list" --shard "$shard" --total "$total")"
+    if ! dotnet vstest "$dll" --ListFullyQualifiedTests --ListTestsTargetPath:"$list" > "$logs/api-list.log" 2>&1; then
+      echo "::error::listing Tamma.Api.Tests failed"
+      tail -50 "$logs/api-list.log"
+      exit 1
+    fi
+    # Prove the partition before running anything: every listed test is matched
+    # by exactly one shard's real --filter string.
+    if ! python3 "$script_dir/dotnet-test-shard.py" check --tests "$list" --total "$total"; then
+      echo "::error::shard partition check failed"
+      exit 1
+    fi
+    if ! filter="$(python3 "$script_dir/dotnet-test-shard.py" filter --tests "$list" --shard "$shard" --total "$total")"; then
+      echo "::error::computing the filter for shard $shard/$total failed"
+      exit 1
+    fi
+    # `dotnet test --filter ""` would run the whole project in every shard.
+    if [ -z "$filter" ]; then
+      echo "::error::empty filter for shard $shard/$total"
+      exit 1
+    fi
     run_project tests/Tamma.Api.Tests/ --filter "$filter"
     ;;
   *)
