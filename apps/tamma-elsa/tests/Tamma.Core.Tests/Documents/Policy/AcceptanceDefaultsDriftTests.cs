@@ -31,6 +31,27 @@ public class AcceptanceDefaultsDriftTests
             "the shared base row imposes no autonomy floor — the pre-39-13 behavior");
     }
 
+    /// <summary>
+    /// Story 43-1 AC9: the routing guidance is prose a model acts on, so it must
+    /// not restate a dial level. The original said "(autonomy 70)" — a lie the
+    /// moment the baseline or the range moves, and nothing pinned its content.
+    /// </summary>
+    [Test]
+    public void RoutingGuidance_names_no_dial_number()
+    {
+        var dialNumbers = new[]
+        {
+            AutonomyDial.Min, AutonomyDial.Max, AutonomyDial.AlwaysHuman,
+            AcceptanceDefaults.DefaultAutonomyLevel,
+        };
+        var digits = System.Text.RegularExpressions.Regex.Matches(
+                AcceptanceDefaults.Rules.RoutingGuidance, @"\d+")
+            .Select(m => int.Parse(m.Value));
+
+        digits.Should().NotIntersectWith(dialNumbers,
+            "shipped agent-facing prose must reference the dial by meaning, never by number");
+    }
+
     [Test]
     public void Base_row_is_single_architect_unanimous()
     {

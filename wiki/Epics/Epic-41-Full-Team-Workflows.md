@@ -9,7 +9,7 @@
 
 ## 1. Overview
 
-Epic 39 gave Tamma a **spine**: typed work documents, one produce→validate→review→revise→accept lifecycle, an orchestrator that routes acceptance by the 70–100 autonomy dial, resumable-by-design workflows, and a Task View where a suspended decision lands in a tenant role's inbox. Epic 40 made the coding step durable on that spine.
+Epic 39 gave Tamma a **spine**: typed work documents, one produce→validate→review→revise→accept lifecycle, an orchestrator that routes acceptance by the autonomy dial, resumable-by-design workflows, and a Task View where a suspended decision lands in a tenant role's inbox. Epic 40 made the coding step durable on that spine.
 
 But the platform only *runs* that spine for a narrow slice of what a software team does day to day: the **issue → decompose → plan → tasks → TDD → PR → review → merge → deploy** happy path, plus intake (triage/clarify/research/ambiguity) and mentorship. Tamma's stated intent is broader — *automate the entire software-development process*: every recurring activity an **engineer, UX, designer, product owner, project manager, scrum master, architect, or tester** performs should eventually be a Tamma workflow.
 

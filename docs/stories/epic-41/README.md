@@ -7,7 +7,7 @@ lifecycle, resumable-by-design workflows, a document store + lineage API, and th
 accept gate publishes on. Epic 40 made the coding step durable on that spine.
 
 > **Corrected — the spine is not complete.** Earlier drafts also credited Epic 39 with "an orchestrator
-> that routes acceptance by the 70–100 autonomy dial" and "a Task View where a suspended decision lands
+> that routes acceptance by the autonomy dial" and "a Task View where a suspended decision lands
 > in a tenant role's inbox". **Neither has landed** — 39-17 (orchestrator agent), 39-19 (chat + Task
 > View) and 39-20 (teams/roles/repo access & task routing) are all still stubbed fail-closed in the tree.
 > Rules 3 and 4 below describe the intended contract, not today's behaviour. See **Dependencies** for the
@@ -71,7 +71,7 @@ role families) — and turns each into a **first-class lifecycle workflow** on t
    tagged, `issueId`/`repository`-lineaged trail.
 3. **Orchestrator-routed acceptance, autonomy-gated.** The accept gate **always** publishes an
    `AcceptanceRequest` on the workflow↔orchestrator channel and suspends (39-8). The orchestrator reads
-   the acceptance rules + the autonomy level (70–100, per-document-type overridable) and decides WHO
+   the acceptance rules + the autonomy level (range published by `GET /api/actions/dial`, per-document-type overridable) and decides WHO
    decides — itself (more, the higher the dial) or a **tenant role** whose holders see the decision in
    their Task View. Never an if-else that skips the decision; never an embedded accept `llm-call`.
 4. **Human-or-agent execution.** The produce/review step is written so **either** fulfils it: at lower

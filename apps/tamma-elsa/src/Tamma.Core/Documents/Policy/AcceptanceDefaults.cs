@@ -50,8 +50,12 @@ public static class AcceptanceDefaults
         "budget. Escalate when the review is undecidable, blocking issues remain after revision, the input " +
         "ambiguity exceeds the threshold, or the decision requires a human judgment call.";
 
+    // Story 43-1 AC9: this prose is fed to the model that routes acceptance
+    // decisions, so it must name no dial number — a restated level becomes a
+    // lie told to an agent the moment the baseline or range moves. Pinned by
+    // AcceptanceDefaultsDriftTests.RoutingGuidance_names_no_dial_number.
     private const string DefaultRoutingGuidance =
-        "At the supervised baseline (autonomy 70) assign nearly every acceptance decision to a human role. As " +
+        "At the deployment's supervised baseline autonomy level, assign nearly every acceptance decision to a human role. As " +
         "the autonomy level rises, decide more routine, unambiguous, fully-approved documents yourself and " +
         "assign only the contested or high-impact ones. Always assign — never reject or hard-accept — anything " +
         "you are not confident the rules unambiguously permit.";

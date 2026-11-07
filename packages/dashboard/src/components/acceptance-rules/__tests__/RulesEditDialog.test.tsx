@@ -6,6 +6,18 @@ import type {
   AcceptanceRules,
   ResolvedAcceptanceRules,
 } from '../../../services/admin/acceptance-rules-api-client.js';
+import type { AutonomyDialInfo } from '../../../services/admin/actions-policy-api-client.js';
+
+// Deliberately NOT the real server values: the dialog must render whatever
+// GET /api/actions/dial publishes, so a hardcoded bound would fail here.
+const DIAL: AutonomyDialInfo = {
+  min: 7,
+  max: 93,
+  alwaysHuman: 94,
+  default: 50,
+  current: 50,
+  source: 'system-default',
+};
 
 function makeRules(overrides?: Partial<AcceptanceRules>): AcceptanceRules {
   return {
@@ -52,15 +64,12 @@ describe('RulesEditDialog', () => {
    * Pre-fix, the body memo built eight fields and the API defaulted the ninth to
    * `any`, silently removing the human-acceptance requirement.
    */
-  it('offers the full validated dial range, not the pre-43-11 floor', () => {
-    // The server's validated range is [1,100] (Tamma.Core AutonomyDial; Story
-    // 43-11 widened Min 70 -> 1). This slider hardcoded min=70 long after that,
-    // which silently made every level below 70 unreachable from the UI — the 18
-    // backend dial routes accepted values the dashboard could never send. The
-    // slider bounds are an affordance mirroring the server's range; this pin
-    // keeps them from quietly re-narrowing it.
+  it('takes the slider bounds and helper text from the published dial range', () => {
+    // Story 43-1 AC4/AC5: no bound is restated in TypeScript. A hardcoded min=70
+    // once made Story 43-11's widened range unreachable from the UI.
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({})}
         onSave={vi.fn()}
         onReset={vi.fn()}
@@ -68,9 +77,43 @@ describe('RulesEditDialog', () => {
       />,
     );
 
-    const dial = screen.getByLabelText('Autonomy level');
-    expect(dial).toHaveAttribute('min', '1');
-    expect(dial).toHaveAttribute('max', '100');
+    const slider = screen.getByLabelText('Autonomy level');
+    expect(slider).toHaveAttribute('min', String(DIAL.min));
+    expect(slider).toHaveAttribute('max', String(DIAL.max));
+    const help = screen.getByTestId('autonomy-dial-help').textContent ?? '';
+    expect(help).toContain(`${DIAL.default} = shipped default`);
+    expect(help).toContain(`${DIAL.max} = full auto`);
+  });
+
+  it('renders no slider until the dial range has loaded', () => {
+    render(
+      <RulesEditDialog
+        dial={null}
+        resolved={makeResolved({})}
+        onSave={vi.fn()}
+        onReset={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Autonomy level')).toBeNull();
+    expect(screen.getByTestId('autonomy-dial-pending').textContent).toContain('Loading');
+  });
+
+  it('says so when the dial range failed to load, still without a slider', () => {
+    render(
+      <RulesEditDialog
+        dial={null}
+        dialError="HTTP 500"
+        resolved={makeResolved({})}
+        onSave={vi.fn()}
+        onReset={vi.fn()}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByLabelText('Autonomy level')).toBeNull();
+    expect(screen.getByTestId('autonomy-dial-pending').textContent).toContain('HTTP 500');
   });
 
   it('preserves acceptorRequirement when an unrelated field is edited', async () => {
@@ -78,6 +121,7 @@ describe('RulesEditDialog', () => {
 
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({ acceptorRequirement: 'human' })}
         onSave={onSave}
         onReset={vi.fn()}
@@ -103,6 +147,7 @@ describe('RulesEditDialog', () => {
 
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({ acceptorRequirement: 'any' })}
         onSave={onSave}
         onReset={vi.fn()}
@@ -122,6 +167,7 @@ describe('RulesEditDialog', () => {
   it('seeds the control from the resolved payload', () => {
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({ acceptorRequirement: 'human' })}
         onSave={vi.fn()}
         onReset={vi.fn()}
@@ -144,6 +190,7 @@ describe('RulesEditDialog', () => {
   it('explains the shipped acceptor floor when the resolution was floored', () => {
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved(
           { acceptorRequirement: 'human' },
           { source: 'principal-default', acceptorRequirementFloored: true },
@@ -164,6 +211,7 @@ describe('RulesEditDialog', () => {
   it('shows no floor note when the resolution was not floored', () => {
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved(
           { acceptorRequirement: 'human' },
           { source: 'type-override', acceptorRequirementFloored: false },
@@ -181,6 +229,7 @@ describe('RulesEditDialog', () => {
   it('shows no floor note when the field is absent from the payload', () => {
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({ acceptorRequirement: 'human' })}
         onSave={vi.fn()}
         onReset={vi.fn()}
@@ -216,6 +265,7 @@ describe('RulesEditDialog', () => {
 
     render(
       <RulesEditDialog
+        dial={DIAL}
         resolved={makeResolved({ acceptorRequirement: 'human' })}
         onSave={onSave}
         onReset={vi.fn()}

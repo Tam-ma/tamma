@@ -188,7 +188,7 @@ accept`, written once as the generic `DocumentLifecycleWorkflow`
 **The accept gate is an actor, not a branch.** ACCEPT always builds an `AcceptanceRequest`,
 publishes it on the workflow↔orchestrator channel (`PublishAcceptanceRequestActivity`), and
 suspends on `WaitForDocumentDecisionActivity`. The orchestrator reads the **acceptance
-rules** (`Tamma.Core/Documents/Policy/AcceptanceRules.cs`) + the **autonomy dial (70–100)**
+rules** (`Tamma.Core/Documents/Policy/AcceptanceRules.cs`) + the **autonomy dial** (range published by `AutonomyDial` / `GET /api/actions/dial`; shipped default 70)
 and routes the decision to itself or to a tenant role's Task View; `AcceptanceGuardrails.Clamp`
 enforces only the hard invariants (round bounds, blocking-review, always-escalate classes).
 Unhandleable outcomes escalate with full lineage as one of four typed

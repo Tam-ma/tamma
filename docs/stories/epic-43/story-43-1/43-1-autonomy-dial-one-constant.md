@@ -1,6 +1,6 @@
 # Story 43-1: `AutonomyDial` — One Constant, Published Over the Wire, Drift-Tested
 
-Status: in-progress — the AutonomyDial constant + invariants shipped (PR #506); the 8 hardcode-site rewires, GET /api/actions/dial, dashboard unhardcode, and the doc pass remain
+Status: done — 2026-11-06. See the Delivery record below for where each AC landed (most of it shipped with Story 43-11, which also widened the range to [1,100]).
 
 ## MANDATORY: Before You Code
 
@@ -138,8 +138,22 @@ A test that greps `apps/tamma-elsa/src/**/*.cs` for the literals `70`/`100`/`101
 
 2 days
 
+## Delivery record (2026-11-06)
+
+Verified against the tree, not from memory:
+
+- **AC1, AC2** — `AutonomyDial.cs` + the interpolated `AcceptanceRules` check (PR #506; widened to `[1,100]` by 43-11).
+- **AC3** — `GET /api/actions/dial` (`ActionPolicyEndpoints.GetDial`). This pass added `current`/`source`, resolved through the same principal resolver and degrade-to-defaults helper as `GET /policy`; pinned in `ActionPolicyEndpointsTests.Catalog_And_Dial_ArePublished_ToAnyAuthenticatedRole`.
+- **AC4, AC5** — this pass. `RulesEditDialog` takes a `dial` prop and derives slider bounds and helper text from it; no slider renders until the payload arrives (loading and error states tested). `AcceptanceRulesAdminPage` fetches `/api/actions/dial`. Both test suites use deliberately non-real mocked bounds so a hardcoded literal fails.
+- **AC6, AC7, AC8** — already landed (`AutonomyDial.Max + 1000` vector, `ValidLevels()` loop, `[TestCaseSource]`).
+- **AC9** — this pass. `DefaultRoutingGuidance` names no number; pinned by `AcceptanceDefaultsDriftTests.RoutingGuidance_names_no_dial_number`.
+- **AC10** — this pass. `AutonomyDialSingleSourceTests` (comparison-shaped scan with a shrink-only allowlist, a staleness check, and a self-test of its own patterns). The constant invariants live in `AutonomyDialTests`.
+- **AC11** — this pass, for the LIVING docs: 9 wiki pages + the epic-41/42 READMEs. Closed stories' docs, implementation plans and change logs under `docs/stories/epic-39..42` were left as written: they are historical records of what was true then, and rewriting them would falsify that history.
+- **AC12** — no `[Range]`, CHECK or TS validator introduced.
+
 ## Change Log
 
 | Date       | Version | Changes                | Author |
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-25 | 1.0.0   | Initial story creation | Claude |
+| 2026-11-06 | 2.0.0   | Closed out: AC3 `current`/`source`, AC4/5 dashboard binding, AC9 prose, AC10 guard, AC11 living-doc pass. Status → done | Claude |
