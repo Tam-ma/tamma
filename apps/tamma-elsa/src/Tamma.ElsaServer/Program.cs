@@ -445,6 +445,10 @@ builder.Services.AddScoped<Tamma.Activities.AgentDispatch.AgentExecutorFactory>(
 // bridges an in-process ordering race; the durable 12h SLA stays the
 // restart-safe exception path.
 builder.Services.AddSingleton<Tamma.Activities.ADL.PendingPrMergeBuffer>();
+// The wait's own buffer checks cannot see a webhook that lands after them but
+// before the workflow commits its bookmark; this handler re-checks the buffer
+// once the bookmark is actually persisted and queues the resume.
+builder.Services.AddNotificationHandler<Tamma.ElsaServer.Handlers.ReconcileBufferedPrMergeHandler>();
 
 // Story 28-5 AC4 — optional pre-drop tenant backup (pg_dump). Disabled
 // by default; the DeleteTenantWorkflow's BackupTenantDatabaseActivity
