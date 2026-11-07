@@ -260,6 +260,9 @@ public class EvaluateResultsActivity : Activity
             });
         }
 
+        // Each high finding is listed. Within the level's MaxSecurityHigh allowance it is a
+        // warning — otherwise the allowance would never change the routing.
+        var highOverAllowance = highCount > thresholds.MaxSecurityHigh;
         foreach (var vuln in ciResults.SecurityIssues.Where(s =>
             s.Severity is SecuritySeverity.Critical or SecuritySeverity.High))
         {
@@ -268,7 +271,7 @@ public class EvaluateResultsActivity : Activity
                 Category = QualityIssueCategory.Security,
                 Severity = vuln.Severity == SecuritySeverity.Critical
                     ? QualityIssueSeverity.Critical
-                    : QualityIssueSeverity.Error,
+                    : highOverAllowance ? QualityIssueSeverity.Error : QualityIssueSeverity.Warning,
                 Message = $"[{vuln.Severity}] {vuln.Package}: {vuln.Description}",
                 Details = vuln.CveId,
                 AutoFixable = !string.IsNullOrEmpty(vuln.FixVersion)

@@ -140,8 +140,21 @@ public class GenerateQualityReportActivity : CodeActivity<QualityReport>
             });
         }
 
-        // Determine pass/fail
+        // Failing tests fail the report on their own, so they must be listed as an issue
+        // (and drive the teaching feedback) rather than leave AllIssues empty.
         var allTestsPassed = ciResults.FailedTests == 0;
+        if (!allTestsPassed)
+        {
+            allIssues.Add(new QualityIssue
+            {
+                Category = QualityIssueCategory.Test,
+                Severity = ciResults.FailedTests > 5 ? QualityIssueSeverity.Critical : QualityIssueSeverity.Error,
+                Message = $"{ciResults.FailedTests} test(s) failed out of {ciResults.TotalTests}",
+                AutoFixable = false
+            });
+        }
+
+        // Determine pass/fail
         var passed = coverageResult.Passed && lintResult.Passed
                      && securityResult.Passed && ciResults.BuildPassed && allTestsPassed;
 
