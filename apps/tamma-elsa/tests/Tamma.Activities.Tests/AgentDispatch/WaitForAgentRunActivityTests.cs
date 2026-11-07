@@ -151,6 +151,21 @@ public class WaitForAgentRunActivityTests
     }
 
     [Test]
+    public async Task Gha_Dispatch_CarriesTheBookmarkAndInstance_ForTheDurableRow()
+    {
+        // Story 40-3 (AC1) — the API writes the agent_run_waits row from these.
+        await using var sp = BuildProvider("github_actions");
+
+        var (result, _) = await RunAsync(sp);
+
+        _dispatch.Verify(d => d.DispatchAsync(
+            It.Is<AgentExecutionRequest>(r => r.BookmarkName == ExpectedBookmark
+                                              && r.WorkflowInstanceId == result.WorkflowState.Id
+                                              && r.BookmarkTenantId == Tenant),
+            It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
     public void DeadlineMatchesTheExecutorBudget()
     {
         WaitForAgentRunActivity.EffectiveWaitTimeoutMinutes(30).Should().Be(35);

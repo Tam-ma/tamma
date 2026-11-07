@@ -40,6 +40,8 @@ public class TenantDbContextModelTests
             // Story 32-2 — SaaS tenant-keyed role→agent selections (dual-resident
             // with the CP single-user rows).
             "agent_role_selections",
+            // Story 40-3 — SaaS tenant-keyed agent-run waits (dual-resident).
+            "agent_run_waits",
             "prompt_overrides",
             "conventions",
             "provider_health",

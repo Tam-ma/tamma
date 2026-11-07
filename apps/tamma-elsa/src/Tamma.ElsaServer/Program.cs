@@ -441,6 +441,9 @@ builder.Services.AddScoped<Tamma.Activities.AgentDispatch.AgentExecutorFactory>(
 // signal that finds no committed bookmark yet is recorded here and consumed by the
 // wait (before/after registering, and on its post-commit reconcile timer).
 builder.Services.AddSingleton<Tamma.Activities.AgentDispatch.PendingAgentRunCompletionBuffer>();
+// Story 40-3 — reconcile-after-persist: a completion buffered by AgentRunResumeEndpoint
+// (it beat the bookmark commit) is resumed once the bookmark is actually saved.
+builder.Services.AddNotificationHandler<Tamma.ElsaServer.Handlers.ReconcileBufferedAgentRunHandler>();
 
 // 2026-08-13 (engine-driven E2E run 39) — the self-merge race buffer: a
 // merged-PR webhook that arrives BEFORE WaitForPRMerged registers its bookmark
@@ -663,6 +666,14 @@ app.MapPost("/elsa/api/ci/waits/resume",
 // engine-HTTP blind spot, GovernanceHostFixture docs; accounted 2026-08-08).
 app.MapPost("/elsa/api/adl/pr-merged/resume",
     Tamma.ElsaServer.Endpoints.PrMergedResumeEndpoint.Resume)
+    .RequireAuthorization();
+
+// Story 40-3 (AC3) — agent-run resume seam: Tamma.Api's AgentRunResumer (driven by the
+// workflow_run.completed webhook + the durable agent_run_waits row) resumes the
+// WaitForAgentRunActivity bookmark here. Same auth model and same engine-internal
+// ungoverned-route accounting as the pr-merged / CI-wait resume seams above.
+app.MapPost("/elsa/api/agent-runs/resume",
+    Tamma.ElsaServer.Endpoints.AgentRunResumeEndpoint.Resume)
     .RequireAuthorization();
 
 app.UseSerilogRequestLogging();

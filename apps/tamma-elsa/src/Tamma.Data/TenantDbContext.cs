@@ -57,6 +57,9 @@ public class TenantDbContext : DbContext
     // Story 32-2 — SaaS tenant-keyed role→agent selections (the single-user
     // user-keyed rows live on the CP context). Same table shape, two homes.
     public DbSet<AgentRoleSelection> AgentRoleSelections => Set<AgentRoleSelection>();
+    // Story 40-3 — SaaS tenant-keyed durable agent-run correlation rows (the
+    // single-user user-keyed rows live on the CP context).
+    public DbSet<AgentRunWait> AgentRunWaits => Set<AgentRunWait>();
     public DbSet<Convention> Conventions => Set<Convention>();
     public DbSet<ProviderHealth> ProviderHealths => Set<ProviderHealth>();
     public DbSet<ProviderDiagnostic> ProviderDiagnostics => Set<ProviderDiagnostic>();

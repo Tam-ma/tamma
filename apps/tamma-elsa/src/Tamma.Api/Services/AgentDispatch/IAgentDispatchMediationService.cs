@@ -10,9 +10,12 @@ namespace Tamma.Api.Services.AgentDispatch;
 /// installation token internally) → exactly-one terminal DCB audit event. ALWAYS
 /// returns a typed, key-free result — a failure never throws a raw 5xx.
 ///
-/// <para>The outbound dispatch/poll/collect is mediated here; the INBOUND
-/// <c>workflow_run.completed</c> webhook + <c>WebhookSignalRegistry</c> signalling
-/// stay in-process and are out of scope (design §5.3, unchanged).</para>
+/// <para>The outbound dispatch/poll/collect is mediated here. Story 40-3: a successful
+/// dispatch from a suspending caller also writes the durable <c>agent_run_waits</c> row
+/// (<see cref="IAgentRunWaitRecorder"/>), and the INBOUND <c>workflow_run.completed</c>
+/// webhook resumes the suspended wait from that row through the engine's persisted
+/// bookmark (<see cref="IAgentRunResumer"/>) — on any pod, after any restart. The
+/// in-process <c>WebhookSignalRegistry</c> is only a same-process fast path now.</para>
 /// </summary>
 public interface IAgentDispatchMediationService
 {

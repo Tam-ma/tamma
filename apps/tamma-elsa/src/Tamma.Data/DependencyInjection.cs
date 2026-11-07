@@ -153,6 +153,10 @@ public static class DependencyInjection
         // tenant schema for SaaS), routed internally by the ambient principal.
         services.AddScoped<IAgentSelectionRepository, AgentSelectionRepository>();
 
+        // Story 40-3 — durable agent-run correlation rows. Dual-scoped (CP for
+        // single-user; tenant schema for SaaS), principal passed explicitly.
+        services.AddScoped<IAgentRunWaitRepository, AgentRunWaitRepository>();
+
         // Tenant-scoped repositories (use ITenantDbContextFactory internally).
         services.AddScoped<IAgentConfigRepository, AgentConfigRepository>();
         services.AddScoped<IPromptRepository, PromptRepository>();

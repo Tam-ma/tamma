@@ -38,6 +38,7 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     private readonly IActionsResultAggregator _aggregator;
     private readonly IEventRepository _events;
     private readonly ILogger<AgentDispatchMediationService> _logger;
+    private readonly IAgentRunWaitRecorder? _waitRecorder;
 
     // Retry budget for rate-limited dispatch — aggregate wait ≤ 7s (1s, 2s, 4s),
     // ported verbatim from the former engine-side AgentDispatchService so the
@@ -62,8 +63,12 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
         IInstallationRepository installations,
         IActionsResultAggregator aggregator,
         IEventRepository events,
-        ILogger<AgentDispatchMediationService> logger)
+        ILogger<AgentDispatchMediationService> logger,
+        IAgentRunWaitRecorder? waitRecorder = null)
     {
+        // Story 40-3 — optional so non-suspending deployments/tests compose unchanged;
+        // when present, a successful dispatch writes the durable agent_run_waits row.
+        _waitRecorder = waitRecorder;
         _authorizer = authorizer ?? throw new ArgumentNullException(nameof(authorizer));
         _platformResolver = platformResolver ?? throw new ArgumentNullException(nameof(platformResolver));
         _installations = installations ?? throw new ArgumentNullException(nameof(installations));
@@ -111,6 +116,15 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
         var resolution = await _platformResolver.ResolveForMediationAsync(tenantId, ct).ConfigureAwait(false);
         return resolution?.Driver;
     }
+
+    /// <summary>
+    /// Story 40-3 (AC1) — persist the durable <c>agent_run_waits</c> row for a suspending
+    /// caller. The recorder never throws; a missing row degrades to the wait's Timeout edge.
+    /// </summary>
+    private Task RecordWaitAsync(Guid? tenantId, string repo, DispatchAgentRunRequest body, DateTime dispatchedAt, CancellationToken ct)
+        => _waitRecorder is null || string.IsNullOrWhiteSpace(body.BookmarkName)
+            ? Task.CompletedTask
+            : _waitRecorder.RecordAsync(tenantId, repo, body, dispatchedAt, ct);
 
     // ===================================================================
     // Trigger run (the WRITE — triggers Actions code execution)
@@ -211,6 +225,7 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
                     await EmitAsync(AgentDispatchEventTypes.RunTriggeredSuccess, op, tenantId, repo, body.CorrelationId,
                         AgentDispatchCredentialSources.Installation, runId: null, failureCode: null,
                         new { workflowFile, @ref = body.Ref }, ct).ConfigureAwait(false);
+                    await RecordWaitAsync(tenantId, repo, body, dispatchedAt, ct).ConfigureAwait(false);
                     return success;
                 }
 
@@ -230,6 +245,7 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
                     await EmitAsync(AgentDispatchEventTypes.RunTriggeredSuccess, op, tenantId, repo, body.CorrelationId,
                         AgentDispatchCredentialSources.Installation, runId: null, failureCode: null,
                         new { workflowFile, @ref = body.Ref }, ct).ConfigureAwait(false);
+                    await RecordWaitAsync(tenantId, repo, body, dispatchedAt, ct).ConfigureAwait(false);
                     return accepted;
                 }
 

@@ -55,6 +55,9 @@ public sealed class AgentDispatchService : IAgentDispatchService
             Ref = request.BranchName,
             Inputs = BuildDispatchInputs(request),
             CorrelationId = request.SessionId,
+            BookmarkName = request.BookmarkName,
+            WorkflowInstanceId = request.WorkflowInstanceId,
+            BookmarkTenantId = request.BookmarkTenantId,
         };
 
         var response = await _api.DispatchAgentRunAsync(

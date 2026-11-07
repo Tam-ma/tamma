@@ -67,6 +67,27 @@ public class AgentDispatchServiceTests
     }
 
     [Test]
+    public async Task DispatchAsync_Forwards_TheSuspendFields_ForTheDurableRow()
+    {
+        // Story 40-3 (AC1) — the API needs the bookmark + instance to write agent_run_waits.
+        var api = new FakeTammaApiClient
+        {
+            OnDispatch = (_, _, _) => new AgentDispatchRunApiResponse { Success = true, DispatchedAt = DateTime.UtcNow },
+        };
+        var svc = new AgentDispatchService(api);
+
+        await svc.DispatchAsync(MakeRequest() with
+        {
+            BookmarkName = "agent-run-x", WorkflowInstanceId = "wf-9", BookmarkTenantId = "t-1",
+        });
+
+        var sent = api.DispatchCalls.Single().Request;
+        sent.BookmarkName.Should().Be("agent-run-x");
+        sent.WorkflowInstanceId.Should().Be("wf-9");
+        sent.BookmarkTenantId.Should().Be("t-1");
+    }
+
+    [Test]
     public async Task DispatchAsync_Fails_WhenRepositoryFormatInvalid_WithoutCallingApi()
     {
         var api = new FakeTammaApiClient();

@@ -110,6 +110,9 @@ public class ControlPlaneDbContextModelTests
             // build holds single-user user-keyed rows; tenant build holds SaaS
             // tenant-keyed rows). Same dual-resident pattern as audit_records.
             "agent_role_selections",
+            // Story 40-3 — durable agent-run correlation rows. Dual-resident like
+            // agent_role_selections (CP = single-user rows; tenant = SaaS rows).
+            "agent_run_waits",
             // Story 32-16 — per-tenant agent/persona enablement (catalog
             // membership). CP-resident in BOTH modes (gates the CP public agent
             // catalog; keyed by tenant id / user id, not per t_<hex>) — so it is

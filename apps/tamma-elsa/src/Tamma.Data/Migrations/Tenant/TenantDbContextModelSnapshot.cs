@@ -458,6 +458,95 @@ namespace Tamma.Data.Migrations.Tenant
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.AgentRunWait", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("BookmarkName")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<Guid?>("BookmarkTenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("BranchName")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime>("DispatchedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<long?>("InstallationId")
+                        .HasColumnType("bigint");
+
+                    b.Property<DateTime?>("ReceivedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Repository")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("SessionId")
+                        .IsRequired()
+                        .HasMaxLength(256)
+                        .HasColumnType("character varying(256)");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("pending");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WorkflowInstanceId")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<long?>("WorkflowRunId")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InstallationId", "Repository", "BranchName", "Status")
+                        .HasDatabaseName("IX_agent_run_waits_match");
+
+                    b.HasIndex("TenantId", "UserId", "Repository", "BranchName", "SessionId")
+                        .IsUnique()
+                        .HasDatabaseName("UX_agent_run_waits_principal_run");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("TenantId", "UserId", "Repository", "BranchName", "SessionId"), false);
+
+                    b.ToTable("agent_run_waits", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_agent_run_waits_principal_xor", "(\"UserId\" IS NOT NULL AND \"TenantId\" IS NULL) OR (\"UserId\" IS NULL AND \"TenantId\" IS NOT NULL)");
+
+                            t.HasCheckConstraint("ck_agent_run_waits_status", "\"Status\" IN ('pending','received','timed_out')");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.AnalyticsProjectionCheckpoint", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1407,6 +1496,7 @@ namespace Tamma.Data.Migrations.Tenant
                         .HasDefaultValueSql("now()");
 
                     b.Property<int>("Version")
+                        .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1);
@@ -1795,6 +1885,7 @@ namespace Tamma.Data.Migrations.Tenant
                         .HasColumnType("uuid");
 
                     b.Property<int>("Version")
+                        .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1);
@@ -1905,6 +1996,7 @@ namespace Tamma.Data.Migrations.Tenant
                         .HasDefaultValueSql("now()");
 
                     b.Property<int>("Version")
+                        .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1);

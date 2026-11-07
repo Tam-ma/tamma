@@ -639,6 +639,13 @@ public class ControlPlaneDbContext : DbContext
     public DbSet<AgentRoleSelection> AgentRoleSelections => Set<AgentRoleSelection>();
 
     /// <summary>
+    /// Story 40-3 — durable agent-run correlation rows. On the CP context this
+    /// holds the single-user (user-keyed) rows; the SAME table lives in every
+    /// tenant schema for SaaS rows. See <see cref="Entities.AgentRunWait"/>.
+    /// </summary>
+    public DbSet<AgentRunWait> AgentRunWaits => Set<AgentRunWait>();
+
+    /// <summary>
     /// Story 32-16 — per-tenant agent/persona ENABLEMENT (catalog membership:
     /// which PUBLIC personas a principal exposes). CP-resident in BOTH modes
     /// (SaaS rows keyed by <c>TenantId</c>, single-user rows by <c>UserId</c>) —
@@ -864,6 +871,10 @@ public class ControlPlaneDbContext : DbContext
         // shape on both, mirroring audit_records). fixedTenantId: null = the CP
         // build.
         TammaModelConfiguration.ConfigureAgentRoleSelections(modelBuilder, fixedTenantId: null);
+
+        // Story 40-3 — agent_run_waits. Dual-resident like agent_role_selections
+        // (CP for single-user user-keyed rows; tenant schema for SaaS rows).
+        TammaModelConfiguration.ConfigureAgentRunWaits(modelBuilder, fixedTenantId: null);
 
         // Story 32-16 — per-tenant agent/persona enablement (catalog membership).
         // CP-resident in BOTH modes (gates the CP public agent catalog; keyed by

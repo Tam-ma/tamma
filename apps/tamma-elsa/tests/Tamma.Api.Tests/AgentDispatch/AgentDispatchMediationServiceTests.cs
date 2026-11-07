@@ -90,6 +90,78 @@ public class AgentDispatchMediationServiceTests
     { WorkflowFileName = "tamma-agent.yml", Ref = "tamma/issue-7", CorrelationId = "wf-1" };
 
     // ===================================================================
+    // Story 40-3 (AC1) — a successful suspending dispatch writes the durable row
+    // ===================================================================
+
+    private (AgentDispatchMediationService Sut, Mock<IAgentRunWaitRecorder> Recorder) WithRecorder()
+    {
+        var recorder = new Mock<IAgentRunWaitRecorder>();
+        recorder.Setup(r => r.RecordAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<DispatchAgentRunRequest>(),
+                It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true);
+        return (new AgentDispatchMediationService(
+            _authorizer.Object, _resolver.Object, _installations.Object, _aggregator.Object, _events,
+            NullLogger<AgentDispatchMediationService>.Instance, recorder.Object), recorder);
+    }
+
+    private static DispatchAgentRunRequest SuspendingBody() => DispatchBody() with
+    {
+        BookmarkName = "agent-run-x", WorkflowInstanceId = "inst-1", BookmarkTenantId = "t",
+    };
+
+    [Test]
+    public async Task Trigger_Success_WithBookmark_RecordsTheWaitRow()
+    {
+        Allow();
+        var (sut, recorder) = WithRecorder();
+        var body = SuspendingBody();
+
+        var result = await sut.TriggerRunAsync(_tenant, Repo, body);
+
+        result.Success.Should().BeTrue();
+        recorder.Verify(r => r.RecordAsync(_tenant, Repo, body, result.DispatchedAt, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Trigger_AcceptedUncorrelated_WithBookmark_RecordsTheWaitRow()
+    {
+        Allow();
+        _actions.OnDispatch = (_, _, _) => PlatformResult<WorkflowRun>.FromError(
+            new PlatformError.Unknown("dispatch accepted (204) but the created run could not be correlated"));
+        var (sut, recorder) = WithRecorder();
+
+        await sut.TriggerRunAsync(_tenant, Repo, SuspendingBody());
+
+        recorder.Verify(r => r.RecordAsync(_tenant, Repo, It.IsAny<DispatchAgentRunRequest>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Trigger_Failure_NeverRecordsAWaitRow()
+    {
+        Allow();
+        _client
+            .Setup(c => c.GetFileContentAsync(It.IsAny<GetFileContentRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(PlatformResult<byte[]>.FromError(new PlatformError.NotFound()));
+        var (sut, recorder) = WithRecorder();
+
+        var result = await sut.TriggerRunAsync(_tenant, Repo, SuspendingBody());
+
+        result.Success.Should().BeFalse();
+        recorder.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task Trigger_Success_WithoutBookmark_RecordsNothing()
+    {
+        Allow();
+        var (sut, recorder) = WithRecorder();
+
+        await sut.TriggerRunAsync(_tenant, Repo, DispatchBody());
+
+        recorder.VerifyNoOtherCalls();
+    }
+
+    // ===================================================================
     // Cross-tenant guard (AC2) — FIRST, fail-closed
     // ===================================================================
 

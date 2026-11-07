@@ -1054,6 +1054,25 @@ builder.Services.AddScoped<Tamma.Api.Services.AgentDispatch.IActionsResultAggreg
     Tamma.Api.Services.AgentDispatch.ActionsResultAggregator>();
 builder.Services.AddScoped<Tamma.Api.Services.AgentDispatch.IAgentDispatchMediationService,
     Tamma.Api.Services.AgentDispatch.AgentDispatchMediationService>();
+// Story 40-3 — the durable agent-run signal plane: the recorder writes the
+// agent_run_waits row on a successful suspending dispatch; the resumer (driven by the
+// workflow_run.completed webhook) resumes the engine bookmark from that row on any pod.
+builder.Services.AddScoped<Tamma.Api.Services.AgentDispatch.IAgentRunWaitRecorder>(sp =>
+    new Tamma.Api.Services.AgentDispatch.AgentRunWaitRecorder(
+        sp.GetRequiredService<Tamma.Data.Repositories.IAgentRunWaitRepository>(),
+        sp.GetRequiredService<Tamma.Data.Repositories.IInstallationRepository>(),
+        sp.GetRequiredService<Tamma.Api.Services.PromptStore.ITammaModeProvider>(),
+        sp.GetService<Tamma.Api.Services.Actions.ISoleUserProvider>(),
+        sp.GetRequiredService<ILogger<Tamma.Api.Services.AgentDispatch.AgentRunWaitRecorder>>()));
+builder.Services.AddScoped<Tamma.Api.Services.AgentDispatch.IAgentRunResumer>(sp =>
+    new Tamma.Api.Services.AgentDispatch.AgentRunResumer(
+        sp.GetRequiredService<Tamma.Data.Repositories.IAgentRunWaitRepository>(),
+        sp.GetRequiredService<Tamma.Data.Repositories.IInstallationRepository>(),
+        sp.GetRequiredService<Tamma.Api.Services.PromptStore.ITammaModeProvider>(),
+        sp.GetService<Tamma.Api.Services.Actions.ISoleUserProvider>(),
+        sp.GetRequiredService<IHttpClientFactory>(),
+        sp.GetRequiredService<Tamma.Data.Repositories.IEventRepository>(),
+        sp.GetRequiredService<ILogger<Tamma.Api.Services.AgentDispatch.AgentRunResumer>>()));
 
 // Story 38-2 — the engine's TammaApiClient. Tamma.Api does NOT host the Elsa
 // engine, so the phase services below are dead registrations here; but wiring the
@@ -3825,6 +3844,7 @@ using (var scope = app.Services.CreateScope())
                 DROP TABLE IF EXISTS
                     admin_impersonations,
                     agents, agent_versions, agent_role_selections,
+                    agent_run_waits,
                     tenant_agent_enablements,
                     audit_records, audit_projector_cursor, audit_chain_checkpoints,
                     billing_customers, billing_plan_prices,

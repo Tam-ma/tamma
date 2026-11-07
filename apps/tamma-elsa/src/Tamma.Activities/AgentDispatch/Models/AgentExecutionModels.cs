@@ -68,7 +68,13 @@ public sealed record AgentExecutionRequest(
     // Story 38-2 — the acting tenant, threaded from the activity's Elsa context so
     // the thin phase services can send X-Tenant-Id on the mediated agent-dispatch
     // calls (the API asserts tenant↔repo before minting the installation token).
-    Guid? TenantId = null);
+    Guid? TenantId = null,
+    // Story 40-3 — set only by the suspending WaitForAgentRunActivity: the bookmark it
+    // suspends on, its workflow instance, and the raw tenant segment folded into the
+    // name. The mediated dispatch persists them as the durable agent_run_waits row.
+    string? BookmarkName = null,
+    string? WorkflowInstanceId = null,
+    string? BookmarkTenantId = null);
 
 /// <summary>
 /// Unified result returned by every <see cref="IAgentExecutor"/>

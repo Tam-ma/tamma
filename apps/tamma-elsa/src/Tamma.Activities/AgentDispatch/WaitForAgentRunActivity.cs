@@ -37,8 +37,10 @@ namespace Tamma.Activities.AgentDispatch;
 /// bookmark is committed finds nothing to resume; the resume side records it in
 /// <see cref="PendingAgentRunCompletionBuffer"/>. The activity consumes the buffer before creating
 /// its bookmarks, right after, and from the reconcile timer that fires only after the commit — the
-/// window between the second check and the commit is covered by that third read. Cross-process
-/// durability is 40-3's persisted signal row + reconciler; <c>Timeout</c> is the last resort.</para>
+/// window between the second check and the commit is covered by that third read (and by the
+/// engine's <c>ReconcileBufferedAgentRunHandler</c> on bookmark persist). Cross-process durability
+/// is 40-3's <c>agent_run_waits</c> row, written API-side from the bookmark name + instance id this
+/// activity sends on the dispatch; <c>Timeout</c> is the last resort.</para>
 ///
 /// <para><b>Local mode (D5).</b> There is no webhook for a local run, so the activity runs the
 /// executor to completion inside <c>ExecuteAsync</c> under the same hard deadline and takes
@@ -270,7 +272,14 @@ public class WaitForAgentRunActivity : Activity, ITammaActivity
         AgentDispatchResult dispatchResult;
         try
         {
-            dispatchResult = await dispatch.DispatchAsync(request, context.CancellationToken);
+            // Story 40-3 — the API persists the durable agent_run_waits row from these.
+            var suspending = request with
+            {
+                BookmarkName = bookmarkName,
+                WorkflowInstanceId = context.WorkflowExecutionContext.Id,
+                BookmarkTenantId = TenantId.GetOrDefault(context),
+            };
+            dispatchResult = await dispatch.DispatchAsync(suspending, context.CancellationToken);
         }
         catch (Exception ex)
         {
