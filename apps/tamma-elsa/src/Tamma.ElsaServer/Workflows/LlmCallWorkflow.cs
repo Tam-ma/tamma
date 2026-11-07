@@ -139,24 +139,11 @@ public class LlmCallWorkflow : WorkflowBase
                 legacyConventionsVar.Set(context, legacyConv);
 
                 // Serialize variables dict if provided, injecting defaults for common template vars
-                var variables = context.GetInput<IDictionary<string, object>>("variables");
-                if (variables != null)
+                var inputVariables = context.GetInput<IDictionary<string, object>>("variables");
+                if (inputVariables != null)
                 {
-                    // Inject 'role' if not provided — every template uses {{role}}
-                    if (!variables.ContainsKey("role"))
-                    {
-                        var r = context.GetInput<string>("agentRole") ?? context.GetInput<string>("role") ?? "assistant";
-                        variables["role"] = r;
-                    }
-                    // 'conventions' will be overwritten downstream by the
-                    // ResolveConventionsActivity result; leave a placeholder
-                    // here so callers that bypass the resolve activity (or
-                    // use the empty-action path) still see a sensible value.
-                    if (!variables.ContainsKey("conventions"))
-                    {
-                        variables["conventions"] = legacyConv;
-                    }
-                    variablesJsonVar.Set(context, JsonSerializer.Serialize(variables));
+                    var defaultRole = context.GetInput<string>("agentRole") ?? context.GetInput<string>("role") ?? "assistant";
+                    variablesJsonVar.Set(context, BuildVariablesJson(inputVariables, defaultRole, legacyConv));
                 }
 
                 // Enable tools from input
@@ -1007,6 +994,30 @@ public class LlmCallWorkflow : WorkflowBase
         WriteIndented = false,
         DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
     };
+
+    /// <summary>
+    /// Serialize the caller's template <paramref name="inputVariables"/>, injecting
+    /// <c>role</c> (every template uses <c>{{role}}</c>) and a <c>conventions</c>
+    /// placeholder when absent. <c>conventions</c> is overwritten downstream by the
+    /// ResolveConventionsActivity result; the placeholder serves callers that bypass
+    /// that activity (or use the empty-action path).
+    /// <para>
+    /// Never mutates <paramref name="inputVariables"/>: an in-process DispatchWorkflow
+    /// hands this child the caller's own dictionary instance, which the parent still
+    /// holds in its activity state. Writing into it while the parent commits races the
+    /// parent's state serialization ("Collection was modified"), so the parent's first
+    /// commit fails, its wait bookmark is never persisted, and the parent hangs forever
+    /// once this child completes (the nightly Gitea engine-E2E flake).
+    /// </para>
+    /// </summary>
+    internal static string BuildVariablesJson(
+        IDictionary<string, object> inputVariables, string defaultRole, string legacyConventions)
+    {
+        var variables = new Dictionary<string, object>(inputVariables);
+        variables.TryAdd("role", defaultRole);
+        variables.TryAdd("conventions", legacyConventions);
+        return JsonSerializer.Serialize(variables);
+    }
 
     private static LlmCallWorkflowInput ParseInput(string? json)
     {

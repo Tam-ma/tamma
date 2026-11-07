@@ -125,7 +125,7 @@ This wave makes the platform's implicit domain language explicit and extends the
 
 ### Epic 39 — Typed Work Documents & the Universal Lifecycle (Implemented)
 
-**Layer 4** — 21 stories, 17 landed. Defines ~10 typed work documents (Decomposition, Plan, Review, Findings, …) as static C# types in `Tamma.Core`, one generic `produce → validate → review → revise → accept` lifecycle, an orchestrator that routes acceptance by a 70–100 autonomy dial, and a resumable-by-design authoring standard with a structural test. **The producer-migration spine is complete** — 39-12 (pilot) → 39-13 (assessment family) → 39-14 (planning family) → 39-15 (remaining producers) are all merged, so every document-producing workflow now rides `DocumentLifecycleWorkflow`. Remaining: 39-1 (I/O audit), 39-16 (generated prompt contracts), 39-17 (resident orchestrator agent), 39-21 (C# RAG). See [Document Lifecycle](Document-Lifecycle).
+**Layer 4** — 21 stories, 17 landed. Defines ~10 typed work documents (Decomposition, Plan, Review, Findings, …) as static C# types in `Tamma.Core`, one generic `produce → validate → review → revise → accept` lifecycle, an orchestrator that routes acceptance by the autonomy dial, and a resumable-by-design authoring standard with a structural test. **The producer-migration spine is complete** — 39-12 (pilot) → 39-13 (assessment family) → 39-14 (planning family) → 39-15 (remaining producers) are all merged, so every document-producing workflow now rides `DocumentLifecycleWorkflow`. Remaining: 39-1 (I/O audit), 39-16 (generated prompt contracts), 39-17 (resident orchestrator agent), 39-21 (C# RAG). See [Document Lifecycle](Document-Lifecycle).
 
 ### Epic 40 — Resumable Coding Execution (Planned / docs)
 

@@ -67,13 +67,30 @@ public static class ActionPolicyEndpoints
     // GET /api/actions/dial — publish AutonomyDial so no client hardcodes it
     // =======================================================================
 
-    public static IResult GetDial() => Results.Ok(new
+    //
+    // Story 43-1 AC3: `current`/`source` are the CALLER's resolved base row —
+    // the dial position in effect for them and the tier that supplied it —
+    // resolved exactly as GET /policy resolves its `current` (same principal
+    // resolver, same degrade-to-shipped-defaults posture), so the two routes
+    // can never disagree about where the dial sits.
+    public static async Task<IResult> GetDial(
+        IAcceptanceRulesResolver acceptanceRules,
+        IGovernancePrincipalResolver principals,
+        ClaimsPrincipal principal)
     {
-        min = AutonomyDial.Min,
-        max = AutonomyDial.Max,
-        alwaysHuman = AutonomyDial.AlwaysHuman,
-        @default = AcceptanceDefaults.DefaultAutonomyLevel,
-    });
+        var gp = await principals.ResolveAsync(principal);
+        var baseRules = await ResolveBaseAsync(acceptanceRules, gp);
+
+        return Results.Ok(new
+        {
+            min = AutonomyDial.Min,
+            max = AutonomyDial.Max,
+            alwaysHuman = AutonomyDial.AlwaysHuman,
+            @default = AcceptanceDefaults.DefaultAutonomyLevel,
+            current = baseRules.Rules.AutonomyLevel,
+            source = baseRules.Source,
+        });
+    }
 
     // =======================================================================
     // GET /api/actions/catalog — the full code-resident vocabulary

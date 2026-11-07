@@ -152,7 +152,7 @@ the configurable policy per document type, resolved through `IAcceptanceRulesRes
 
 | Knob | Meaning |
 |---|---|
-| `autonomyLevel` | **70 (supervised baseline)** … **100 (full auto)**. How much the orchestrator decides itself. Validated 70–100 — it is a dial, not a mode. |
+| `autonomyLevel` | Shipped default **70 (supervised baseline)** … **100 (full auto)**. How much the orchestrator decides itself. Validated within the range published by `AutonomyDial` / `GET /api/actions/dial` — it is a dial, not a mode. |
 | `maxRevisionRounds` | Review/revision rounds before `RoundsExhausted` (1–10). |
 | `maxValidationRepairAttempts` | Deterministic repair-ring budget (0–10). |
 | `ambiguityEscalationThreshold` | Score at/above which a request escalates ([0,1]). |

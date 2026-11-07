@@ -20,7 +20,14 @@ vi.mock('../../../../services/admin/actions-policy-api-client.js', () => ({
   },
 }));
 
-const DIAL: AutonomyDialInfo = { min: 1, max: 100, alwaysHuman: 101, default: 70 };
+const DIAL: AutonomyDialInfo = {
+  min: 1,
+  max: 100,
+  alwaysHuman: 101,
+  default: 70,
+  current: 70,
+  source: 'system-default',
+};
 
 function makeCatalogAction(overrides?: Partial<CatalogAction>): CatalogAction {
   return {

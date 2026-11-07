@@ -87,7 +87,7 @@ All decision logic lives in the pure `DocumentLifecycleHelper`
 ACCEPT is an **actor, not a branch**. It always builds an `AcceptanceRequest`, publishes it
 on the workflow↔orchestrator channel (`PublishAcceptanceRequestActivity`), and suspends on
 `WaitForDocumentDecisionActivity`. The orchestrator reads the acceptance rules + the
-autonomy dial (70–100) and routes the decision to itself or to a tenant role's Task View;
+autonomy dial (range from `GET /api/actions/dial`) and routes the decision to itself or to a tenant role's Task View;
 `AcceptanceGuardrails.Clamp` enforces the hard invariants (round bounds, blocking-review,
 always-escalate classes) around whatever decision returns. There is no accept-decision
 `llm-call` and no branch that skips the decision.

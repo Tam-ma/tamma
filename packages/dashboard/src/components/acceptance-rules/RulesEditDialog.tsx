@@ -2,7 +2,7 @@
  * RulesEditDialog (Story 39-5)
  *
  * Edits one document type's acceptance rules (or the `base` dial row): the
- * autonomy 70–100 slider, the numeric bounds, the ambiguity threshold, the
+ * autonomy slider (range from GET /api/actions/dial), the numeric bounds, the ambiguity threshold, the
  * always-escalate class list, the reviewer selection, the acceptor requirement,
  * and the decision/routing guidance text. Save → PUT; Reset → DELETE (falls back
  * to the next tier).
@@ -31,19 +31,23 @@ import type {
   ReviewDecisionRule,
   ReviewerMode,
 } from '../../services/admin/acceptance-rules-api-client.js';
+import type { AutonomyDialInfo } from '../../services/admin/actions-policy-api-client.js';
 
-// Slider AFFORDANCE only — the validated range is owned by the server
-// (Tamma.Core AutonomyDial, [1,100] since Story 43-11 widened Min 70 -> 1;
-// its doc forbids restating a bound as validation anywhere else, and the old
-// `70` here was exactly that: it silently made the widened range unreachable
-// from the UI, so nobody could dial below 70 despite 18 backend routes
-// accepting it). The server rejects an out-of-range value regardless of what
-// this slider allows.
-const MIN_AUTONOMY = 1;
-const MAX_AUTONOMY = 100;
+// Story 43-1 AC4: the slider bounds AND the helper text come from the server's
+// GET /api/actions/dial payload (Tamma.Core AutonomyDial). No bound is restated
+// here — a hardcoded `70` once silently made Story 43-11's widened range
+// unreachable from the UI. Widening the dial needs zero TypeScript edits. The
+// slider is an affordance only; the server rejects out-of-range values.
 
 export interface RulesEditDialogProps {
   resolved: ResolvedAcceptanceRules;
+  /**
+   * The server-owned dial range. `null` while it loads (or when it failed —
+   * see `dialError`): the slider is NOT rendered until the range is known, so
+   * the dialog never shows an unbounded or guessed-bound slider.
+   */
+  dial: AutonomyDialInfo | null;
+  dialError?: string | null;
   onSave: (documentTypeKey: string, body: AcceptanceRules) => Promise<unknown>;
   onReset: (documentTypeKey: string) => Promise<void>;
   onClose: () => void;
@@ -51,6 +55,8 @@ export interface RulesEditDialogProps {
 
 export function RulesEditDialog({
   resolved,
+  dial,
+  dialError = null,
   onSave,
   onReset,
   onClose,
@@ -189,18 +195,35 @@ export function RulesEditDialog({
           <span className="text-sm font-medium text-gray-700 dark:text-gray-300">
             Autonomy level: {autonomyLevel}
           </span>
-          <input
-            type="range"
-            aria-label="Autonomy level"
-            min={MIN_AUTONOMY}
-            max={MAX_AUTONOMY}
-            value={autonomyLevel}
-            onChange={(e) => setAutonomyLevel(Number(e.target.value))}
-            className="w-full mt-1"
-          />
-          <span className="text-xs text-gray-500 dark:text-gray-400">
-            70 = supervised baseline · 100 = full auto
-          </span>
+          {dial ? (
+            <>
+              <input
+                type="range"
+                aria-label="Autonomy level"
+                min={dial.min}
+                max={dial.max}
+                value={autonomyLevel}
+                onChange={(e) => setAutonomyLevel(Number(e.target.value))}
+                className="w-full mt-1"
+              />
+              <span
+                data-testid="autonomy-dial-help"
+                className="text-xs text-gray-500 dark:text-gray-400"
+              >
+                {dial.min}–{dial.max} · {dial.default} = shipped default (supervised baseline) ·{' '}
+                {dial.max} = full auto
+              </span>
+            </>
+          ) : (
+            <span
+              data-testid="autonomy-dial-pending"
+              className="block mt-1 text-xs text-gray-500 dark:text-gray-400"
+            >
+              {dialError
+                ? `Could not load the dial range (${dialError}) — the level is kept as is.`
+                : 'Loading the dial range…'}
+            </span>
+          )}
         </label>
 
         {/* Bounds + threshold */}
