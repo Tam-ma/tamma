@@ -190,6 +190,107 @@ public sealed class GitHubPlatformClient : IGitPlatformClient
     }
 
     // ================================================================
+    // Story 40-1 AC7 — atomic multi-file commit (Git Data API)
+    // ================================================================
+
+    /// <inheritdoc />
+    /// <remarks>
+    /// Git Data API, not the Contents API: the Contents API is one commit
+    /// PER FILE (a half-written set is observable between calls) and cannot
+    /// set the executable bit. Sequence: read the branch ref → read its
+    /// commit's tree → one blob per file (base64, so bytes survive verbatim)
+    /// → a tree on top of the base tree → a commit → fast-forward the ref
+    /// (<c>force: false</c>, so a concurrent push fails loud instead of being
+    /// overwritten). Any failing step returns its typed error; nothing is
+    /// visible on the branch until the final ref update succeeds.
+    /// <para>Writing under <c>.github/workflows/</c> additionally needs the
+    /// App's <c>workflows: write</c> permission — GitHub answers 403/404 on
+    /// the ref update otherwise, which surfaces here as that typed error.</para>
+    /// </remarks>
+    public async Task<PlatformResult<FileCommit>> CommitFilesAsync(
+        CommitFilesRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Owner);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.RepoName);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Branch);
+        ArgumentException.ThrowIfNullOrWhiteSpace(request.Message);
+        ArgumentNullException.ThrowIfNull(request.Files);
+        if (request.Files.Count == 0)
+            throw new ArgumentException("at least one file is required", nameof(request));
+
+        var repoPath = $"/repos/{Encode(request.Owner)}/{Encode(request.RepoName)}";
+        var refPath = $"{repoPath}/git/refs/heads/{EncodePath(request.Branch)}";
+
+        // 1. Branch tip.
+        var head = await _http.GetJsonAsync<GitHubRefDto>(
+            $"{repoPath}/git/ref/heads/{EncodePath(request.Branch)}", ct).ConfigureAwait(false);
+        if (head is not PlatformResult<GitHubRefDto>.Ok { Value.Object.Sha: { Length: > 0 } parentSha })
+            return Propagate<GitHubRefDto, FileCommit>(head, "branch ref has no object sha");
+
+        // 2. The tip commit's tree (the base the new tree layers onto).
+        var parent = await _http.GetJsonAsync<GitHubGitCommitDto>(
+            $"{repoPath}/git/commits/{Encode(parentSha)}", ct).ConfigureAwait(false);
+        if (parent is not PlatformResult<GitHubGitCommitDto>.Ok { Value.Tree.Sha: { Length: > 0 } baseTreeSha })
+            return Propagate<GitHubGitCommitDto, FileCommit>(parent, "parent commit has no tree sha");
+
+        // 3. One blob per file.
+        var entries = new List<object>(request.Files.Count);
+        foreach (var file in request.Files)
+        {
+            var blob = await _http.PostJsonAsync<GitHubShaDto>(
+                $"{repoPath}/git/blobs",
+                new { content = Convert.ToBase64String(file.Content), encoding = "base64" },
+                ct).ConfigureAwait(false);
+            if (blob is not PlatformResult<GitHubShaDto>.Ok { Value.Sha: { Length: > 0 } blobSha })
+                return Propagate<GitHubShaDto, FileCommit>(blob, "blob create returned no sha");
+            entries.Add(new
+            {
+                path = file.Path.TrimStart('/'),
+                mode = file.Executable ? "100755" : "100644",
+                type = "blob",
+                sha = blobSha,
+            });
+        }
+
+        // 4. Tree.
+        var tree = await _http.PostJsonAsync<GitHubShaDto>(
+            $"{repoPath}/git/trees", new { base_tree = baseTreeSha, tree = entries }, ct).ConfigureAwait(false);
+        if (tree is not PlatformResult<GitHubShaDto>.Ok { Value.Sha: { Length: > 0 } treeSha })
+            return Propagate<GitHubShaDto, FileCommit>(tree, "tree create returned no sha");
+
+        // 5. Commit.
+        var commit = await _http.PostJsonAsync<GitHubGitCommitDto>(
+            $"{repoPath}/git/commits",
+            new { message = request.Message, tree = treeSha, parents = new[] { parentSha } },
+            ct).ConfigureAwait(false);
+        if (commit is not PlatformResult<GitHubGitCommitDto>.Ok { Value.Sha: { Length: > 0 } commitSha } commitOk)
+            return Propagate<GitHubGitCommitDto, FileCommit>(commit, "commit create returned no sha");
+
+        // 6. Fast-forward the branch — the only step that makes the commit visible.
+        var moved = await _http.PatchJsonAsync<GitHubRefDto>(
+            refPath, new { sha = commitSha, force = false }, ct).ConfigureAwait(false);
+        return moved switch
+        {
+            PlatformResult<GitHubRefDto>.Ok => PlatformResult<FileCommit>.FromOk(
+                new FileCommit(commitSha, commitOk.Value.HtmlUrl)),
+            _ => Propagate<GitHubRefDto, FileCommit>(moved, "ref update failed"),
+        };
+    }
+
+    /// <summary>Carry a failed step's typed error into the caller's result
+    /// type; an Ok that lacked the field the next step needs becomes a typed
+    /// response-shape failure (never a throw).</summary>
+    private static PlatformResult<TOut> Propagate<TIn, TOut>(PlatformResult<TIn> result, string shapeReason) =>
+        result switch
+        {
+            PlatformResult<TIn>.Failed failed => PlatformResult<TOut>.FromError(failed.Error),
+            PlatformResult<TIn>.Ok => PlatformResult<TOut>.FromError(
+                new PlatformError.Unknown($"response_shape_mismatch: {shapeReason}")),
+            _ => PlatformResult<TOut>.FromServiceUnavailable(),
+        };
+
+    // ================================================================
     // Pull requests
     // ================================================================
 

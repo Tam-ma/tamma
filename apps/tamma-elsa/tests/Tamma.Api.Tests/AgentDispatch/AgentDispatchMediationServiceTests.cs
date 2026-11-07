@@ -192,6 +192,8 @@ public class AgentDispatchMediationServiceTests
 
         result.Success.Should().BeFalse();
         result.FailureCode.Should().Be(AgentDispatchFailureCodes.WorkflowNotFound);
+        // Story 40-1 AC7 — the dead end now names the install action, not a bare "add the template".
+        result.FailureReason.Should().Contain($"POST /api/v1/repos/{Repo}/runner/install");
         _actions.DispatchCalls.Should().BeEmpty();
         result.ToHttpResult().Let(StatusOf).Should().Be(200, "expected platform failures ride inside 200 success:false");
         _events.Appended.Should().ContainSingle().Which.Type.Should().Be(AgentDispatchEventTypes.RunTriggeredFailed);

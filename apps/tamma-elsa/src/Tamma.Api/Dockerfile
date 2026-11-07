@@ -1,21 +1,26 @@
 # Tamma API Dockerfile
 # Multi-stage build for optimized production image
+# Build context: apps/tamma-elsa/ (includes src/ and runner/). Story 40-1 AC7:
+# Tamma.Api embeds runner/github-actions/ (the canonical agent runner the
+# scaffold commits into tenant repos), so the context must reach it; the
+# csproj fails the build loudly if it cannot.
 
 # Build stage
 FROM mcr.microsoft.com/dotnet/sdk:8.0 AS build
 WORKDIR /src
 
 # Copy project files
-COPY ["Tamma.Api/Tamma.Api.csproj", "Tamma.Api/"]
-COPY ["Tamma.Core/Tamma.Core.csproj", "Tamma.Core/"]
-COPY ["Tamma.Data/Tamma.Data.csproj", "Tamma.Data/"]
-COPY ["Tamma.Activities/Tamma.Activities.csproj", "Tamma.Activities/"]
+COPY ["src/Tamma.Api/Tamma.Api.csproj", "Tamma.Api/"]
+COPY ["src/Tamma.Core/Tamma.Core.csproj", "Tamma.Core/"]
+COPY ["src/Tamma.Data/Tamma.Data.csproj", "Tamma.Data/"]
+COPY ["src/Tamma.Activities/Tamma.Activities.csproj", "Tamma.Activities/"]
 
 # Restore dependencies
 RUN dotnet restore "Tamma.Api/Tamma.Api.csproj"
 
-# Copy source code
-COPY . .
+# Copy source code (+ the runner template: /src/Tamma.Api/../../runner = /runner)
+COPY src/ .
+COPY runner/ /runner/
 
 # Build the project
 WORKDIR "/src/Tamma.Api"

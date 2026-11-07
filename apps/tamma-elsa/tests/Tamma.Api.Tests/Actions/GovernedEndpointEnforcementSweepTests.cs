@@ -120,6 +120,10 @@ public class GovernedEndpointEnforcementSweepTests
             // llm.task.execute is 20; both < 70, so behaviour-preserving.
             "POST /api/engine/trigger-ci",
             "POST /api/engine/execute-task",
+            // Story 40-1 AC7 — the tenant-admin runner scaffold install, born bound +
+            // enforcing (git.runner.install, 35 < 70). A person's own JWT is never
+            // dial-gated; only an LLM/engine caller could be.
+            "POST /api/v1/repos/{owner}/{repo}/runner/install",
         };
 
     /// <summary>Endpoints carrying the D15 enforcement opt-in, off the booted host.</summary>
@@ -164,10 +168,11 @@ public class GovernedEndpointEnforcementSweepTests
             + "binding is still there — which is exactly why this set is pinned in both "
             + "directions:" + Environment.NewLine + string.Join(Environment.NewLine, missing));
 
-        live.Should().HaveCount(30,
+        live.Should().HaveCount(31,
             "16 mediation routes (Story 43-9) + the reveal route (Story 42-10, secret.read) "
             + "+ the 11 PR/issue verbs (Story 31-13: 7 PR-lifecycle routes + 4 issue callbacks) "
             + "+ the 2 formerly-unowned engine callbacks (43-17 follow-up: trigger-ci, execute-task) "
+            + "+ the runner scaffold install (Story 40-1 AC7) "
             + "opt into enforcement.");
     }
 

@@ -424,6 +424,12 @@ public static partial class ActionCatalog
             "PUT /api/v1/git/{owner}/{repo}/pull-requests/{n:int}/labels — GitEndpoints.SetPullRequestLabels", min: 35),
         Effect(ExternalEffect.GitPullRequestSetDraft, ActionGroup.SourceControlWrite, ActionRisk.Mutating, "Set pull request draft state", "Toggle a pull request between draft and ready-for-review.",
             "PUT /api/v1/git/{owner}/{repo}/pull-requests/{n:int}/draft — GitEndpoints.SetPullRequestDraft", min: 35),
+        // Story 40-1 AC7 — runner scaffold. Level 35 (create branch / PR zone): the
+        // install creates a branch + commit and OPENS A PR; nothing lands on the
+        // default branch until a person merges it. Reversible (close the PR /
+        // delete the branch).
+        Effect(ExternalEffect.GitRunnerInstall, ActionGroup.SourceControlWrite, ActionRisk.Mutating, "Install agent runner", "Commit the canonical Tamma agent runner set (workflow + scripts) to a branch of the repo and open a pull request for it.",
+            "POST /api/v1/repos/{owner}/{repo}/runner/install — RunnerScaffoldEndpoints.Install", min: 35),
         // SiteKey carries `{n:int}` (corrected 2026-07-30, 43-8 AC1 step 3) — the
         // live pattern is MapPatch("/api/v1/git/{owner}/{repo}/issues/{n:int}").
         Effect(ExternalEffect.GitIssuePatch, ActionGroup.IssueTracking, ActionRisk.Mutating, "Update issue", "Update an issue on the git platform.",

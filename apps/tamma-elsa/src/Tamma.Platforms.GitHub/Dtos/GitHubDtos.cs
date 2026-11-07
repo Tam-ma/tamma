@@ -235,3 +235,17 @@ internal sealed class GitHubArtifactsListDto
     [JsonPropertyName("total_count")] public int TotalCount { get; set; }
     [JsonPropertyName("artifacts")] public List<GitHubArtifactDto>? Artifacts { get; set; }
 }
+
+// ── Story 40-1 AC7 — Git Data API shapes for the atomic multi-file commit. ──
+
+internal sealed class GitHubShaDto
+{
+    [JsonPropertyName("sha")] public string? Sha { get; set; }
+}
+
+internal sealed class GitHubGitCommitDto
+{
+    [JsonPropertyName("sha")] public string? Sha { get; set; }
+    [JsonPropertyName("html_url")] public string? HtmlUrl { get; set; }
+    [JsonPropertyName("tree")] public GitHubShaDto? Tree { get; set; }
+}

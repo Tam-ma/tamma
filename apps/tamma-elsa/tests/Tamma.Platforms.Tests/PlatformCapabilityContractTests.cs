@@ -141,6 +141,11 @@ public class PlatformCapabilityContractTests
             async d => Classify(await d.Client.ListBranchFileChangesAsync(
                 new ListBranchFileChangesRequest("o", "r", "feature")))),
 
+        // Story 40-1 AC7 — the atomic multi-file commit (the file WRITE verb).
+        new(PlatformCapability.FileWrites, "CommitFilesAsync",
+            async d => Classify(await d.Client.CommitFilesAsync(
+                new CommitFilesRequest("o", "r", "main", "m", [new CommitFileChange("f.txt", [1])])))),
+
         // Epic 31 P1 stage 2 — the two capabilities GitHub used to stub
         // while the matrix advertised them. Relaxed not-advertised arm:
         // their interface contract predates the typed-refusal convention
@@ -459,10 +464,11 @@ public class PlatformCapabilityContractTests
             PlatformCapability.CommitReads,
             PlatformCapability.PrFileReview,
             PlatformCapability.ListAccessibleRepos,
+            PlatformCapability.FileWrites,
         ]);
-        CapabilityVerbs.Should().HaveCount(15,
+        CapabilityVerbs.Should().HaveCount(16,
             "6 lifecycle + 3 issue-lifecycle + 1 release + 1 review-comment-read + 2 commit-read "
-            + "+ 1 pr-file-review + 1 accessible-repos verbs; a new capability-gated verb must be "
+            + "+ 1 pr-file-review + 1 accessible-repos + 1 file-write (Story 40-1) verbs; a new capability-gated verb must be "
             + "added here in the same commit");
     }
 }

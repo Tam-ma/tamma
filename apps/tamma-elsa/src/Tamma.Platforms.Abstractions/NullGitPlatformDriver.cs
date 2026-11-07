@@ -175,6 +175,11 @@ public sealed class NullGitPlatformDriver : IGitPlatformDriver
             CreateIssueRequest request, CancellationToken ct = default) =>
             CapabilityUnsupported<Issue>();
 
+        // Story 40-1 AC7 — capability-gated like the loop verbs.
+        public Task<PlatformResult<FileCommit>> CommitFilesAsync(
+            CommitFilesRequest request, CancellationToken ct = default) =>
+            CapabilityUnsupported<FileCommit>();
+
         public Task<PlatformResult<SecurityAlerts>> ListSecurityAlertsAsync(
             string owner, string repoName, string alertType, CancellationToken ct = default) =>
             CapabilityUnsupported<SecurityAlerts>();

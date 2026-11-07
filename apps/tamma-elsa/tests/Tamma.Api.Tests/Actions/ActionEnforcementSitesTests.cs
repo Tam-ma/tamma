@@ -172,8 +172,8 @@ public class ActionEnforcementSitesTests
         // sites for rows that have none.
         var withSites = ActionCatalog.All.Count(d => Live.For(d.Key).Count > 0);
 
-        withSites.Should().Be(37,
-            "37 catalog rows have a live site (43-17 follow-up: 35 → 37, + the two formerly-unowned engine callbacks ci.workflow.dispatch and llm.task.execute; Story 31-13: 24 → 35, + the 7 PR-lifecycle verbs "
+        withSites.Should().Be(38,
+            "38 catalog rows have a live site (Story 40-1 AC7: 37 → 38, + git.runner.install, born bound + enforcing; 43-17 follow-up: 35 → 37, + the two formerly-unowned engine callbacks ci.workflow.dispatch and llm.task.execute; Story 31-13: 24 → 35, + the 7 PR-lifecycle verbs "
             + "and the 4 formerly-ungoverned issue callbacks, now bound + enforcing): the 19 "
             + "mediation effects (the merge trio git.merge.{dev,qa,main} replaced the coarse merge, "
             + "+2), the 4 mentorship effects, secret.read (42-10), and the 11 PR+issue verbs. Every "
@@ -211,7 +211,9 @@ public class ActionEnforcementSitesTests
         // 35 bound + 210 baselined (208 backlog + 2 exceptions) = 245 in-scope.
         // Story 31-13 — 22 → 33: +7 new PR-lifecycle routes and +4 issue callbacks
         // that moved baseline→bound (all born/now enforcing).
-        bound.Count.Should().Be(35);
+        // Story 40-1 AC7 — 35 → 36: POST /api/v1/repos/{owner}/{repo}/runner/install
+        // is a NEW in-scope route, born bound. Partition: 36 bound + 210 baselined = 246.
+        bound.Count.Should().Be(36);
 
         // Story 43-9 D17, 2026-08-01 — `baselined` is now the UNION of two
         // separately-pinned collections, so it can no longer equal PinnedCount

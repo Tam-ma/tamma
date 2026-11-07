@@ -894,6 +894,12 @@ internal sealed class GitLabPlatformClient : IGitPlatformClient
         Tamma.Platforms.Abstractions.Models.CreateIssueRequest request, CancellationToken ct = default) =>
         LoopVerbUnsupported<Issue>("issue creation");
 
+    // Story 40-1 AC7 — not advertised (FileWrites); the runner scaffold is
+    // GitHub-only (GitLab dispatches pipeline-per-ref, not by workflow file).
+    public Task<PlatformResult<FileCommit>> CommitFilesAsync(
+        CommitFilesRequest request, CancellationToken ct = default) =>
+        LoopVerbUnsupported<FileCommit>("file commit");
+
     public Task<PlatformResult<SecurityAlerts>> ListSecurityAlertsAsync(
         string owner, string repoName, string alertType, CancellationToken ct = default) =>
         LoopVerbUnsupported<SecurityAlerts>("security alerts");

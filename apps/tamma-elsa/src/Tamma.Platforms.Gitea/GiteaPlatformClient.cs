@@ -892,6 +892,16 @@ public sealed class GiteaPlatformClient : IGitPlatformClient
     }
 
     /// <inheritdoc />
+    /// <remarks>Story 40-1 AC7 — not advertised (FileWrites) yet. Gitea's
+    /// <c>POST /repos/{o}/{r}/contents</c> multi-file endpoint is the natural
+    /// implementation; deferred until the runner scaffold targets Gitea.</remarks>
+    public Task<PlatformResult<FileCommit>> CommitFilesAsync(
+        CommitFilesRequest request, CancellationToken ct = default) =>
+        Task.FromResult(PlatformResult<FileCommit>.FromError(
+            new PlatformError.InvalidRequest("capability_unsupported",
+                "the Gitea driver does not implement the multi-file commit verb yet")));
+
+    /// <inheritdoc />
     public Task<PlatformResult<SecurityAlerts>> ListSecurityAlertsAsync(
         string owner, string repoName, string alertType, CancellationToken ct = default) =>
         Task.FromResult(PlatformResult<SecurityAlerts>.FromError(
