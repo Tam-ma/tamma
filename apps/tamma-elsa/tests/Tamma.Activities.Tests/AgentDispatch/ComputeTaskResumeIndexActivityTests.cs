@@ -127,11 +127,11 @@ public class ComputeTaskResumeIndexActivityTests
     // ── AC6: the switch ───────────────────────────────────────────────────
 
     [Test]
-    public void Shipped_default_is_switched_off_until_40_7()
+    public void Shipped_default_is_switched_on_since_40_7()
     {
-        TaskReEntryRegistration.DisabledByDefault.Should().BeTrue(
-            "Story 40-7 flips this one literal once crash re-entry is proven end to end");
-        TaskReEntryRegistration.IsDisabled(Config()).Should().BeTrue();
+        TaskReEntryRegistration.DisabledByDefault.Should().BeFalse(
+            "Story 40-7 proved crash re-entry end to end and flipped the default");
+        TaskReEntryRegistration.IsDisabled(Config()).Should().BeFalse();
     }
 
     [TestCase("true", true)]

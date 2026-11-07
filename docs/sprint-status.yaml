@@ -686,7 +686,7 @@ development_status:
   40-4-per-task-re-entry-from-git-and-events: done   # DONE 2026-11-07. ComputeTaskResumeIndexActivity in SingleIssueCycleWorkflow; pure TaskLoopResumeCalculator; real read in Tamma.Api behind GET /api/engine/issues/{n}/task-resume (engine: HttpTaskLoopReEntryService); CanonicalReEntryActivities widens the 39-10 gate clause (c). Ships OFF: Coding:TaskReEntryDisabled defaults true — 40-7 flips it.
   40-5-resume-behavior-declaration-and-allowlist-burndown: drafted # [ResumeBehavior(Both)] on SingleIssueCycleWorkflow + remove its LegacyResumeAllowlist entry (a TEST-fixture edit). Prereq: 40-2 + 40-4.
   40-6-agent-run-lifecycle-event-family: done   # DONE 2026-11-07. AgentRunWaitEventTypes + emissions (PR #527); TASK_REENTERED + the re-entry feed proof landed with 40-4. RECEIVED is emitted once, engine-side.
-  40-7-crash-restart-mode-matrix-integration-proof: drafted   # Testcontainers composition proof (durable suspend/resume, cross-pod, crash re-entry, timeout, SaaS+local matrix). Prereq: 40-1..40-6.
+  40-7-crash-restart-mode-matrix-integration-proof: done   # DONE 2026-11-07. SingleIssueCycleCrashReEntryTests (real cycle on Elsa runtime, runs in normal CI): crash re-entry (GHA + local), exactly-once, timeout, inconsistency. Re-entry now ON by default (Coding:TaskReEntryDisabled=false). AC2 cross-pod covered by 40-3's endpoint tests, not re-proven here (no shared Elsa store in-process).
   40-8-triage-outcome-dead-ends-and-the-create-issues-workflow: done   # DONE (PR #508). Evidence: CreateIssuesWorkflow.cs exists; the DEFER/SPLIT dead-ends now dispatch a real workflow.
   epic-40-retrospective: optional
   # CROSS-EPIC: SingleIssueCycleWorkflow.cs per-task loop has four writers — merge order 40-2 → 40-4 → 40-5 → 41-29.

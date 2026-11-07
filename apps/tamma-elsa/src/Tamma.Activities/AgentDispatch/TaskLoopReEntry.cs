@@ -22,8 +22,7 @@ public interface ITaskLoopReEntryService
 
 /// <summary>
 /// Story 40-4 (AC6) — the switched-off seam: always task 0, today's behaviour. Selected while
-/// <see cref="TaskReEntryRegistration.ConfigKey"/> is true, which is the shipped default until
-/// Story 40-7 proves crash re-entry end to end and flips it.
+/// <see cref="TaskReEntryRegistration.ConfigKey"/> is set to true (the operator kill-switch).
 /// </summary>
 public sealed class NullTaskLoopReEntryService : ITaskLoopReEntryService
 {
@@ -39,10 +38,11 @@ public static class TaskReEntryRegistration
     public const string ConfigKey = "Coding:TaskReEntryDisabled";
 
     /// <summary>
-    /// The shipped default: switched OFF. Story 40-7 changes this literal to <c>false</c> once
-    /// its crash re-entry scenarios pass; the key then stays as the operator kill-switch.
+    /// The shipped default: re-entry ON. Story 40-4 shipped this as <c>true</c> (off); Story 40-7
+    /// flipped it once <c>SingleIssueCycleCrashReEntryTests</c> proved crash re-entry end to end.
+    /// Set the key to <c>true</c> to switch it off (operator kill-switch).
     /// </summary>
-    public const bool DisabledByDefault = true;
+    public const bool DisabledByDefault = false;
 
     public static bool IsDisabled(IConfiguration configuration)
         => configuration.GetValue(ConfigKey, DisabledByDefault);

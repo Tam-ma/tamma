@@ -229,8 +229,8 @@ else
     builder.Services.AddScoped<Tamma.Activities.Documents.ILifecycleReEntryService,
         Tamma.Activities.Documents.LifecycleReEntryService>();
 
-// Story 40-4 (AC6) — task-loop crash re-entry. Coding:TaskReEntryDisabled defaults to TRUE
-// (TaskReEntryRegistration.DisabledByDefault) until Story 40-7 proves it and flips the default.
+// Story 40-4 (AC6) — task-loop crash re-entry. Coding:TaskReEntryDisabled defaults to FALSE
+// (re-entry ON; flipped by Story 40-7). Set it to true to switch re-entry off.
 if (Tamma.Activities.AgentDispatch.TaskReEntryRegistration.IsDisabled(builder.Configuration))
     builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
         Tamma.Activities.AgentDispatch.NullTaskLoopReEntryService>();
