@@ -434,15 +434,22 @@ public static class AutonomyGateEvaluator
             // (review MEDIUM-1): a denial must name what denied it, and inheriting
             // the threshold ladder's provenance made a disabled row unattributable
             // — and, while break-glass was engaged, made it look like a bypass.
+            // enforcedOverride: a disable is a DENY control, not a dial setting.
+            // Every consumer passes a decision through when !Enforced, so a
+            // disabled row that inherited enforce=false was a no-op (2026-11-07
+            // audit). Forced TRUE, like the fail-closed degradation above.
             return Decision(
-                AutonomyOutcome.Denied, ReasonDisabled, sourceOverride: DisabledSource());
+                AutonomyOutcome.Denied, ReasonDisabled, enforcedOverride: true,
+                sourceOverride: DisabledSource());
         }
 
         if (allowedRoles is not null
             && (query.Role is null || !allowedRoles.Contains(query.Role, StringComparer.Ordinal)))
         {
+            // Same as the disable: a role restriction is a deny control and holds
+            // on an advisory row (enforce=false only makes the DIAL advisory).
             return Decision(
-                AutonomyOutcome.Denied, ReasonRoleNotAllowed,
+                AutonomyOutcome.Denied, ReasonRoleNotAllowed, enforcedOverride: true,
                 sourceOverride: RoleRestrictionSource());
         }
 

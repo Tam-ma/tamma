@@ -137,7 +137,9 @@ export function destructiveLoweredByGroup(
  * Whether the gate lets `a` run without a person at `level` — the same rule as the
  * server's `automatedAtLevel` (ActionPolicyEndpoints.AutomatedAtLevel): an
  * advisory row (enforce=false, which also covers non-enforceable members) is never
- * blocked; a disabled row is denied before the dial is consulted; otherwise the
+ * blocked; a disabled row is denied before the dial is consulted (and since the
+ * 2026-11-07 gate fix that denial is always enforced, so the server reports
+ * enforce=true for it); otherwise the
  * level must reach the effective minimum. Role restrictions are caller-dependent
  * and not applied.
  */
