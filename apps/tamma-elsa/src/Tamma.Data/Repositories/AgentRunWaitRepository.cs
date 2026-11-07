@@ -77,6 +77,77 @@ public sealed class AgentRunWaitRepository(
             .FirstOrDefaultAsync(w => w.Id == waitId && w.TenantId == tenantId && w.UserId == default(Guid?), ct);
     }
 
+    // ───────────────────────── Story 40-3b: reconciler ──────────────────
+
+    public async Task<IReadOnlyList<AgentRunWait>> ListStalePendingByUserAsync(
+        DateTime dispatchedBefore, int limit, CancellationToken ct = default)
+        => await cpDb.AgentRunWaits.AsNoTracking()
+            .Where(w => w.UserId != default(Guid?) && w.TenantId == default(Guid?)
+                        && w.Status == AgentRunWaitStatus.Pending && w.DispatchedAt < dispatchedBefore)
+            .OrderBy(w => w.DispatchedAt).Take(limit)
+            .ToListAsync(ct);
+
+    public async Task<IReadOnlyList<Guid>> ListTenantsWithStalePendingAsync(
+        DateTime dispatchedBefore, CancellationToken ct = default)
+    {
+        // The ChannelOutboxRepository fan-out: snapshot the active tenants, keep those with work.
+        var tenants = await cpDb.Tenants.AsNoTracking()
+            .Where(t => t.DeletedAt == null).OrderBy(t => t.Id).Select(t => t.Id)
+            .ToListAsync(ct);
+
+        var withWork = new List<Guid>();
+        foreach (var tid in tenants)
+        {
+            if (ct.IsCancellationRequested) break;
+            try
+            {
+                await using var db = await tenantDbFactory.CreateAsync(tid, ct);
+                if (await db.AgentRunWaits.IgnoreQueryFilters().AnyAsync(w =>
+                        w.TenantId == tid && w.UserId == default(Guid?)
+                        && w.Status == AgentRunWaitStatus.Pending && w.DispatchedAt < dispatchedBefore, ct))
+                    withWork.Add(tid);
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                // A tenant mid-deletion or a transient connection failure must not stop the sweep.
+            }
+        }
+        return withWork;
+    }
+
+    public async Task<IReadOnlyList<AgentRunWait>> ListStalePendingByTenantAsync(
+        Guid tenantId, DateTime dispatchedBefore, int limit, CancellationToken ct = default)
+    {
+        await using var db = await tenantDbFactory.CreateAsync(RequireTenant(tenantId), ct);
+        return await db.AgentRunWaits.AsNoTracking().IgnoreQueryFilters()
+            .Where(w => w.TenantId == tenantId && w.UserId == default(Guid?)
+                        && w.Status == AgentRunWaitStatus.Pending && w.DispatchedAt < dispatchedBefore)
+            .OrderBy(w => w.DispatchedAt).Take(limit)
+            .ToListAsync(ct);
+    }
+
+    public Task<bool> TryMarkTimedOutByUserAsync(Guid userId, Guid waitId, CancellationToken ct = default)
+        => MarkTimedOutAsync(
+            cpDb.AgentRunWaits.Where(w => w.Id == waitId && w.UserId == userId && w.TenantId == default(Guid?)), ct);
+
+    public async Task<bool> TryMarkTimedOutByTenantAsync(Guid tenantId, Guid waitId, CancellationToken ct = default)
+    {
+        await using var db = await tenantDbFactory.CreateAsync(RequireTenant(tenantId), ct);
+        return await MarkTimedOutAsync(
+            db.AgentRunWaits.IgnoreQueryFilters()
+                .Where(w => w.Id == waitId && w.TenantId == tenantId && w.UserId == default(Guid?)), ct);
+    }
+
+    private static async Task<bool> MarkTimedOutAsync(IQueryable<AgentRunWait> row, CancellationToken ct)
+    {
+        var now = DateTime.UtcNow;
+        return await row
+            .Where(w => w.Status == AgentRunWaitStatus.Pending)
+            .ExecuteUpdateAsync(s => s
+                .SetProperty(w => w.Status, AgentRunWaitStatus.TimedOut)
+                .SetProperty(w => w.UpdatedAt, now), ct) > 0;
+    }
+
     // ── helpers ──
 
     private static Guid RequireTenant(Guid tenantId) => tenantId != Guid.Empty

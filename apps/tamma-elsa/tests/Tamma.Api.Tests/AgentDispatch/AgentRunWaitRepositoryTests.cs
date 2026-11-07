@@ -133,6 +133,102 @@ public class AgentRunWaitRepositoryTests
             bookmarkTenant, new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc));
     }
 
+    // ── Story 40-3b: the reconciler's reads/writes, per plane ──
+
+    private Task<IReadOnlyList<AgentRunWait>> Stale(AgentRunWaitRepository r, Plane plane, DateTime before)
+        => plane == Plane.SaaS ? r.ListStalePendingByTenantAsync(_tenantId, before, 50) : r.ListStalePendingByUserAsync(before, 50);
+
+    private Task<bool> TimeOut(AgentRunWaitRepository r, Plane plane, Guid userId, Guid waitId)
+        => plane == Plane.SaaS ? r.TryMarkTimedOutByTenantAsync(_tenantId, waitId) : r.TryMarkTimedOutByUserAsync(userId, waitId);
+
+    [TestCase(Plane.SaaS)]
+    [TestCase(Plane.SingleUser)]
+    public async Task Stale_lists_only_pending_rows_dispatched_before_the_cutoff(Plane plane)
+    {
+        var user = Guid.NewGuid();
+        var (r, cp) = NewPod();
+        await using var _ = cp;
+        var ops = Ops(r, plane, user);
+        var old = await ops.Upsert(Reg(plane, session: "adl-7-task-0") with { DispatchedAt = new DateTime(2026, 11, 1, 9, 0, 0, DateTimeKind.Utc) });
+        await ops.Upsert(Reg(plane, session: "adl-7-task-1") with { DispatchedAt = new DateTime(2026, 11, 1, 11, 0, 0, DateTimeKind.Utc) });
+        var received = await ops.Upsert(Reg(plane, session: "adl-7-task-2") with { DispatchedAt = new DateTime(2026, 11, 1, 8, 0, 0, DateTimeKind.Utc) });
+        await ops.MarkReceived(received.Id, 5);
+
+        var stale = await Stale(r, plane, new DateTime(2026, 11, 1, 10, 0, 0, DateTimeKind.Utc));
+
+        stale.Select(w => w.Id).Should().Equal(old.Id);
+    }
+
+    [TestCase(Plane.SaaS)]
+    [TestCase(Plane.SingleUser)]
+    public async Task Timed_out_is_a_one_way_cas_from_pending(Plane plane)
+    {
+        var user = Guid.NewGuid();
+        var (r, cp) = NewPod();
+        await using var _ = cp;
+        var ops = Ops(r, plane, user);
+        var row = await ops.Upsert(Reg(plane));
+
+        (await TimeOut(r, plane, user, row.Id)).Should().BeTrue();
+        (await TimeOut(r, plane, user, row.Id)).Should().BeFalse("only a pending row can time out");
+        (await ops.MarkReceived(row.Id, 9)).Should().BeFalse("a timed-out row is never received afterwards");
+        (await ops.Get(row.Id))!.Status.Should().Be(AgentRunWaitStatus.TimedOut);
+    }
+
+    [Test]
+    public async Task Tenants_with_stale_rows_are_listed_and_unreachable_tenants_skipped()
+    {
+        await using (var seed = NewCp())
+        {
+            seed.Tenants.RemoveRange(seed.Tenants.Where(t => t.Id == _tenantId));
+            seed.Tenants.Add(new Tenant { Id = _tenantId, Name = "A", Slug = "a-" + _tenantId.ToString("N")[..8], CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            // No schema for this one: the factory throws; the sweep must skip it, not fail.
+            seed.Tenants.Add(new Tenant { Id = Guid.NewGuid(), Name = "Gone", Slug = "gone-" + Guid.NewGuid().ToString("N")[..8], CreatedAt = DateTime.UtcNow, UpdatedAt = DateTime.UtcNow });
+            await seed.SaveChangesAsync();
+        }
+        var (r, cp) = NewPod();
+        await using var _ = cp;
+        await r.UpsertPendingByTenantAsync(_tenantId, Reg(Plane.SaaS));
+
+        (await r.ListTenantsWithStalePendingAsync(new DateTime(2026, 11, 2, 0, 0, 0, DateTimeKind.Utc)))
+            .Should().Equal(_tenantId);
+        (await r.ListTenantsWithStalePendingAsync(new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc)))
+            .Should().BeEmpty("the row was dispatched after that cutoff");
+    }
+
+    // ── Story 40-3b: the per-principal sweep lock ──
+
+    [Test]
+    public async Task Sweep_lock_admits_one_holder_per_principal()
+    {
+        var podA = new PostgresAgentRunSweepLock(_cs);
+        var podB = new PostgresAgentRunSweepLock(_cs);
+
+        var held = await podA.TryAcquireAsync("tenant:one", CancellationToken.None);
+        held.Should().NotBeNull();
+        (await podB.TryAcquireAsync("tenant:one", CancellationToken.None)).Should().BeNull("pod A is sweeping this principal");
+
+        await held!.DisposeAsync();
+        var again = await podB.TryAcquireAsync("tenant:one", CancellationToken.None);
+        again.Should().NotBeNull("released on dispose");
+        await again!.DisposeAsync();
+    }
+
+    [Test]
+    public async Task Sweep_lock_lets_different_principals_sweep_at_once()
+    {
+        // A global (principal-free) key — the HourlyAnalyticsRollupScheduler shape — fails this.
+        var podA = new PostgresAgentRunSweepLock(_cs);
+        var podB = new PostgresAgentRunSweepLock(_cs);
+
+        await using var a = await podA.TryAcquireAsync("tenant:one", CancellationToken.None);
+        await using var b = await podB.TryAcquireAsync("tenant:two", CancellationToken.None);
+
+        a.Should().NotBeNull();
+        b.Should().NotBeNull();
+        PostgresAgentRunSweepLock.KeyFor("tenant:one").Should().NotBe(PostgresAgentRunSweepLock.KeyFor("tenant:two"));
+    }
+
     // ── AC1: pending → received, per plane ──
 
     [TestCase(Plane.SaaS)]

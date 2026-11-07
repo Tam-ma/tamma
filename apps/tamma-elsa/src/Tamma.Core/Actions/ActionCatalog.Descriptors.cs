@@ -759,6 +759,11 @@ public static partial class ActionCatalog
         // suspended workflow instances (idempotent — a burned bookmark 404s).
         Automation(BackgroundActor.CiCompletionPoller, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "CI completion poller", "Polls suspended CI-result waits' run status through the resolved platform driver and resumes the bookmark on completion (Epic 31 P3 DG-5); before it only the 30m timeout ended a CI wait. Idempotent against the timeout race.",
             "Tamma.Api.Services.Ci.CiCompletionPollerService"),
+        // Story 40-3b — the agent-run wait reconciler. Mutating: it resumes suspended
+        // agent-run waits (through the webhook's resumer — a burned bookmark 404s) and marks
+        // never-completed rows timed_out.
+        Automation(BackgroundActor.AgentRunWaitReconciler, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Agent-run wait reconciler", "Recovers agent-run waits whose completion webhook never arrived: polls the run through the mediated discover call and resumes finished ones exactly once (Story 40-3b); marks waits with no completion past the limit timed_out.",
+            "Tamma.Api.Services.AgentDispatch.AgentRunWaitReconciler"),
         // Epic 31 P4 M3 — single-user startup validation for webhook ingress
         // (the git.webhook.register caller in config-tier mode). Mutating: it
         // registers repo webhooks; degradation (no public URL / no secret /

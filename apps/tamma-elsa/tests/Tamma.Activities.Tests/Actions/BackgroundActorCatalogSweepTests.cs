@@ -78,7 +78,7 @@ public class BackgroundActorCatalogSweepTests
     }
 
     [Test]
-    public void The_hosted_service_count_is_pinned_at_35()
+    public void The_hosted_service_count_is_pinned_at_36()
     {
         // 33 → 35 (autonomous-loop liveness, 2026-08-18): + AdlLoopWatchdogService and
         // + OrphanedCycleRecoveryService (Tamma.ElsaServer.Workflows) — the out-of-band
@@ -108,6 +108,7 @@ public class BackgroundActorCatalogSweepTests
         // GovernancePolicySnapshotPrimingService — both registered via
         // TryAddEnumerable in AddActionCatalogGovernance) +
         // PlatformTaskWorker = 29.
-        HostedServiceTypes().Should().HaveCount(35);
+        // 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
+        HostedServiceTypes().Should().HaveCount(36);
     }
 }

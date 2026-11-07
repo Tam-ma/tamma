@@ -22,7 +22,9 @@ public sealed record AgentRunCompletion(
     string WorkflowRunUrl,
     string ArtifactsUrl,
     DateTime CreatedAt,
-    DateTime UpdatedAt);
+    DateTime UpdatedAt,
+    // Story 40-3b — how the completion was observed: the webhook, or the reconciler's poll.
+    string WakePath = AgentRunWaitEventTypes.WakePaths.Webhook);
 
 /// <summary>Story 40-3 — what one resume attempt did.</summary>
 public enum AgentRunResumeOutcome
@@ -157,7 +159,7 @@ public sealed class AgentRunResumer : IAgentRunResumer
                 workflowRunUrl = completion.WorkflowRunUrl,
                 artifactsUrl = completion.ArtifactsUrl,
                 durationSeconds = Math.Max(0, (int)(completion.UpdatedAt - completion.CreatedAt).TotalSeconds),
-                wakePath = AgentRunWaitEventTypes.WakePaths.Webhook,
+                wakePath = AgentRunCompletionSignal.NormalizeWakePath(completion.WakePath),
             }, Json, ct).ConfigureAwait(false);
             status = response.StatusCode;
         }

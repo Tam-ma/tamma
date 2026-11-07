@@ -126,6 +126,8 @@ public class ActionWirePinTests
             // Epic 31 P3 (2026-08-08, DG-5) — the CI completion poller: the
             // durable resumer for suspended CI-result waits.
             "ci-completion-poller",
+            // Story 40-3b (2026-11-07) — the agent-run wait reconciler.
+            "agent-run-wait-reconciler",
             // Epic 31 P4 M3 (2026-08-08) — the single-user startup webhook
             // registration pass (git.webhook.register's config-tier caller).
             "webhook-registration-startup");
