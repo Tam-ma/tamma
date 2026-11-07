@@ -173,7 +173,7 @@ public class DocumentLifecycleWorkflowStructureTests
             fc.Connections.Any(c =>
                 c.Source.Activity.Id == "WaitForDocumentDecision" &&
                 c.Source.Port == edge &&
-                c.Target.Activity.Id == "ApplyGuardrails")
+                WorkflowTestHelper.ResolvedTargetId(fc, c) == "ApplyGuardrails")
                 .Should().BeTrue($"the gate's '{edge}' edge must route through ApplyGuardrails (39-5 clamp)");
         }
     }
@@ -228,7 +228,7 @@ public class DocumentLifecycleWorkflowStructureTests
             "delivery is gated so a no-delivery lifecycle skips it entirely");
 
         var fc = Flowchart();
-        fc.Connections.Any(c => c.Source.Activity.Id == "DispatchDelivery" && c.Target.Activity.Id == "PublishAcceptanceRequest")
+        fc.Connections.Any(c => c.Source.Activity.Id == "DispatchDelivery" && WorkflowTestHelper.ResolvedTargetId(fc, c) == "PublishAcceptanceRequest")
             .Should().BeTrue("delivery flows into the publish step, before the gate");
     }
 
@@ -260,7 +260,7 @@ public class DocumentLifecycleWorkflowStructureTests
 
         fc.Connections.Any(c =>
             c.Source.Activity.Id == "DeliveryReEntryGate" && c.Source.Port == "False" &&
-            c.Target.Activity.Id == "PublishAcceptanceRequest")
+            WorkflowTestHelper.ResolvedTargetId(fc, c) == "PublishAcceptanceRequest")
             .Should().BeTrue("a re-entered ACCEPT skips delivery and publishes straight away (exactly-once)");
 
         // The ACCEPT region is still entered only through BuildAcceptanceRequest → HasDeliveryGate,
@@ -333,7 +333,7 @@ public class DocumentLifecycleWorkflowStructureTests
             c.Source.Port == "True" && c.Target.Activity.Id == "PersistEscalated")
             .Should().BeTrue("a present escalated envelope is persisted");
         fc.Connections.Any(c => c.Source.Activity.Id == "EscalateHasDocumentGate" &&
-            c.Source.Port == "False" && c.Target.Activity.Id == "SetOutputs")
+            c.Source.Port == "False" && WorkflowTestHelper.ResolvedTargetId(fc, c) == "SetOutputs")
             .Should().BeTrue("an escalation with no draft skips the persist");
     }
 

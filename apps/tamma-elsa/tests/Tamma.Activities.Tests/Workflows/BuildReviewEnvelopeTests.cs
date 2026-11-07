@@ -15,8 +15,8 @@ namespace Tamma.Activities.Tests.Workflows;
 /// <summary>
 /// Story 41-1c follow-ups (adversarial review 2026-07-29) — EXECUTING proof of the
 /// Review → subject parent linkage (the 39-11 D8 parent-first rule) at every mint
-/// site, since the full-runtime execution fixtures do not currently run anywhere
-/// (see <see cref="ProseLifecycleExecutionTests"/>' [Explicit] reason):
+/// site, at the unit level (the full-runtime execution fixtures, e.g.
+/// <see cref="ProseLifecycleExecutionTests"/>, prove it end to end):
 ///
 /// <list type="bullet">
 /// <item><see cref="DocumentLifecycleWorkflow.BuildReviewEnvelope"/> (the lifecycle's

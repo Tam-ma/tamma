@@ -226,13 +226,15 @@ public sealed class ClarificationDocumentType : IDocumentType
         {
           "phase": "resolution",
           "clarifiedRequirement": "the full disambiguated requirement text",
+          "questions": ["the questions being resolved, in their original order"],
           "resolutions": [ { "questionId": "Q-1", "requirement": "the clarified statement" } ],
           "remainingAmbiguities": ["anything still unclear"],
           "resolved": true
         }
         Rules: the questions phase needs at least one open-ended question; the resolution phase
         needs a non-empty "clarifiedRequirement" and every "questionId" must reference a question
-        (Q-1…Q-n) in this document.
+        (Q-1…Q-n) in this document's own "questions" list — repeat the questions you resolve, or
+        omit "resolutions".
         """;
 
     private static readonly IReadOnlyList<DocumentExample> s_examples = new[]

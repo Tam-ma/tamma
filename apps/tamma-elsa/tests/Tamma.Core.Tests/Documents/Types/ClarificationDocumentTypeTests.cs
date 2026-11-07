@@ -24,6 +24,31 @@ public class ClarificationDocumentTypeTests
     private static IEnumerable<string> Codes(DocumentValidationResult r) => r.Violations.Select(v => v.Code);
 
     [Test]
+    public void The_resolution_shape_the_contract_prescribes_is_valid()
+    {
+        // RenderContract() is what the repair ring shows the model. A model that copies
+        // its RESOLUTION shape exactly must pass Validate — otherwise every repair of a
+        // resolution fails again and the run ends validation-exhausted. The validator
+        // resolves each questionId against THIS document's questions, so the shape has
+        // to carry them.
+        var contract = Type.RenderContract();
+        var start = contract.IndexOf("\"phase\": \"resolution\"", StringComparison.Ordinal);
+        start.Should().BeGreaterThan(0, "the contract describes the resolution phase");
+        var open = contract.LastIndexOf('{', start);
+        var close = open;
+        for (var depth = 0; close < contract.Length; close++)
+        {
+            if (contract[close] == '{') depth++;
+            else if (contract[close] == '}' && --depth == 0) break;
+        }
+        var shape = contract[open..(close + 1)];
+
+        var r = Validate(shape);
+
+        r.IsValid.Should().BeTrue($"violations: {string.Join(", ", Codes(r))}; shape: {shape}");
+    }
+
+    [Test]
     public void Questions_phase_with_one_open_question_is_valid()
     {
         var r = Validate("""{ "phase": "questions", "questions": ["What is the target platform?"] }""");

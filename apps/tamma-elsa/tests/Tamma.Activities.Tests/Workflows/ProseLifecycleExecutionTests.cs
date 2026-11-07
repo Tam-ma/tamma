@@ -34,18 +34,12 @@ namespace Tamma.Activities.Tests.Workflows;
 /// is what names the prose family member — the cell and the kind are independent
 /// axes.
 ///
-/// <para>AC5 is asserted structurally too (fast, non-Explicit) in
+/// <para>AC5 is asserted structurally too (fast, no runtime) in
 /// <see cref="ProseLifecycleStructureTests"/>: the lifecycle graph has NO node
 /// that mentions prose — no bespoke branch.</para>
 /// </summary>
 [TestFixture]
-[Explicit("DOES NOT RUN ANYWHERE TODAY and FAILS when invoked: no CI job passes a filter that selects " +
-    "[Explicit] fixtures, and under this bare-provider harness the lifecycle suspends forever on its first " +
-    "Kind=ActivityKind.Task activity (ComputeReEntryPosition) — Elsa's background activity invoker defers it " +
-    "but no BackgroundActivity bookmark is ever created, so nothing resumes it (diagnosed 2026-07-29; same " +
-    "root cause as DocumentLifecycleExecutionTests). The ParentDocumentId/lifecycle assertions this fixture " +
-    "would make are covered by EXECUTING tests in BuildReviewEnvelopeTests; keep this fixture as the " +
-    "full-runtime target for a future working harness.")]
+[Category(ElsaRuntimeHarness.Category)]
 public class ProseLifecycleExecutionTests
 {
     private const string TenantId = "";
@@ -160,6 +154,7 @@ public class ProseLifecycleExecutionTests
         var loggerFactory = provider.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>();
 
         var bookmarkName = WaitForDocumentDecisionActivity.DecisionBookmarkName(TenantId, session);
+        await ElsaRuntimeHarness.WaitForDecisionBookmarkAsync(provider, session);
         var bookmarks = (await bookmarkStore.FindManyAsync(
             new Elsa.Workflows.Runtime.Filters.BookmarkFilter { Name = bookmarkName }, CancellationToken.None)).ToList();
         var instanceId = bookmarks.Count == 1 ? bookmarks[0].WorkflowInstanceId : string.Empty;
