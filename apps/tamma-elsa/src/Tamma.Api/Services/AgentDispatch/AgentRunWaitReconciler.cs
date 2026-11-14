@@ -213,10 +213,18 @@ public sealed class AgentRunWaitReconciler : BackgroundService
 
         if (mode == TammaMode.SingleUser)
         {
-            var rows = await waits.ListStalePendingByUserAsync(staleBefore, _options.BatchPerPrincipal, ct).ConfigureAwait(false);
-            foreach (var group in rows.GroupBy(r => r.UserId!.Value))
-                await SweepPrincipalAsync(sp, $"user:{group.Key:D}", () => Task.FromResult<IReadOnlyList<AgentRunWait>>(group.ToList()), result, ct)
-                    .ConfigureAwait(false);
+            // This first read only finds which users have stale waits. Each user's rows are
+            // read again under that user's lock, as in SaaS.
+            var found = await waits.ListStalePendingByUserAsync(staleBefore, _options.BatchPerPrincipal, ct).ConfigureAwait(false);
+            foreach (var userId in found.Select(r => r.UserId!.Value).Distinct())
+            {
+                if (ct.IsCancellationRequested) break;
+                await SweepPrincipalAsync(sp, $"user:{userId:D}", async () =>
+                {
+                    var rows = await waits.ListStalePendingByUserAsync(staleBefore, _options.BatchPerPrincipal, ct).ConfigureAwait(false);
+                    return rows.Where(r => r.UserId == userId).ToList();
+                }, result, ct).ConfigureAwait(false);
+            }
             return result;
         }
 

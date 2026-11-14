@@ -3,6 +3,7 @@ using System.Net.Http.Headers;
 using System.Net.Http.Json;
 using System.Text.Json;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Tamma.Core;
 using Tamma.Core.AgentDispatch.Resume;
@@ -50,6 +51,16 @@ public static class TaskReEntryRegistration
 
     public static bool IsDisabled(IConfiguration configuration)
         => configuration.GetValue(ConfigKey, DisabledByDefault);
+
+    /// <summary>
+    /// Registers <see cref="ITaskLoopReEntryService"/> for a host: the null service when the
+    /// switch is on, otherwise the host's real one (<typeparamref name="TReal"/>).
+    /// </summary>
+    public static IServiceCollection AddTaskLoopReEntry<TReal>(this IServiceCollection services, IConfiguration configuration)
+        where TReal : class, ITaskLoopReEntryService
+        => IsDisabled(configuration)
+            ? services.AddScoped<ITaskLoopReEntryService, NullTaskLoopReEntryService>()
+            : services.AddScoped<ITaskLoopReEntryService, TReal>();
 }
 
 /// <summary>

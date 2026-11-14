@@ -231,12 +231,8 @@ else
 
 // Story 40-4 (AC6) — task-loop crash re-entry. Coding:TaskReEntryDisabled defaults to FALSE
 // (re-entry ON; flipped by Story 40-7). Set it to true to switch re-entry off.
-if (Tamma.Activities.AgentDispatch.TaskReEntryRegistration.IsDisabled(builder.Configuration))
-    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
-        Tamma.Activities.AgentDispatch.NullTaskLoopReEntryService>();
-else
-    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
-        Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService>();
+Tamma.Activities.AgentDispatch.TaskReEntryRegistration.AddTaskLoopReEntry<
+    Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService>(builder.Services, builder.Configuration);
 
 // ── Story 28-4 / unified-tenancy Phase 3 — tenant connection pool ──
 //

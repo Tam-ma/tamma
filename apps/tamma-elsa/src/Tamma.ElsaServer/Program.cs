@@ -267,12 +267,8 @@ else
 // Story 40-4 (AC6) — task-loop crash re-entry. The real read lives in Tamma.Api (tenant
 // stores + git driver); the engine asks it over HTTP. Coding:TaskReEntryDisabled defaults to
 // FALSE (re-entry ON; flipped by Story 40-7). Set it to true to switch re-entry off.
-if (Tamma.Activities.AgentDispatch.TaskReEntryRegistration.IsDisabled(builder.Configuration))
-    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
-        Tamma.Activities.AgentDispatch.NullTaskLoopReEntryService>();
-else
-    builder.Services.AddScoped<Tamma.Activities.AgentDispatch.ITaskLoopReEntryService,
-        Tamma.Activities.AgentDispatch.HttpTaskLoopReEntryService>();
+Tamma.Activities.AgentDispatch.TaskReEntryRegistration.AddTaskLoopReEntry<
+    Tamma.Activities.AgentDispatch.HttpTaskLoopReEntryService>(builder.Services, builder.Configuration);
 
 // Round-2 review M3 — bridge that polls platform_events for new
 // TENANT.CLEANUP.REQUESTED rows and re-publishes the matching Elsa

@@ -174,9 +174,11 @@ possible — each task's events are addressable.
      is therefore the REAL service**, with `Coding:TaskReEntryDisabled=true` left as the operator
      kill-switch — the same posture 39-10 reached after 39-11 landed.
 
-   Falsifiable: a DI test per host asserts the flag `true` resolves `NullTaskLoopReEntryService`
-   and the flag absent/`false` resolves `TaskLoopReEntryService`, plus a pin on the shipped default
-   (Null at 40-4; 40-7 flips the pin with the literal).
+   Falsifiable: both hosts register through `TaskReEntryRegistration.AddTaskLoopReEntry<TReal>`.
+   A container test of that helper asserts the flag `true` resolves `NullTaskLoopReEntryService`
+   and `false` resolves the real service; a source check pins that each host calls the helper with
+   its own real service (the hosts' `Program.cs` are not booted in a test); plus a pin on the
+   shipped default.
 
 7. **Emits a re-entry event.** When re-entry skips ≥1 task, the cycle emits
    `AGENT_RUN.TASK_REENTERED` (40-6 family) with `{ issueNumber, resumeIndex, landedIndices,

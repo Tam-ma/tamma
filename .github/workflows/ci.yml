@@ -459,9 +459,19 @@ jobs:
 
       - name: Ratchet (no regression below floor)
         if: steps.summary.outputs.complete == 'true'
+        env:
+          BASE_REF: ${{ github.base_ref }}
         run: |
           python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \
             --floor .github/coverage-floor.json --check > /dev/null
+          # A PR is also held to the floor on its base branch, so lowering the floor
+          # file in the same PR does not pass the check.
+          if [ -n "$BASE_REF" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_REF"
+            git show FETCH_HEAD:.github/coverage-floor.json > "$RUNNER_TEMP/base-floor.json"
+            python3 .github/scripts/coverage-summary.py coverage-report/Summary.json \
+              --floor "$RUNNER_TEMP/base-floor.json" --check > /dev/null
+          fi
 
   # One stable status for the whole C# suite, under the job's old name.
   dotnet-tests:
