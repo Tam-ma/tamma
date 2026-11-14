@@ -932,6 +932,31 @@ public class SingleIssueCycleWorkflow : WorkflowBase
         };
         reportError.SetDisplayText("Report Error");
 
+        // The merge gate's terminals get their OWN report activities. Wired to the shared
+        // ReportNeedsHuman / ReportError, the report never ran from here (the notify ran,
+        // then the cycle finished with no result reported). Runtime-tested in
+        // SingleIssueCycleCrashReEntryTests.
+        var reportMergeRejected = new ReportCycleResultActivity
+        {
+            Id = "ReportMergeRejected", Name = "Report Merge Rejected",
+            Reason = new("needsHuman"), IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+        };
+        reportMergeRejected.SetDisplayText("Report Merge Rejected");
+
+        var reportMergeEscalated = new ReportCycleResultActivity
+        {
+            Id = "ReportMergeEscalated", Name = "Report Merge Escalated",
+            Reason = new("error"), IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+        };
+        reportMergeEscalated.SetDisplayText("Report Merge Escalated");
+
+        var reportMergeTimeout = new ReportCycleResultActivity
+        {
+            Id = "ReportMergeTimeout", Name = "Report Merge Timeout",
+            Reason = new("needsHuman"), IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+        };
+        reportMergeTimeout.SetDisplayText("Report Merge Timeout");
+
         // ================================================================
         // Issue notifications (fire-and-forget sub-workflow dispatches)
         // ================================================================
@@ -1269,6 +1294,7 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 // Exit paths
                 reportSuccess, reportDeferred, reportSplit,
                 reportNeedsHuman, reportError, finish,
+                reportMergeRejected, reportMergeEscalated, reportMergeTimeout,
             },
             Connections =
             {
@@ -1477,12 +1503,14 @@ public class SingleIssueCycleWorkflow : WorkflowBase
 
                 // reject → human-handoff terminal (loud), never waitForMerged
                 ConnectOutcome(gateOutcomeSwitch, "Reject", notifyMergeRejected),
-                ConnectOutcome(gateOutcomeSwitch, "Reject", reportNeedsHuman),
+                ConnectOutcome(gateOutcomeSwitch, "Reject", reportMergeRejected),
+                Connect(reportMergeRejected, finish),
 
                 // escalated (incl. a failed merge sub-workflow, CRITICAL-2) → error
                 // terminal (loud), never waitForMerged
                 ConnectOutcome(gateOutcomeSwitch, "Escalated", notifyMergeEscalated),
-                ConnectOutcome(gateOutcomeSwitch, "Escalated", reportError),
+                ConnectOutcome(gateOutcomeSwitch, "Escalated", reportMergeEscalated),
+                Connect(reportMergeEscalated, finish),
 
                 // 13. Merged → Close Issue + Deployment Pipeline (parallel) — the
                 //      happy path, now gated on the explicit "Merged" outcome so the
@@ -1495,7 +1523,8 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 //      handoff terminal. The loop can NEVER wait on the merge webhook
                 //      forever — a lost/failed merge webhook now escalates deterministically.
                 ConnectOutcome(waitForMerged, "TimedOut", notifyMergeTimeout),
-                ConnectOutcome(waitForMerged, "TimedOut", reportNeedsHuman),
+                ConnectOutcome(waitForMerged, "TimedOut", reportMergeTimeout),
+                Connect(reportMergeTimeout, finish),
 
                 // 15. Deployment done → GATE on the deploy result (§Missing #11).
                 //     A deployment failure must NOT report success — it routes to the

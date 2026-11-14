@@ -135,6 +135,8 @@ public class SingleIssueCycleCrashReEntryTests
 
         var failed = _world.Events("CYCLE.STEP_FAILED").Should().ContainSingle().Subject;
         failed.GetRawText().Should().Contain("task-reentry").And.Contain("not on the branch");
+        await WaitUntilAsync(() => _world.Events(CycleEvents.Ended).Any(), "the failed cycle ended");
+        _world.CycleResults.Should().Equal(new[] { "error" }, "a failed step reports an error to the engine");
         _world.Dispatched.Should().BeEmpty("nothing is skipped or re-run on a guess");
         _world.Events(AgentRunWaitEventTypes.TaskReentered).Should().BeEmpty();
     }
@@ -245,6 +247,29 @@ public class SingleIssueCycleCrashReEntryTests
         _world.Events(AgentRunWaitEventTypes.TaskReentered).Should().BeEmpty();
     }
 
+    [Test]
+    public async Task A_rejected_merge_reports_needs_human_before_the_cycle_ends()
+    {
+        await using var host = await HostAsync("github_actions");
+        await StartCycleAsync(host);
+        for (var i = 0; i < StoredTasks.Length; i++) await DeliverAsync(host, taskIndex: i);
+        await WaitUntilAsync(() => _world.Events(CycleEvents.Ended).Any(), "the cycle ended at the reject terminal");
+
+        _world.CycleResults.Should().Equal(new[] { "needsHuman" }, "a rejected merge hands the issue to a human");
+    }
+
+    [Test]
+    public async Task An_escalated_merge_gate_reports_an_error_before_the_cycle_ends()
+    {
+        Stubs.GateOutcome = "escalated";
+        await using var host = await HostAsync("github_actions");
+        await StartCycleAsync(host);
+        for (var i = 0; i < StoredTasks.Length; i++) await DeliverAsync(host, taskIndex: i);
+        await WaitUntilAsync(() => _world.Events(CycleEvents.Ended).Any(), "the cycle ended at the escalated terminal");
+
+        _world.CycleResults.Should().Equal(new[] { "error" }, "an escalated merge gate is a cycle error");
+    }
+
     // ── AC9: the switch (default ON again: reads are scoped to the crashed attempt) ───
 
     [Test]
@@ -314,6 +339,9 @@ public class SingleIssueCycleCrashReEntryTests
         }
 
         public void Push(string file) { lock (_gate) BranchFiles.Add(file); }
+
+        /// <summary>Exit reasons the cycle reported to the engine callback.</summary>
+        public System.Collections.Concurrent.ConcurrentQueue<string> CycleResults { get; } = new();
 
         /// <summary>Every saved row of a type, oldest first, as the engine wire shape.</summary>
         public List<JsonElement> Events(string type)
@@ -533,6 +561,11 @@ public class SingleIssueCycleCrashReEntryTests
                 await EngineEndpoints.AppendEvents(batch, world.EventRepo.Object, tc);
                 return Json(HttpStatusCode.Created, new { ok = true, persisted = batch.Events.Count });
             }
+            if (path.EndsWith("/api/engine/cycle-result", StringComparison.Ordinal) && request.Content is not null)
+            {
+                using var doc = JsonDocument.Parse(await request.Content.ReadAsStringAsync(ct));
+                world.CycleResults.Enqueue(doc.RootElement.GetProperty("exitReason").GetString() ?? "");
+            }
             if (path.EndsWith("/capabilities", StringComparison.Ordinal))
                 return Json(HttpStatusCode.OK, new { success = true, platformKind = "test", capabilities = Array.Empty<string>() });
             return Json(HttpStatusCode.OK, new { ok = true, success = true });
@@ -554,9 +587,12 @@ public class SingleIssueCycleCrashReEntryTests
         public static readonly ConcurrentBag<string> Invoked = new();
         public static string TasksJson = SingleIssueCycleCrashReEntryTests.TasksJson(StoredTasks);
 
+        public static string GateOutcome = "reject";
+
         public static void Reset()
         {
             Invoked.Clear();
+            GateOutcome = "reject";
             TasksJson = SingleIssueCycleCrashReEntryTests.TasksJson(StoredTasks);
         }
 
@@ -642,7 +678,7 @@ public class SingleIssueCycleCrashReEntryTests
         {
             protected override string Id => "merge-approval";
             // A reject ends the cycle at its human-handoff terminal — the test only needs to see it got here.
-            protected override Dictionary<string, Func<object>> Outputs => new() { ["outcome"] = () => "reject" };
+            protected override Dictionary<string, Func<object>> Outputs => new() { ["outcome"] = () => GateOutcome };
         }
     }
 }

@@ -100,7 +100,7 @@ public class SingleIssueCycleMergeSlaTests
     {
         HasEdge("WaitForPRMerged", "NotifyMergeTimeout", "TimedOut").Should().BeTrue(
             "an SLA timeout must notify that the merge was not confirmed in time");
-        HasEdge("WaitForPRMerged", "ReportNeedsHuman", "TimedOut").Should().BeTrue(
+        HasEdge("WaitForPRMerged", "ReportMergeTimeout", "TimedOut").Should().BeTrue(
             "an SLA timeout must escalate to the needs-human handoff terminal");
 
         var reach = ReachableFromPort("WaitForPRMerged", "TimedOut");

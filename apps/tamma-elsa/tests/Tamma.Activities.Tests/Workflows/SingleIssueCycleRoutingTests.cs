@@ -624,9 +624,9 @@ public class SingleIssueCycleRoutingTests
         }
 
         // reject → human-handoff terminal; escalated → error terminal (loud).
-        ReachableFromPort("GateOutcomeSwitch", "Reject").Should().Contain("ReportNeedsHuman",
+        ReachableFromPort("GateOutcomeSwitch", "Reject").Should().Contain("ReportMergeRejected",
             "reject must reach the human-handoff terminal");
-        ReachableFromPort("GateOutcomeSwitch", "Escalated").Should().Contain("ReportError",
+        ReachableFromPort("GateOutcomeSwitch", "Escalated").Should().Contain("ReportMergeEscalated",
             "escalated (incl. a failed merge) must reach the error terminal");
     }
 
