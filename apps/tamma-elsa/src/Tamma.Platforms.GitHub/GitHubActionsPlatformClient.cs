@@ -207,10 +207,18 @@ public sealed class GitHubActionsPlatformClient : IGitPlatformActionsClient
         ArgumentNullException.ThrowIfNull(request);
 
         var perPage = Math.Clamp(request.PerPage, 1, 100);
-        var path = $"/repos/{Encode(owner)}/{Encode(repoName)}/actions/runs?per_page={perPage}";
+        // A workflow filter lists that workflow's runs (the same endpoint the dispatch
+        // correlation uses); otherwise the repo-wide listing.
+        var path = string.IsNullOrWhiteSpace(request.WorkflowFileName)
+            ? $"/repos/{Encode(owner)}/{Encode(repoName)}/actions/runs?per_page={perPage}"
+            : $"/repos/{Encode(owner)}/{Encode(repoName)}/actions/workflows/{Encode(request.WorkflowFileName)}/runs?per_page={perPage}";
         if (!string.IsNullOrWhiteSpace(request.Branch))
         {
             path += $"&branch={Encode(request.Branch)}";
+        }
+        if (!string.IsNullOrWhiteSpace(request.Event))
+        {
+            path += $"&event={Encode(request.Event)}";
         }
 
         var result = await _http
@@ -222,6 +230,8 @@ public sealed class GitHubActionsPlatformClient : IGitPlatformActionsClient
                 .Where(r => r.Id > 0)
                 .OrderByDescending(r => r.CreatedAt)
                 .Select(MapRun)
+                // Belt and braces: the server filtered; re-check what came back.
+                .Where(r => WorkflowRunFilter.Matches(request, r.WorkflowPath, r.Event))
                 .ToList();
             return runs;
         });
@@ -345,7 +355,9 @@ public sealed class GitHubActionsPlatformClient : IGitPlatformActionsClient
         HtmlUrl: dto.HtmlUrl ?? string.Empty,
         StartedAt: dto.RunStartedAt ?? dto.CreatedAt,
         CompletedAt: string.IsNullOrEmpty(dto.Conclusion) ? null : dto.UpdatedAt,
-        RawMetadata: null);
+        RawMetadata: null,
+        WorkflowPath: string.IsNullOrEmpty(dto.Path) ? null : dto.Path,
+        Event: string.IsNullOrEmpty(dto.Event) ? null : dto.Event);
 
     private static string Encode(string s) => Uri.EscapeDataString(s);
 

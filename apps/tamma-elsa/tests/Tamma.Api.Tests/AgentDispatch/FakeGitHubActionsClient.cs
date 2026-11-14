@@ -34,6 +34,8 @@ internal sealed class FakePlatformActionsClient : IGitPlatformActionsClient
 
     public int GetRunCalls { get; private set; }
     public int ListRunsCalls { get; private set; }
+    public ListWorkflowRunsRequest? LastListRequest { get; private set; }
+    public Func<ListWorkflowRunsRequest, PlatformResult<IReadOnlyList<WorkflowRun>>>? OnListRuns { get; set; }
 
     public Task<PlatformResult<WorkflowRun>> DispatchWorkflowAsync(
         string owner, string repoName, WorkflowDispatchRequest request, CancellationToken ct = default)
@@ -55,7 +57,9 @@ internal sealed class FakePlatformActionsClient : IGitPlatformActionsClient
         string owner, string repoName, ListWorkflowRunsRequest request, CancellationToken ct = default)
     {
         ListRunsCalls++;
-        return Task.FromResult(PlatformResult<IReadOnlyList<WorkflowRun>>.FromOk(DefaultListRuns));
+        LastListRequest = request;
+        return Task.FromResult(OnListRuns?.Invoke(request)
+            ?? PlatformResult<IReadOnlyList<WorkflowRun>>.FromOk(DefaultListRuns));
     }
 
     public Task<PlatformResult<IReadOnlyList<WorkflowJob>>> ListRunJobsAsync(

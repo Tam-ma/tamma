@@ -8,6 +8,7 @@ using Tamma.Api.Services.PromptStore;
 using Tamma.Core.Logging;
 using Tamma.Data.Entities;
 using Tamma.Data.Repositories;
+using Tamma.Platforms.Abstractions.Models;
 
 namespace Tamma.Api.Services.AgentDispatch;
 
@@ -25,9 +26,8 @@ public sealed record AgentRunCompletion(
     DateTime UpdatedAt,
     // Story 40-3b — how the completion was observed: the webhook, or the reconciler's poll.
     string WakePath = AgentRunWaitEventTypes.WakePaths.Webhook,
-    // workflow_run.path and workflow_run.event, as the webhook delivered them. The webhook
-    // always passes a value ("" when GitHub omitted it, which then matches nothing); null means
-    // the caller already identified the run (the reconciler's discovery).
+    // The run's workflow file path and triggering event (webhook: workflow_run.path / .event;
+    // reconciler: the discovered run's). Required: a missing value never matches.
     string? WorkflowPath = null,
     string? Event = null);
 
@@ -233,34 +233,19 @@ public sealed class AgentRunResumer : IAgentRunResumer
 
     /// <summary>
     /// True when <paramref name="completion"/> can be the run <paramref name="row"/> dispatched:
-    /// created no earlier than the dispatch (less <see cref="DispatchClockSkew"/>) and — when the
-    /// caller reports the workflow (the webhook always does) — a <c>workflow_dispatch</c> run of
-    /// the row's workflow file.
+    /// a <c>workflow_dispatch</c> run of the row's workflow file, created no earlier than the
+    /// dispatch (less <see cref="DispatchClockSkew"/>). Applied on every wake path; a missing
+    /// path or event is a refusal, never a pass.
     /// </summary>
     internal static bool IsAgentRunFor(AgentRunWait row, AgentRunCompletion completion)
     {
         if (completion.CreatedAt + DispatchClockSkew < row.DispatchedAt) return false;
-
-        if (completion.Event is not null
-            && !string.Equals(completion.Event, "workflow_dispatch", StringComparison.Ordinal))
+        if (string.IsNullOrWhiteSpace(completion.WorkflowPath) || string.IsNullOrWhiteSpace(completion.Event))
             return false;
-
-        if (completion.WorkflowPath is not null)
-        {
-            var expected = string.IsNullOrWhiteSpace(row.WorkflowFile) ? DefaultWorkflowFile : row.WorkflowFile;
-            if (!string.Equals(WorkflowFileName(completion.WorkflowPath), expected, StringComparison.Ordinal))
-                return false;
-        }
-        return true;
-    }
-
-    /// <summary><c>.github/workflows/{file}</c> (optionally <c>@ref</c>-suffixed) → <c>{file}</c>.</summary>
-    private static string WorkflowFileName(string path)
-    {
-        var at = path.IndexOf('@');
-        var trimmed = at >= 0 ? path[..at] : path;
-        var slash = trimmed.LastIndexOf('/');
-        return slash >= 0 ? trimmed[(slash + 1)..] : trimmed;
+        var expected = string.IsNullOrWhiteSpace(row.WorkflowFile) ? DefaultWorkflowFile : row.WorkflowFile;
+        return WorkflowRunFilter.Matches(
+            new ListWorkflowRunsRequest(WorkflowFileName: expected, Event: AgentDispatchMediationService.WorkflowDispatchEvent),
+            completion.WorkflowPath, completion.Event);
     }
 
     /// <summary>

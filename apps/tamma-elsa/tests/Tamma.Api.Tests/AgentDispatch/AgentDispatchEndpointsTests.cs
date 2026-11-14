@@ -258,6 +258,22 @@ public class AgentDispatchEndpointsTests
         resp.StatusCode.Should().Be(HttpStatusCode.OK);
         _svc.LastRepo.Should().Be("acme/widgets", "the createdAfter string binds + parses without breaking the handler");
         _svc.LastTenantId.Should().Be(tenant);
+        _svc.LastWorkflowFile.Should().BeNull("existing callers send no workflowFile — the service applies the runner default");
+    }
+
+    [Test]
+    public async Task Get_Discover_PassesAnExplicitWorkflowFile()
+    {
+        var tenant = Guid.NewGuid();
+        _tenantContext.SetTenantId(tenant);
+        _svc.NextStatus = new AgentRunStatusResult { Success = true, Found = false, CredentialSource = "installation" };
+
+        using var client = AuthedClient();
+        client.DefaultRequestHeaders.Add("X-Tenant-Id", tenant.ToString());
+        var resp = await client.GetAsync(DiscoverRoute + "&workflowFile=custom-agent.yml");
+
+        resp.StatusCode.Should().Be(HttpStatusCode.OK);
+        _svc.LastWorkflowFile.Should().Be("custom-agent.yml");
     }
 
     // ── Test doubles ────────────────────────────────────────────────────
@@ -276,9 +292,11 @@ public class AgentDispatchEndpointsTests
             return Task.FromResult(NextDispatch ?? new AgentDispatchRunResult { Success = true, DispatchedAt = DateTime.UtcNow });
         }
 
-        public Task<AgentRunStatusResult> DiscoverRunAsync(Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, CancellationToken ct = default)
+        public string? LastWorkflowFile { get; private set; }
+
+        public Task<AgentRunStatusResult> DiscoverRunAsync(Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, string? workflowFile, CancellationToken ct = default)
         {
-            LastTenantId = tenantId; LastRepo = repo;
+            LastTenantId = tenantId; LastRepo = repo; LastWorkflowFile = workflowFile;
             return Task.FromResult(NextStatus ?? new AgentRunStatusResult { Success = true, Found = false });
         }
 

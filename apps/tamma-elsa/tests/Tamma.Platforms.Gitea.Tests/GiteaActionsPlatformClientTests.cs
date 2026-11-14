@@ -245,4 +245,31 @@ public class GiteaActionsPlatformClientTests
         result.Should().BeOfType<PlatformResult<bool>.Failed>()
             .Which.Error.Should().BeOfType<PlatformError.NotFound>();
     }
+
+    // ───────────── ListRunsAsync — workflow-file + event filter ─────────────
+
+    [Test]
+    public async Task ListRunsAsync_WithWorkflowFilter_FiltersServerSideByEventAndClientSideByWorkflow()
+    {
+        var (_, actions, handler, _) = GiteaTestFixtures.Build();
+        handler.EnqueueJson(HttpMethod.Get,
+            "https://gitea.example.com/api/v1/repos/o/r/actions/runs",
+            HttpStatusCode.OK,
+            """
+            {"total_count":3,"workflow_runs":[
+              {"id":3,"status":"completed","conclusion":"success","path":"ci.yml@refs/heads/tamma/issue-7","event":"workflow_dispatch","started_at":"2026-04-21T00:05:00Z"},
+              {"id":2,"status":"completed","conclusion":"success","started_at":"2026-04-21T00:04:00Z"},
+              {"id":1,"status":"completed","conclusion":"success","path":"tamma-agent.yml@refs/heads/tamma/issue-7","event":"workflow_dispatch","started_at":"2026-04-21T00:00:00Z"}]}
+            """);
+
+        var result = await actions.ListRunsAsync("o", "r",
+            new ListWorkflowRunsRequest("tamma/issue-7", WorkflowFileName: "tamma-agent.yml", Event: "workflow_dispatch"));
+
+        handler.Requests.Single().Url.Should().Contain("event=workflow_dispatch");
+        var runs = result.Should().BeOfType<PlatformResult<IReadOnlyList<WorkflowRun>>.Ok>().Subject.Value;
+        runs.Should().ContainSingle("another workflow's run and a run with no path are both dropped")
+            .Which.RunId.Should().Be("1");
+        runs[0].WorkflowPath.Should().Be("tamma-agent.yml@refs/heads/tamma/issue-7");
+        runs[0].Event.Should().Be("workflow_dispatch");
+    }
 }

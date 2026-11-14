@@ -44,12 +44,14 @@ public static class AgentDispatchEndpoints
         return result.ToHttpResult();
     }
 
+    /// <param name="workflowFile">Optional runner file; absent ⇒ the default runner file.
+    /// Discovery only ever returns <c>workflow_dispatch</c> runs of that file.</param>
     public static async Task<IResult> DiscoverRun(
-        string owner, string repo, string branch, string? createdAfter, string? correlationId,
+        string owner, string repo, string branch, string? createdAfter, string? correlationId, string? workflowFile,
         ITenantContext tenantContext, IAgentDispatchMediationService dispatch, CancellationToken ct)
     {
         var result = await dispatch.DiscoverRunAsync(
-            tenantContext.TenantId, Repo(owner, repo), branch, ParseCreatedAfterUtc(createdAfter), correlationId, ct)
+            tenantContext.TenantId, Repo(owner, repo), branch, ParseCreatedAfterUtc(createdAfter), correlationId, workflowFile, ct)
             .ConfigureAwait(false);
         return result.ToHttpResult();
     }

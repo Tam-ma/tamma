@@ -422,7 +422,7 @@ public class AgentDispatchMediationServiceTests
             FakePlatformActionsClient.Run(id: "77", status: "in_progress", conclusion: null),
         };
 
-        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1");
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
 
         result.Found.Should().BeTrue();
         result.RunId.Should().Be(77);
@@ -438,7 +438,7 @@ public class AgentDispatchMediationServiceTests
             FakePlatformActionsClient.Run(id: "88", status: "completed", conclusion: "success"),
         };
 
-        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1");
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
 
         result.Found.Should().BeTrue();
         result.RunId.Should().Be(88);
@@ -455,9 +455,57 @@ public class AgentDispatchMediationServiceTests
                 started: DateTimeOffset.UtcNow.AddHours(-2)),
         };
 
-        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1");
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
 
         result.Found.Should().BeFalse("a stale run from before the dispatch window is not OUR run");
+    }
+
+    [Test]
+    public async Task Discover_ListsOnlyDispatchRunsOfTheRunnerFile_ByDefault()
+    {
+        Allow();
+
+        await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
+
+        _actions.LastListRequest.Should().NotBeNull();
+        _actions.LastListRequest!.Branch.Should().Be("tamma/issue-7");
+        _actions.LastListRequest.WorkflowFileName.Should().Be(AgentDispatchMediationService.DefaultWorkflowFile);
+        _actions.LastListRequest.Event.Should().Be("workflow_dispatch");
+    }
+
+    [Test]
+    public async Task Discover_UsesTheGivenWorkflowFile_AndReportsTheRunsPathAndEvent()
+    {
+        Allow();
+        _actions.DefaultListRuns = new[]
+        {
+            FakePlatformActionsClient.Run(id: "88", status: "completed", conclusion: "success") with
+            {
+                WorkflowPath = ".github/workflows/custom-agent.yml",
+                Event = "workflow_dispatch",
+            },
+        };
+
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", "custom-agent.yml");
+
+        _actions.LastListRequest!.WorkflowFileName.Should().Be("custom-agent.yml");
+        result.Found.Should().BeTrue();
+        result.WorkflowPath.Should().Be(".github/workflows/custom-agent.yml");
+        result.Event.Should().Be("workflow_dispatch");
+    }
+
+    [Test]
+    public async Task Discover_OnAPlatformThatCannotFilterByWorkflow_IsAnExplicitFailure()
+    {
+        Allow();
+        _actions.OnListRuns = _ => PlatformResult<IReadOnlyList<WorkflowRun>>.FromError(
+            new PlatformError.InvalidRequest(PlatformErrorText.CapabilityUnsupportedCode, "no workflow files"));
+
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
+
+        result.Success.Should().BeFalse("an unfiltered pipeline could be anything — never report it as the agent's run");
+        result.Found.Should().BeFalse();
+        result.FailureCode.Should().Be(AgentDispatchFailureCodes.CapabilityUnsupported);
     }
 
     [Test]
@@ -465,7 +513,7 @@ public class AgentDispatchMediationServiceTests
     {
         Deny();
 
-        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1");
+        var result = await _sut.DiscoverRunAsync(_tenant, Repo, "tamma/issue-7", DateTime.UtcNow.AddMinutes(-1), "wf-1", null);
 
         result.Success.Should().BeFalse();
         result.Found.Should().BeFalse();

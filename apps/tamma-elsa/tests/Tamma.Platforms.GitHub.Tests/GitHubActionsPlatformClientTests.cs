@@ -332,4 +332,54 @@ public sealed class GitHubActionsPlatformClientTests
             .Which.Code.Should().Be("invalid_artifact_id");
         handler.Requests.Should().BeEmpty();
     }
+
+    // ================================================================
+    // ListRuns — workflow-file + event filter (agent-run discovery)
+    // ================================================================
+
+    private const string RunsListJson = """
+        { "total_count": 2, "workflow_runs": [
+            { "id": 902, "status": "completed", "conclusion": "success", "html_url": "u902",
+              "path": ".github/workflows/ci.yml", "event": "push", "head_branch": "tamma/issue-7",
+              "created_at": "2026-08-07T10:05:00Z", "updated_at": "2026-08-07T10:06:00Z" },
+            { "id": 901, "status": "completed", "conclusion": "success", "html_url": "u901",
+              "path": ".github/workflows/tamma-agent.yml", "event": "workflow_dispatch", "head_branch": "tamma/issue-7",
+              "created_at": "2026-08-07T10:00:05Z", "updated_at": "2026-08-07T10:20:00Z" } ] }
+        """;
+
+    [Test]
+    public async Task ListRuns_with_a_workflow_filter_lists_that_workflows_runs_for_the_event()
+    {
+        var (client, handler) = Build();
+        handler.EnqueueJson(HttpMethod.Get, $"{Api}/repos/o/r/actions/workflows/tamma-agent.yml/runs",
+            HttpStatusCode.OK, RunsListJson);
+
+        var result = await client.ListRunsAsync("o", "r",
+            new ListWorkflowRunsRequest("tamma/issue-7", PerPage: 5, WorkflowFileName: "tamma-agent.yml", Event: "workflow_dispatch"));
+
+        var url = handler.Requests.Single().Url;
+        url.Should().Contain("/actions/workflows/tamma-agent.yml/runs")
+            .And.Contain("branch=tamma%2Fissue-7")
+            .And.Contain("event=workflow_dispatch");
+        var runs = result.Should().BeOfType<PlatformResult<IReadOnlyList<WorkflowRun>>.Ok>().Subject.Value;
+        runs.Should().ContainSingle("a run of another workflow is dropped even if the platform returned it")
+            .Which.RunId.Should().Be("901");
+        runs[0].WorkflowPath.Should().Be(".github/workflows/tamma-agent.yml");
+        runs[0].Event.Should().Be("workflow_dispatch");
+    }
+
+    [Test]
+    public async Task ListRuns_without_a_filter_is_unchanged_and_reports_path_and_event()
+    {
+        var (client, handler) = Build();
+        handler.EnqueueJson(HttpMethod.Get, $"{Api}/repos/o/r/actions/runs", HttpStatusCode.OK, RunsListJson);
+
+        var result = await client.ListRunsAsync("o", "r", new ListWorkflowRunsRequest("tamma/issue-7"));
+
+        handler.Requests.Single().Url.Should().Contain("/actions/runs?per_page=5").And.NotContain("event=");
+        var runs = result.Should().BeOfType<PlatformResult<IReadOnlyList<WorkflowRun>>.Ok>().Subject.Value;
+        runs.Select(r => r.RunId).Should().Equal("902", "901");
+        runs[0].WorkflowPath.Should().Be(".github/workflows/ci.yml");
+        runs[0].Event.Should().Be("push");
+    }
 }

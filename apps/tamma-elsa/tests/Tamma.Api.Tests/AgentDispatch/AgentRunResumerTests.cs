@@ -84,7 +84,9 @@ public class AgentRunResumerTests
         WorkflowRunUrl: "https://github.com/acme/widgets/actions/runs/991",
         ArtifactsUrl: "https://api.github.com/repos/acme/widgets/actions/runs/991/artifacts",
         CreatedAt: new DateTime(2026, 11, 1, 10, 1, 0, DateTimeKind.Utc),
-        UpdatedAt: new DateTime(2026, 11, 1, 10, 6, 0, DateTimeKind.Utc));
+        UpdatedAt: new DateTime(2026, 11, 1, 10, 6, 0, DateTimeKind.Utc),
+        WorkflowPath: ".github/workflows/tamma-agent.yml",
+        Event: "workflow_dispatch");
 
     private void TenantRows(params AgentRunWait[] rows) => _waits
         .Setup(w => w.ListPendingByTenantAsync(_tenantId, Installation, Repo, Branch, It.IsAny<CancellationToken>()))
@@ -311,6 +313,23 @@ public class AgentRunResumerTests
         TenantRows(Row(_tenantId, null, _tenantId));
 
         var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(Webhook(path: ""));
+
+        outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
+        _engine.Calls.Should().BeEmpty();
+    }
+
+    [TestCase("webhook", null, "workflow_dispatch")]
+    [TestCase("webhook", ".github/workflows/tamma-agent.yml", null)]
+    [TestCase("poll", null, "workflow_dispatch")]
+    [TestCase("poll", ".github/workflows/tamma-agent.yml", null)]
+    [TestCase("poll", null, null)]
+    public async Task A_completion_missing_the_workflow_path_or_event_is_no_match(string wakePath, string? path, string? evt)
+    {
+        // No path means "not identified", never "trusted" — on every wake path.
+        TenantRows(Row(_tenantId, null, _tenantId));
+
+        var outcome = await Sut(TammaMode.SaaS).ResumeFromWorkflowRunAsync(
+            Completion() with { WakePath = wakePath, WorkflowPath = path, Event = evt });
 
         outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
         _engine.Calls.Should().BeEmpty();

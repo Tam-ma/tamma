@@ -62,6 +62,12 @@ public sealed record AgentRunStatusResult : IAgentDispatchResult
     public DateTime? UpdatedAt { get; init; }
     public string? ArtifactsUrl { get; init; }
 
+    /// <summary>The run's workflow file path, as the platform reports it (GitHub: <c>.github/workflows/x.yml</c>).</summary>
+    public string? WorkflowPath { get; init; }
+
+    /// <summary>What started the run (GitHub: <c>workflow_dispatch</c>, <c>push</c>, …).</summary>
+    public string? Event { get; init; }
+
     public string? FailureCode { get; init; }
     public string? FailureReason { get; init; }
     public int? PlatformStatusCode { get; init; }

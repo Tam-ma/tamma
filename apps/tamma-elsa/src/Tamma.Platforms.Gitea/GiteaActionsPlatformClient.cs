@@ -157,6 +157,13 @@ public sealed class GiteaActionsPlatformClient : IGitPlatformActionsClient
         {
             path += $"&branch={Encode(request.Branch)}";
         }
+        // The runs listing filters by event server-side (as the dispatch correlation does);
+        // it has no workflow-file filter, so that part is applied client-side to the run's
+        // reported path. A run that reports no path never matches a workflow filter.
+        if (!string.IsNullOrWhiteSpace(request.Event))
+        {
+            path += $"&event={Encode(request.Event)}";
+        }
 
         var result = await _http
             .GetJsonAsync<GiteaWorkflowRunsListDto>(path, ct)
@@ -165,6 +172,7 @@ public sealed class GiteaActionsPlatformClient : IGitPlatformActionsClient
         {
             IReadOnlyList<WorkflowRun> runs = (list.WorkflowRuns ?? new List<GiteaWorkflowRunDto>())
                 .Select(MapRun)
+                .Where(r => WorkflowRunFilter.Matches(request, r.WorkflowPath, r.Event))
                 .ToList();
             return runs;
         });
@@ -277,7 +285,9 @@ public sealed class GiteaActionsPlatformClient : IGitPlatformActionsClient
             HtmlUrl: dto.HtmlUrl ?? string.Empty,
             StartedAt: started,
             CompletedAt: dto.CompletedAt,
-            RawMetadata: null);
+            RawMetadata: null,
+            WorkflowPath: string.IsNullOrEmpty(dto.Path) ? null : dto.Path,
+            Event: string.IsNullOrEmpty(dto.Event) ? null : dto.Event);
     }
 
     private static string Encode(string s) => Uri.EscapeDataString(s);

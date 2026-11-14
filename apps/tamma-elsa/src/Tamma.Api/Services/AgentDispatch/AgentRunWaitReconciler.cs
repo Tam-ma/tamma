@@ -282,7 +282,8 @@ public sealed class AgentRunWaitReconciler : BackgroundService
     {
         var mediation = sp.GetRequiredService<IAgentDispatchMediationService>();
         var run = await mediation.DiscoverRunAsync(
-            wait.TenantId, wait.Repository, wait.BranchName, wait.DispatchedAt.AddMinutes(-2), wait.SessionId, ct)
+            wait.TenantId, wait.Repository, wait.BranchName, wait.DispatchedAt.AddMinutes(-2), wait.SessionId,
+            string.IsNullOrWhiteSpace(wait.WorkflowFile) ? AgentRunResumer.DefaultWorkflowFile : wait.WorkflowFile, ct)
             .ConfigureAwait(false);
 
         switch (Decide(wait, run, _now(), _options))
@@ -292,8 +293,11 @@ public sealed class AgentRunWaitReconciler : BackgroundService
                 var outcome = await sp.GetRequiredService<IAgentRunResumer>().ResumeFromWorkflowRunAsync(new AgentRunCompletion(
                     wait.InstallationId, wait.Repository, wait.BranchName, run!.RunId!.Value,
                     run.Status ?? "completed", run.Conclusion ?? "", run.WorkflowRunUrl ?? "", run.ArtifactsUrl ?? "",
-                    run.CreatedAt ?? wait.DispatchedAt, run.UpdatedAt ?? _now(),
-                    AgentRunWaitEventTypes.WakePaths.Poll), ct).ConfigureAwait(false);
+                    // No CreatedAt ⇒ MinValue, which fails the resumer's dispatch-time guard.
+                    run.CreatedAt ?? DateTime.MinValue, run.UpdatedAt ?? _now(),
+                    AgentRunWaitEventTypes.WakePaths.Poll,
+                    // The run's own identity; the resumer refuses when either is missing.
+                    WorkflowPath: run.WorkflowPath, Event: run.Event), ct).ConfigureAwait(false);
                 result.Resumed.Add((wait.Id, outcome));
                 _logger.LogInformation("Agent-run wait {WaitId} ({Repo}@{Branch}) recovered by poll: {Outcome}",
                     wait.Id, LogSanitizer.Clean(wait.Repository), LogSanitizer.Clean(wait.BranchName), outcome);

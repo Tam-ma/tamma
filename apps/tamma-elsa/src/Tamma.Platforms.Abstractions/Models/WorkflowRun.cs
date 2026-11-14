@@ -24,6 +24,8 @@ namespace Tamma.Platforms.Abstractions.Models;
 /// drivers should NOT hand back a live <c>JsonDocument</c> from a
 /// record because pooled buffers leak.
 /// </param>
+/// <param name="WorkflowPath">The run's workflow file path, when the platform reports one.</param>
+/// <param name="Event">What started the run (e.g. <c>workflow_dispatch</c>), when reported.</param>
 public sealed record WorkflowRun(
     string RunId,
     string Status,
@@ -31,4 +33,6 @@ public sealed record WorkflowRun(
     string HtmlUrl,
     DateTimeOffset StartedAt,
     DateTimeOffset? CompletedAt,
-    string? RawMetadata);
+    string? RawMetadata,
+    string? WorkflowPath = null,
+    string? Event = null);

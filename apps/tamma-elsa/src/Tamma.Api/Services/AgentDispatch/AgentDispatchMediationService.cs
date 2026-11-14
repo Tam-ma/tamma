@@ -48,6 +48,9 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     private static readonly int[] RetryDelaysMs = { 1000, 2000, 4000 };
     internal const string DefaultWorkflowFile = "tamma-agent.yml";
 
+    /// <summary>The only event that starts an agent run: Tamma dispatches the runner.</summary>
+    internal const string WorkflowDispatchEvent = "workflow_dispatch";
+
     /// <summary>The Actions driver's typed "dispatch accepted but the run
     /// could not be correlated" message prefix — the dispatch itself
     /// SUCCEEDED, so it maps to a successful trigger with no run URL (the
@@ -324,11 +327,13 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     // ===================================================================
 
     public Task<AgentRunStatusResult> DiscoverRunAsync(
-        Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, CancellationToken ct = default)
+        Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, string? workflowFile,
+        CancellationToken ct = default)
     {
         var corr = correlationId ?? string.Empty;
+        var file = string.IsNullOrWhiteSpace(workflowFile) ? DefaultWorkflowFile : workflowFile;
         return ExecuteGuardedAsync(
-            () => DiscoverRunCoreAsync(tenantId, repo, branch, createdAfter, corr, ct),
+            () => DiscoverRunCoreAsync(tenantId, repo, branch, createdAfter, corr, file, ct),
             tenantId, repo, AgentDispatchEventTypes.RunDiscoverOperation, AgentDispatchEventTypes.RunPolledFailed,
             corr, runId: null,
             fail: (code, reason) => new AgentRunStatusResult
@@ -336,7 +341,8 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
     }
 
     private async Task<AgentRunStatusResult> DiscoverRunCoreAsync(
-        Guid? tenantId, string repo, string branch, DateTime createdAfter, string correlationId, CancellationToken ct)
+        Guid? tenantId, string repo, string branch, DateTime createdAfter, string correlationId, string workflowFile,
+        CancellationToken ct)
     {
         const string op = AgentDispatchEventTypes.RunDiscoverOperation;
         var (owner, name, parsed) = ParseRepo(repo);
@@ -357,8 +363,28 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
         if (driver?.Actions is null)
             return await PollNotFoundAsync(tenantId, repo, op, correlationId, null, ct).ConfigureAwait(false);
 
+        // Only the agent's run: dispatches of the runner file. The repo's own CI on the same
+        // branch (e.g. triggered by the agent's push) is never a candidate.
         var runsRes = await driver.Actions.ListRunsAsync(
-            owner, name, new PModels.ListWorkflowRunsRequest(branch, PerPage: 5), ct).ConfigureAwait(false);
+            owner, name,
+            new PModels.ListWorkflowRunsRequest(branch, PerPage: 5, WorkflowFileName: workflowFile, Event: WorkflowDispatchEvent),
+            ct).ConfigureAwait(false);
+        if (runsRes is PlatformResult<IReadOnlyList<PModels.WorkflowRun>>.Failed { Error: var listError }
+            && PlatformErrorText.IsCapabilityUnsupported(listError))
+        {
+            // The platform cannot tell the agent's run from any other — an explicit failure,
+            // never "not found yet" and never an unfiltered guess.
+            const string reason = "This platform cannot list runs by workflow file and event, so the agent's run cannot be identified.";
+            await EmitAsync(AgentDispatchEventTypes.RunPolledFailed, op, tenantId, repo, correlationId,
+                AgentDispatchCredentialSources.Installation, runId: null, AgentDispatchFailureCodes.CapabilityUnsupported,
+                new { reason }, ct).ConfigureAwait(false);
+            return new AgentRunStatusResult
+            {
+                Success = false, Found = false, CredentialSource = AgentDispatchCredentialSources.Installation,
+                FailureCode = AgentDispatchFailureCodes.CapabilityUnsupported, FailureReason = reason,
+                CorrelationId = correlationId,
+            };
+        }
         if (runsRes is not PlatformResult<IReadOnlyList<PModels.WorkflowRun>>.Ok runsOk)
         {
             // Poll posture parity: a transient platform failure during discovery
@@ -446,6 +472,8 @@ public sealed class AgentDispatchMediationService : IAgentDispatchMediationServi
             CreatedAt = run.StartedAt.UtcDateTime,
             UpdatedAt = (run.CompletedAt ?? run.StartedAt).UtcDateTime,
             ArtifactsUrl = null, // platform-neutral runs carry no artifacts URL; collect lists artifacts directly.
+            WorkflowPath = run.WorkflowPath,
+            Event = run.Event,
             CorrelationId = correlationId,
         };
 

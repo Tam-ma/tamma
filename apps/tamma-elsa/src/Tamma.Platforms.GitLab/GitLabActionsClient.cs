@@ -141,6 +141,14 @@ internal sealed class GitLabActionsClient : IGitPlatformActionsClient
         CancellationToken ct = default)
     {
         ArgumentNullException.ThrowIfNull(request);
+        // GitLab pipelines are per ref: there is no workflow file or dispatch event to filter on.
+        // Refuse explicitly rather than return pipelines the caller did not ask for.
+        if (WorkflowRunFilter.IsActive(request))
+        {
+            return PlatformResult<IReadOnlyList<WorkflowRun>>.FromError(new PlatformError.InvalidRequest(
+                PlatformErrorText.CapabilityUnsupportedCode,
+                "GitLab pipelines cannot be filtered by workflow file or event."));
+        }
         var pid = GitLabPlatformClient.EncodeProjectRef(owner, repoName);
         var perPage = Math.Clamp(request.PerPage, 1, 100);
 
