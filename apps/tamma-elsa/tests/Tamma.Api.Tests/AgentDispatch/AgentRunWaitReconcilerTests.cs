@@ -41,7 +41,7 @@ public class AgentRunWaitReconcilerTests
         _waits.Setup(w => w.TryMarkTimedOutByTenantAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _waits.Setup(w => w.TryMarkTimedOutByUserAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
         _mediation = new Mock<IAgentDispatchMediationService>();
-        _mediation.Setup(m => m.DiscoverRunAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        _mediation.Setup(m => m.DiscoverRunAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AgentRunStatusResult { Success = true, Found = false });
         _resumed = new List<AgentRunCompletion>();
         _resumer = new Mock<IAgentRunResumer>();
@@ -103,7 +103,7 @@ public class AgentRunWaitReconcilerTests
     {
         var wait = Wait(TenantA, minutesAgo: 15);
         Tenants((TenantA, new[] { wait }));
-        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, wait.DispatchedAt.AddMinutes(-2), wait.SessionId, It.IsAny<CancellationToken>()))
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, wait.DispatchedAt.AddMinutes(-2), wait.SessionId, AgentDispatchMediationService.DefaultWorkflowFile, It.IsAny<CancellationToken>()))
             .ReturnsAsync(Completed(77));
 
         var result = await Sut().SweepOnceAsync(CancellationToken.None);
@@ -116,6 +116,87 @@ public class AgentRunWaitReconcilerTests
         c.HeadBranch.Should().Be(wait.BranchName);
         c.Conclusion.Should().Be("success");
         _lock.Acquired.Should().Equal($"tenant:{TenantA:D}");
+    }
+
+    [Test]
+    public async Task The_wait_workflow_file_is_used_for_discovery_and_the_run_identity_is_forwarded()
+    {
+        var wait = Wait(TenantA, minutesAgo: 15);
+        wait.WorkflowFile = "custom-agent.yml";
+        Tenants((TenantA, new[] { wait }));
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, It.IsAny<DateTime>(), wait.SessionId, "custom-agent.yml", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Completed(77) with { WorkflowPath = ".github/workflows/custom-agent.yml", Event = "workflow_dispatch" });
+
+        await Sut().SweepOnceAsync(CancellationToken.None);
+
+        var c = _resumed.Single();
+        c.WorkflowPath.Should().Be(".github/workflows/custom-agent.yml");
+        c.Event.Should().Be("workflow_dispatch");
+    }
+
+    [Test]
+    public async Task A_CI_run_created_after_the_dispatch_on_the_agent_branch_is_not_taken_as_the_agent_result()
+    {
+        // Real resumer: discovery hands back the repo's CI run (triggered by the agent's push,
+        // so created AFTER the dispatch, on the same branch). It must not resume the wait.
+        var wait = Wait(TenantA, minutesAgo: 15);
+        Tenants((TenantA, new[] { wait }));
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, It.IsAny<DateTime>(), wait.SessionId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Completed(90) with
+            {
+                WorkflowPath = ".github/workflows/ci.yml",
+                Event = "push",
+                CreatedAt = wait.DispatchedAt.AddMinutes(3),
+            });
+        _waits.Setup(w => w.ListPendingByTenantAsync(TenantA, wait.InstallationId, Repo, wait.BranchName, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { wait });
+        using var engine = new AgentRunResumerTests.StubEngine(System.Net.HttpStatusCode.OK);
+
+        var result = await Sut(RealResumer(engine)).SweepOnceAsync(CancellationToken.None);
+
+        result.Resumed.Should().ContainSingle().Which.Outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
+        engine.Calls.Should().BeEmpty();
+        _waits.Verify(w => w.TryMarkReceivedByTenantAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<long>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task A_discovered_run_without_workflow_identity_is_not_resumed()
+    {
+        var wait = Wait(TenantA, minutesAgo: 15);
+        Tenants((TenantA, new[] { wait }));
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, It.IsAny<DateTime>(), wait.SessionId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Completed(91) with { CreatedAt = wait.DispatchedAt.AddMinutes(1) }); // no path / event
+        _waits.Setup(w => w.ListPendingByTenantAsync(TenantA, wait.InstallationId, Repo, wait.BranchName, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { wait });
+        using var engine = new AgentRunResumerTests.StubEngine(System.Net.HttpStatusCode.OK);
+
+        var result = await Sut(RealResumer(engine)).SweepOnceAsync(CancellationToken.None);
+
+        result.Resumed.Should().ContainSingle().Which.Outcome.Should().Be(AgentRunResumeOutcome.NoMatch);
+        engine.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task The_agent_run_found_by_discovery_resumes_through_the_real_resumer()
+    {
+        var wait = Wait(TenantA, minutesAgo: 15);
+        Tenants((TenantA, new[] { wait }));
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, Repo, wait.BranchName, It.IsAny<DateTime>(), wait.SessionId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Completed(92) with
+            {
+                WorkflowPath = ".github/workflows/tamma-agent.yml",
+                Event = "workflow_dispatch",
+                CreatedAt = wait.DispatchedAt.AddSeconds(5),
+            });
+        _waits.Setup(w => w.ListPendingByTenantAsync(TenantA, wait.InstallationId, Repo, wait.BranchName, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { wait });
+        _waits.Setup(w => w.TryMarkReceivedByTenantAsync(TenantA, wait.Id, 92, It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        using var engine = new AgentRunResumerTests.StubEngine(System.Net.HttpStatusCode.OK);
+
+        var result = await Sut(RealResumer(engine)).SweepOnceAsync(CancellationToken.None);
+
+        result.Resumed.Should().ContainSingle().Which.Outcome.Should().Be(AgentRunResumeOutcome.Resumed);
+        engine.Calls.Should().ContainSingle();
     }
 
     [Test]
@@ -181,7 +262,7 @@ public class AgentRunWaitReconcilerTests
         var bad = Wait(TenantA, minutesAgo: 90);
         var good = Wait(TenantB, minutesAgo: 90);
         Tenants((TenantA, new[] { bad }), (TenantB, new[] { good }));
-        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+        _mediation.Setup(m => m.DiscoverRunAsync(TenantA, It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new HttpRequestException("platform down"));
 
         var result = await Sut().SweepOnceAsync(CancellationToken.None);
@@ -216,12 +297,23 @@ public class AgentRunWaitReconcilerTests
 
     // ── harness ───────────────────────────────────────────────────────────
 
-    private AgentRunWaitReconciler Sut()
+    private AgentRunResumer RealResumer(AgentRunResumerTests.StubEngine engine)
+    {
+        var installations = new Mock<IInstallationRepository>();
+        installations.Setup(i => i.GetByInstallationIdAsync(4242)).ReturnsAsync(new GitHubInstallation
+        {
+            InstallationId = 4242, TenantId = TenantA, AccountLogin = "acme", AccountType = "Organization",
+        });
+        return new AgentRunResumer(_waits.Object, installations.Object, new StubMode(_mode), null,
+            new AgentRunResumerTests.StubHttpClientFactory(engine), _events.Object, NullLogger<AgentRunResumer>.Instance);
+    }
+
+    private AgentRunWaitReconciler Sut(IAgentRunResumer? resumer = null)
     {
         var services = new ServiceCollection();
         services.AddSingleton(_waits.Object);
         services.AddSingleton(_mediation.Object);
-        services.AddSingleton(_resumer.Object);
+        services.AddSingleton(resumer ?? _resumer.Object);
         services.AddSingleton(_events.Object);
         services.AddSingleton<ITammaModeProvider>(new StubMode(_mode));
         return new AgentRunWaitReconciler(

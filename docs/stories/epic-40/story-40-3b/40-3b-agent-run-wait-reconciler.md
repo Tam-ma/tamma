@@ -44,6 +44,16 @@ and escalates), and rows whose webhook never came stayed `pending`.
   in the engine would need a second copy of the row plane and the GitHub reads.
 - **Wake path on the completion record**, not a new resumer parameter, so the existing callers and
   Moq setups are untouched.
+- **Discovery filtered to the agent's run (fix, 2026-11-07).** Discovery used to take the newest run
+  of *any* workflow on the branch, so the repo's CI (started by the agent's push, after the dispatch)
+  could be resumed as the agent's result. `ListWorkflowRunsRequest` now takes an optional
+  `WorkflowFileName` + `Event`; `DiscoverRunAsync` asks for `workflow_dispatch` runs of the wait's
+  stored workflow file (GitHub: the workflow-scoped runs endpoint; Gitea: server-side event filter +
+  client-side path check; GitLab: `capability_unsupported`, surfaced as a discovery failure). The
+  discovered run's path and event are passed to the resumer, which now always requires them (plus the
+  dispatch-time guard) and refuses when either is missing. Consequence: on GitLab the reconciler can no
+  longer recover a wait (it times out instead), because a GitLab pipeline cannot be identified as the
+  agent's.
 
 ## Tests
 

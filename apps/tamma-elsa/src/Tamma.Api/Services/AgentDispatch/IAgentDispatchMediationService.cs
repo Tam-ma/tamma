@@ -26,7 +26,8 @@ public interface IAgentDispatchMediationService
     /// <summary><c>GET .../runs?branch=&amp;createdAfter=</c> — discover the latest
     /// dispatched run for a branch (the monitor's discovery phase, mediated).</summary>
     Task<AgentRunStatusResult> DiscoverRunAsync(
-        Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, CancellationToken ct = default);
+        Guid? tenantId, string repo, string branch, DateTime createdAfter, string? correlationId, string? workflowFile,
+        CancellationToken ct = default);
 
     /// <summary><c>GET .../runs/{id}</c> — single-shot status of one run (the
     /// monitor's poll iteration, mediated). The poll LOOP stays engine-side.</summary>

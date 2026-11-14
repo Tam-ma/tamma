@@ -288,8 +288,7 @@ instance with the 40-2 `AgentRunCompletionSignal` payload → the row moves `pen
   migrations `20261107203654_AddAgentRunWaitWorkflowFile` tenant / `20261107203659_…` control plane); the
   webhook forwards `workflow_run.path` and `event`; the resumer requires a `workflow_dispatch` run of that
   file, created no earlier than the dispatch (60s clock allowance) — also for a single row. The
-  reconciler's poll path gets the dispatch-time guard; its discovery still lists runs of any workflow on
-  the branch (see 40-3b).
+  reconciler's poll path is held to the same checks (see 40-3b's "Discovery filtered to the agent's run").
 - **A buffered completion only satisfies its own dispatch.** Session ids repeat per issue + task, so a
   re-dispatch within the buffer's hour could consume the previous run's buffered result. The activity
   now calls `PendingAgentRunCompletionBuffer.Arm` with its dispatch start; entries recorded before it, or

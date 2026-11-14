@@ -285,4 +285,26 @@ public sealed class GitLabActionsClientTests
         var rl = failed.Error.Should().BeOfType<PlatformError.RateLimited>().Subject;
         rl.RetryAfter.Should().Be(TimeSpan.FromSeconds(60));
     }
+
+    [TestCase("tamma-agent.yml", null)]
+    [TestCase(null, "workflow_dispatch")]
+    public async Task ListRunsAsync_with_a_workflow_or_event_filter_is_capability_unsupported(string? file, string? evt)
+    {
+        // GitLab pipelines have no workflow file or dispatch event to filter on — say so
+        // explicitly instead of silently returning unfiltered pipelines.
+        var (client, handler) = TestFactory.BuildActions();
+        var called = false;
+        handler.AddRoute(HttpMethod.Get, "/pipelines", _ =>
+        {
+            called = true;
+            return FakeHttpMessageHandler.Json(HttpStatusCode.OK, "[]");
+        });
+
+        var result = await client.ListRunsAsync("g", "p",
+            new ListWorkflowRunsRequest("main", WorkflowFileName: file, Event: evt));
+
+        var error = result.Should().BeOfType<PlatformResult<IReadOnlyList<WorkflowRun>>.Failed>().Subject.Error;
+        PlatformErrorText.IsCapabilityUnsupported(error).Should().BeTrue();
+        called.Should().BeFalse();
+    }
 }

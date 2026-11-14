@@ -329,6 +329,12 @@ internal sealed class GiteaWorkflowRunDto
 
     [JsonPropertyName("completed_at")]
     public DateTimeOffset? CompletedAt { get; set; }
+
+    [JsonPropertyName("path")]
+    public string? Path { get; set; }
+
+    [JsonPropertyName("event")]
+    public string? Event { get; set; }
 }
 
 internal sealed class GiteaWorkflowRunsListDto
