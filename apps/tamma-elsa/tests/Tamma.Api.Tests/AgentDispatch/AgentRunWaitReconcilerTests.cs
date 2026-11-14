@@ -272,6 +272,24 @@ public class AgentRunWaitReconcilerTests
     }
 
     [Test]
+    public async Task Single_user_rereads_the_rows_under_the_lock()
+    {
+        _mode = TammaMode.SingleUser;
+        var wait = Wait(null, minutesAgo: 90, user: SoleUser);
+        // Another server closes the wait between the first read and the lock.
+        _waits.SetupSequence(w => w.ListStalePendingByUserAsync(It.IsAny<DateTime>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new[] { wait })
+            .ReturnsAsync(Array.Empty<AgentRunWait>());
+
+        var result = await Sut().SweepOnceAsync(CancellationToken.None);
+
+        _lock.Acquired.Should().Equal($"user:{SoleUser:D}");
+        result.TimedOut.Should().BeEmpty("the row was gone by the time the lock was held");
+        _waits.Verify(w => w.TryMarkTimedOutByUserAsync(It.IsAny<Guid>(), It.IsAny<Guid>(), It.IsAny<CancellationToken>()), Times.Never);
+        _mediation.Verify(m => m.DiscoverRunAsync(It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<DateTime>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
     public async Task Single_user_sweeps_the_user_plane()
     {
         _mode = TammaMode.SingleUser;

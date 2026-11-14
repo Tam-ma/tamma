@@ -140,17 +140,37 @@ public class ComputeTaskResumeIndexActivityTests
     public void The_key_selects_the_seam(string value, bool disabled)
         => TaskReEntryRegistration.IsDisabled(Config((TaskReEntryRegistration.ConfigKey, value))).Should().Be(disabled);
 
+    [TestCase("true", typeof(NullTaskLoopReEntryService))]
+    [TestCase("false", typeof(FakeRealReEntryService))]
+    public void The_registration_resolves_the_null_service_when_switched_off_and_the_real_one_otherwise(string value, Type expected)
+    {
+        var services = new Microsoft.Extensions.DependencyInjection.ServiceCollection();
+        services.AddTaskLoopReEntry<FakeRealReEntryService>(Config((TaskReEntryRegistration.ConfigKey, value)));
+
+        using var provider = Microsoft.Extensions.DependencyInjection.ServiceCollectionContainerBuilderExtensions.BuildServiceProvider(services);
+        using var scope = Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions.CreateScope(provider);
+        Microsoft.Extensions.DependencyInjection.ServiceProviderServiceExtensions
+            .GetRequiredService<ITaskLoopReEntryService>(scope.ServiceProvider).Should().BeOfType(expected);
+    }
+
+    private sealed class FakeRealReEntryService : ITaskLoopReEntryService
+    {
+        public Task<TaskLoopResumePosition> ReconstructAsync(
+            Guid? tenantId, string repository, string branchName, int issueNumber, CancellationToken ct)
+            => new NullTaskLoopReEntryService().ReconstructAsync(tenantId, repository, branchName, issueNumber, ct);
+    }
+
+    // The resolution itself is tested above; this only pins that each host registers through
+    // the shared helper with its own real service.
     [TestCase("Tamma.ElsaServer", "HttpTaskLoopReEntryService")]
     [TestCase("Tamma.Api", "Tamma.Api.Services.AgentDispatch.TaskLoopReEntryService")]
-    public void Both_hosts_branch_on_the_switch(string host, string realService)
+    public void Both_hosts_register_through_the_shared_helper(string host, string realService)
     {
         var program = File.ReadAllText(Path.Combine(SrcRoot(), host, "Program.cs"));
-        var at = program.IndexOf("TaskReEntryRegistration.IsDisabled(builder.Configuration)", StringComparison.Ordinal);
-        at.Should().BeGreaterThan(0, $"{host} must read Coding:TaskReEntryDisabled through TaskReEntryRegistration");
-        var branch = program.Substring(at, 600);
-        branch.Should().Contain("NullTaskLoopReEntryService").And.Contain(realService);
-        branch.IndexOf("NullTaskLoopReEntryService", StringComparison.Ordinal)
-            .Should().BeLessThan(branch.IndexOf(realService, StringComparison.Ordinal), "true ⇒ Null, else the real service");
+        var at = program.IndexOf("TaskReEntryRegistration.AddTaskLoopReEntry<", StringComparison.Ordinal);
+        at.Should().BeGreaterThan(0, $"{host} must register re-entry through TaskReEntryRegistration.AddTaskLoopReEntry");
+        program.Substring(at, 300).Should().Contain(realService).And.Contain("builder.Configuration");
+        program.Should().NotContain("TaskReEntryRegistration.IsDisabled(", "the switch is read in one place");
     }
 
     // ── The engine's HTTP read ────────────────────────────────────────────

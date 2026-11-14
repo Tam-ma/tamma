@@ -26,11 +26,13 @@ and escalates), and rows whose webhook never came stayed `pending`.
    with `wakePath = poll`, which the engine records on `AGENT_RUN.RECEIVED`.
 3. **Closes dead waits.** A row still pending `TimeOutAfterMinutes` (60, above the engine's 35-minute
    deadline) after dispatch is marked `timed_out` (CAS) and an `AGENT_RUN.RESUME_UNRESOLVED`
-   (`detail = no_completion_before_deadline`) is recorded. A finished run is resumed even past the
-   limit — late beats lost.
+   (`detail = no_completion_before_deadline`) is recorded. A run found finished in the sweep that
+   would close the wait is resumed even past the limit. A run that finishes after the row is
+   `timed_out` is not recorded: the reconciler and the webhook resumer read only pending rows.
 4. **Multi-pod safe, per principal.** Each principal's sweep runs under a Postgres session advisory
    lock whose key folds the principal (`tenant:{id}` / `user:{id}`) — two pods never sweep the same
-   principal; different principals sweep concurrently. Rows are read only under the lock.
+   principal; different principals sweep concurrently. Rows are handled only after a read under the lock
+   (single-user does a first read without it, only to find which users have stale waits).
 5. **Both modes.** SaaS sweeps every active tenant schema (the `ChannelOutboxRepository` fan-out;
    an unreachable schema is skipped). Single-user sweeps the control-plane user plane.
 6. **Fail-soft and governed.** One failing wait or tenant never stops the sweep; every lock taken
