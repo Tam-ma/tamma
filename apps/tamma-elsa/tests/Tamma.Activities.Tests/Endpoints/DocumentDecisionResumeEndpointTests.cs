@@ -34,6 +34,7 @@ public class DocumentDecisionResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -47,7 +48,9 @@ public class DocumentDecisionResumeEndpointTests
         new(session, tenant, decisionJson, Feedback: "ok", DeciderId: "who@x.test",
             DeciderDisplay: "Who", Channel: channel, RulesReference: "system-default@1");
 
-    private static StoredBookmark Bookmark(string name, string instanceId)
+    private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
+
+    private static StoredBookmark NewBookmark(string name, string instanceId)
         => new() { Name = name, WorkflowInstanceId = instanceId, Id = Guid.NewGuid().ToString() };
 
     private void SetupFind(string expectedName, params StoredBookmark[] matches) =>
@@ -84,6 +87,30 @@ public class DocumentDecisionResumeEndpointTests
                 && (string)r.Input!["RulesReference"] == "system-default@1"),
             It.IsAny<CancellationToken>()), Times.Once);
         _runtime.Verify(r => r.CreateClientAsync("wf-1", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Resume_BeforeTheInstanceStateIsStored_Returns409_NeverResumes()
+    {
+        var session = Guid.NewGuid();
+        var tenant = Guid.NewGuid().ToString();
+        var expected = WaitForDocumentDecisionActivity.DecisionBookmarkName(tenant, session);
+        // The bookmark row exists, but the stored state does not hold it yet (not registered).
+        SetupFind(expected, NewBookmark(expected, "wf-1"));
+        var wait = ResumeGuard.MaxWait;
+        ResumeGuard.MaxWait = TimeSpan.Zero;
+        try
+        {
+            var result = await Invoke(Req(session, tenant));
+
+            StatusCodeOf(result).Should().Be(StatusCodes.Status409Conflict);
+            _client.Verify(c => c.RunInstanceAsync(It.IsAny<RunWorkflowInstanceRequest>(), It.IsAny<CancellationToken>()),
+                Times.Never, "resuming now would load the old state and then save it over the new one");
+        }
+        finally
+        {
+            ResumeGuard.MaxWait = wait;
+        }
     }
 
     [Test]

@@ -133,6 +133,18 @@ public static class AgentRunResumeEndpoint
             return Results.Conflict(new { error = "instance_mismatch", bookmark = name });
         }
 
+        // See ResumeGuard: never resume (or claim) before the stored state can continue the
+        // bookmark. If it still cannot, treat it like "no bookmark yet" and buffer the
+        // completion for the wait's post-commit reconcile read.
+        var client = await workflowRuntime.CreateClientAsync(bookmark.WorkflowInstanceId, ct).ConfigureAwait(false);
+        if (!await ResumeGuard.WaitUntilResumableAsync(client, bookmark.Id, ct).ConfigureAwait(false))
+        {
+            pending.Record(name, input);
+            logger.LogInformation(
+                "agent-run bookmark {Bookmark} is stored but its instance state is not yet — buffered for reconcile-after-persist", name);
+            return Results.Accepted(value: new { buffered = true, bookmark = name });
+        }
+
         var claimed = (await bookmarkStore
             .DeleteAsync(new BookmarkFilter { BookmarkId = bookmark.Id }, ct)
             .ConfigureAwait(false)) > 0;
@@ -143,7 +155,6 @@ public static class AgentRunResumeEndpoint
             return Results.NotFound(new { error = "bookmark_not_found", bookmark = name });
         }
 
-        var client = await workflowRuntime.CreateClientAsync(bookmark.WorkflowInstanceId, ct).ConfigureAwait(false);
         try
         {
             await client.RunInstanceAsync(

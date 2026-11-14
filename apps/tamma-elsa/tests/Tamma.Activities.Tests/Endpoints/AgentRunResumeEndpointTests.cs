@@ -31,6 +31,8 @@ public class AgentRunResumeEndpointTests
     private Mock<IBookmarkStore> _bookmarks = null!;
     private Mock<IWorkflowRuntime> _runtime = null!;
     private Mock<IWorkflowClient> _client = null!;
+    private bool _stateCommitted;
+    private bool _bookmarkListShared;
     private PendingAgentRunCompletionBuffer _buffer = null!;
     private RunWorkflowInstanceRequest? _ran;
 
@@ -45,6 +47,10 @@ public class AgentRunResumeEndpointTests
         _client = new Mock<IWorkflowClient>();
         _buffer = new PendingAgentRunCompletionBuffer();
         _ran = null;
+        _stateCommitted = true;
+        _bookmarkListShared = false;
+        _client.Setup(c => c.ExportStateAsync(It.IsAny<CancellationToken>())).ReturnsAsync(() => StoredState());
+        ResumeGuard.MaxWait = TimeSpan.Zero; // unit tests: one read, no waiting
         _runtime.Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
         _client.Setup(c => c.RunInstanceAsync(It.IsAny<RunWorkflowInstanceRequest>(), It.IsAny<CancellationToken>()))
@@ -56,7 +62,32 @@ public class AgentRunResumeEndpointTests
             .ReturnsAsync(1L);
     }
 
-    private void StoreHas(string name, params StoredBookmark[] matches) => _bookmarks
+    private readonly List<string> _storedBookmarkIds = new();
+
+    [TearDown]
+    public void RestoreGuard() => ResumeGuard.MaxWait = TimeSpan.FromSeconds(2);
+
+    /// <summary>The state as stored: it holds the bookmarks only once it is committed.</summary>
+    private Elsa.Workflows.State.WorkflowState StoredState()
+    {
+        var state = new Elsa.Workflows.State.WorkflowState();
+        foreach (var id in _storedBookmarkIds)
+        {
+            if (_stateCommitted || _bookmarkListShared)
+                state.Bookmarks.Add(new Elsa.Workflows.Models.Bookmark(id, "n", "h", null, "a", "node", "ai-" + id, DateTimeOffset.UtcNow));
+            if (_stateCommitted)
+                state.ActivityExecutionContexts.Add(new Elsa.Workflows.State.ActivityExecutionContextState { Id = "ai-" + id });
+        }
+        return state;
+    }
+
+    private void StoreHas(string name, params StoredBookmark[] matches)
+    {
+        _storedBookmarkIds.AddRange(matches.Select(m => m.Id));
+        StoreHasRows(name, matches);
+    }
+
+    private void StoreHasRows(string name, params StoredBookmark[] matches) => _bookmarks
         .Setup(b => b.FindManyAsync(It.Is<BookmarkFilter>(f => f.Name == name), It.IsAny<CancellationToken>()))
         .ReturnsAsync(matches.AsEnumerable());
 
@@ -97,6 +128,38 @@ public class AgentRunResumeEndpointTests
         read.ArtifactsUrl.Should().EndWith("/artifacts");
         _bookmarks.Verify(b => b.DeleteAsync(It.Is<BookmarkFilter>(f => f.BookmarkId == "bm-1"), It.IsAny<CancellationToken>()),
             Times.Once, "the bookmark is claimed atomically before the instance runs");
+    }
+
+    [Test]
+    public async Task A_resume_before_the_instance_state_is_stored_is_buffered_not_lost()
+    {
+        StoreHas(Name(), Bookmark("bm-1", Name(), "wf-1"));
+        _stateCommitted = false; // the bookmark row is stored; the instance state is not yet
+
+        var result = await Call(Request(bookmarkName: Name(), instanceId: "wf-1"));
+
+        StatusOf(result).Should().Be(202);
+        _ran.Should().BeNull("resuming now would load the old state and resume nothing");
+        _bookmarks.Verify(b => b.DeleteAsync(It.IsAny<BookmarkFilter>(), It.IsAny<CancellationToken>()), Times.Never,
+            "the row stays so the wait is still reachable");
+        _buffer.TryConsume(Name(), out _).Should().BeTrue("the completion waits for the post-commit reconcile read");
+    }
+
+    [Test]
+    public async Task A_stored_state_that_shows_the_bookmark_but_not_its_activity_is_not_resumed()
+    {
+        // The in-memory store shares the bookmark list with the running workflow: the old stored
+        // state shows the new bookmark while its activities are still the old ones.
+        StoreHas(Name(), Bookmark("bm-1", Name(), "wf-1"));
+        _stateCommitted = false;
+        _bookmarkListShared = true;
+
+        var result = await Call(Request(bookmarkName: Name(), instanceId: "wf-1"));
+
+        StatusOf(result).Should().Be(202);
+        _ran.Should().BeNull();
+        _bookmarks.Verify(b => b.DeleteAsync(It.IsAny<BookmarkFilter>(), It.IsAny<CancellationToken>()), Times.Never);
+        _buffer.TryConsume(Name(), out _).Should().BeTrue();
     }
 
     [Test]

@@ -39,6 +39,7 @@ public class DesignResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -51,7 +52,9 @@ public class DesignResumeEndpointTests
         Guid session, string? tenant, bool approved = true, string? feedback = "looks good") =>
         new(session, tenant, approved, feedback, Reviewer: "who@x.test");
 
-    private static StoredBookmark Bookmark(string name, string instanceId)
+    private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
+
+    private static StoredBookmark NewBookmark(string name, string instanceId)
         => new() { Name = name, WorkflowInstanceId = instanceId, Id = Guid.NewGuid().ToString() };
 
     private void SetupFind(string expectedName, params StoredBookmark[] matches) =>

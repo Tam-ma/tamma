@@ -124,7 +124,7 @@ public class SingleIssueCycleCrashReEntryTests
         {
             await StartCycleAsync(a);
             await DeliverAsync(a, taskIndex: 0);
-            await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
+            await WaitUntilAsync(() => Dispatched(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
         }
         _world.BranchFiles.Clear(); // e.g. the branch was force-pushed: task 0's work is gone
         _world.Dispatched.Clear();
@@ -148,7 +148,7 @@ public class SingleIssueCycleCrashReEntryTests
     {
         await using var a = await HostAsync("github_actions");
         var instanceId = await StartCycleAsync(a);
-        await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 0)), "task 0 dispatched");
+        await WaitUntilAsync(() => Dispatched(TaskSessionId.For(Issue, 0)), "task 0 dispatched");
 
         // The wait arms two durable timers: the 30 s reconcile read and the deadline. The deadline
         // is the one that resumes latest.
@@ -180,7 +180,7 @@ public class SingleIssueCycleCrashReEntryTests
         {
             await StartCycleAsync(a);
             await DeliverAsync(a, taskIndex: 0);
-            await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
+            await WaitUntilAsync(() => Dispatched(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
         }
 
         await using var b = await HostAsync("local");
@@ -201,7 +201,7 @@ public class SingleIssueCycleCrashReEntryTests
         {
             await StartCycleAsync(a);
             await DeliverAsync(a, taskIndex: 0);
-            await WaitUntilAsync(() => _world.Dispatched.Contains(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
+            await WaitUntilAsync(() => Dispatched(TaskSessionId.For(Issue, 1)), "task 1 dispatched");
         }
         _world.BranchFiles.Clear();
 
@@ -268,6 +268,42 @@ public class SingleIssueCycleCrashReEntryTests
         await WaitUntilAsync(() => _world.Events(CycleEvents.Ended).Any(), "the cycle ended at the escalated terminal");
 
         _world.CycleResults.Should().Equal(new[] { "error" }, "an escalated merge gate is a cycle error");
+    }
+
+    [Test]
+    public async Task A_completion_delivered_the_instant_the_wait_appears_is_never_lost()
+    {
+        // Elsa stores the bookmark row a moment before the instance state. Deliver with no
+        // delay, repeatedly: every completion must still move the cycle on to task 1.
+        for (var round = 0; round < 8; round++)
+        {
+            _world = new World();
+            Stubs.Reset();
+            await using var host = await HostAsync("github_actions");
+            await StartCycleAsync(host);
+            var session = TaskSessionId.For(Issue, 0);
+            var name = LifecycleBookmarks.ForAgentRun(Tenant.ToString(), Repo, Branch, session);
+            var store = host.GetRequiredService<IBookmarkStore>();
+            var started = DateTime.UtcNow;
+            while (!(await store.FindManyAsync(new BookmarkFilter { Name = name }, CancellationToken.None)).Any())
+                if (DateTime.UtcNow - started > TimeSpan.FromSeconds(30)) Assert.Fail("the wait for task 0 never appeared");
+
+            var result = await AgentRunResumeEndpoint.Resume(
+                new AgentRunResumeEndpoint.ResumeRequest(Tenant.ToString(), Repo, Branch, session, name, null,
+                    WorkflowRunId: 1000, Status: "completed", Conclusion: "success",
+                    WorkflowRunUrl: "u", ArtifactsUrl: "a", DurationSeconds: 60),
+                store, host.GetRequiredService<IWorkflowRuntime>(),
+                host.GetRequiredService<PendingAgentRunCompletionBuffer>(),
+                host.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(), CancellationToken.None);
+
+            result.GetType().Name.Should().StartWith("Ok", $"round {round}: the resume waits for the stored state, then resumes");
+            await WaitUntilAsync(() => Dispatched(TaskSessionId.For(Issue, 1)), $"round {round}: task 1 dispatched after the resume");
+        }
+    }
+
+    private bool Dispatched(string session)
+    {
+        lock (_world.Dispatched) return _world.Dispatched.Contains(session);
     }
 
     // ── AC9: the switch (default ON again: reads are scoped to the crashed attempt) ───
@@ -414,6 +450,7 @@ public class SingleIssueCycleCrashReEntryTests
             elsa.AddWorkflow<Stubs.Deployment>();
             elsa.AddWorkflow<Stubs.UpdateIssueStatus>();
             elsa.UseWorkflows(w => w.UseTammaEventPersistence());
+
         });
 
         var provider = services.BuildServiceProvider();
