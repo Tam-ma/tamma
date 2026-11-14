@@ -171,6 +171,14 @@ public static class CiWaitEndpoints
 
         var bookmark = bookmarks[0];
 
+        var client = await workflowRuntime
+            .CreateClientAsync(bookmark.WorkflowInstanceId, ct)
+            .ConfigureAwait(false);
+
+        // See ResumeGuard: never claim or resume before the stored state can continue the bookmark.
+        if (!await ResumeGuard.WaitUntilResumableAsync(client, bookmark.Id, ct).ConfigureAwait(false))
+            return ResumeGuard.NotReady(bookmark.Id);
+
         // Atomic claim — serialize concurrent resumes for this bookmark (see
         // the type doc): exactly one caller deletes the row; the rest see 0
         // and treat the wait as already-resumed. Never run without a claim.
@@ -200,10 +208,6 @@ public static class CiWaitEndpoints
         if (request.CoveragePercentage is { } cp) input["CoveragePercentage"] = cp;
         if (request.LintWarnings is { } lw) input["LintWarnings"] = lw;
         if (request.LintErrors is { } le) input["LintErrors"] = le;
-
-        var client = await workflowRuntime
-            .CreateClientAsync(bookmark.WorkflowInstanceId, ct)
-            .ConfigureAwait(false);
 
         try
         {

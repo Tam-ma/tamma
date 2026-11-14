@@ -43,6 +43,7 @@ public class PrMergedResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -59,7 +60,9 @@ public class PrMergedResumeEndpointTests
             .ReturnsAsync(1L);
     }
 
-    private static StoredBookmark Bookmark(string id, string name, string instanceId) => new()
+    private static StoredBookmark Bookmark(string id, string name, string instanceId) => ResumableState.Register(NewBookmark(id, name, instanceId));
+
+    private static StoredBookmark NewBookmark(string id, string name, string instanceId) => new()
     {
         Id = id,
         Name = name,

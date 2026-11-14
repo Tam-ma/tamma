@@ -190,6 +190,10 @@ public static class BlockerResumeEndpoint
             .CreateClientAsync(bookmark.WorkflowInstanceId, ct)
             .ConfigureAwait(false);
 
+        // See ResumeGuard: never resume before the stored state can continue the bookmark.
+        if (!await ResumeGuard.WaitUntilResumableAsync(client, bookmark.Id, ct).ConfigureAwait(false))
+            return ResumeGuard.NotReady(bookmark.Name ?? bookmark.Id);
+
         await client.RunInstanceAsync(
             new RunWorkflowInstanceRequest
             {

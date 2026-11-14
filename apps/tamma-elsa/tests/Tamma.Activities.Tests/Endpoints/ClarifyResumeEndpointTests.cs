@@ -38,6 +38,7 @@ public class ClarifyResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -49,7 +50,9 @@ public class ClarifyResumeEndpointTests
     private static ClarifyResumeEndpoint.ResumeRequest Req(Guid session, string? tenant, string answers = "the answer") =>
         new(session, tenant, answers, Resolver: "who@x.test");
 
-    private static StoredBookmark Bookmark(string name, string instanceId)
+    private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
+
+    private static StoredBookmark NewBookmark(string name, string instanceId)
         => new() { Name = name, WorkflowInstanceId = instanceId, Id = Guid.NewGuid().ToString() };
 
     private void SetupFind(string expectedName, params StoredBookmark[] matches) =>

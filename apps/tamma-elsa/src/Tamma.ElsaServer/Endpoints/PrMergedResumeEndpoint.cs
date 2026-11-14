@@ -159,6 +159,14 @@ public static class PrMergedResumeEndpoint
 
         var bookmark = bookmarks[0];
 
+        var client = await workflowRuntime
+            .CreateClientAsync(bookmark.WorkflowInstanceId, ct)
+            .ConfigureAwait(false);
+
+        // See ResumeGuard: never claim or resume before the stored state can continue the bookmark.
+        if (!await ResumeGuard.WaitUntilResumableAsync(client, bookmark.Id, ct).ConfigureAwait(false))
+            return ResumeGuard.NotReady(qualified);
+
         // Atomic claim — serialize concurrent resumes for this bookmark (see
         // the type doc): exactly one caller deletes the row; the rest see 0
         // and treat the wait as already-resumed. Never run without a claim.
@@ -183,10 +191,6 @@ public static class PrMergedResumeEndpoint
         var input = new Dictionary<string, object>();
         if (!string.IsNullOrWhiteSpace(request.MergeSha))
             input["mergeSha"] = request.MergeSha;
-
-        var client = await workflowRuntime
-            .CreateClientAsync(bookmark.WorkflowInstanceId, ct)
-            .ConfigureAwait(false);
 
         try
         {

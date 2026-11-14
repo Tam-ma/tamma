@@ -39,6 +39,7 @@ public class CiWaitEndpointsTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -51,7 +52,9 @@ public class CiWaitEndpointsTests
             .ReturnsAsync(1L);
     }
 
-    private static StoredBookmark Bookmark(string id, string instanceId, object? payload) => new()
+    private static StoredBookmark Bookmark(string id, string instanceId, object? payload) => ResumableState.Register(NewBookmark(id, instanceId, payload));
+
+    private static StoredBookmark NewBookmark(string id, string instanceId, object? payload) => new()
     {
         Id = id,
         Name = WaitForCIResultsActivity.CiWaitStimulusName,

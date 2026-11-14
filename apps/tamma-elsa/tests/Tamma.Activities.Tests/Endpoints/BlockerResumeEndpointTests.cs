@@ -37,6 +37,7 @@ public class BlockerResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime
             .Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
@@ -53,7 +54,9 @@ public class BlockerResumeEndpointTests
         Guid session, bool resolved, string? seniorResponse = null)
         => new(session, "escalation", Level: null, resolved, ProgressType: null, Details: null, seniorResponse, Resolver: "who@x.test");
 
-    private static StoredBookmark Bookmark(string name, string instanceId)
+    private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
+
+    private static StoredBookmark NewBookmark(string name, string instanceId)
         => new() { Name = name, WorkflowInstanceId = instanceId, Id = Guid.NewGuid().ToString() };
 
     private void SetupFind(string expectedName, params StoredBookmark[] matches) =>

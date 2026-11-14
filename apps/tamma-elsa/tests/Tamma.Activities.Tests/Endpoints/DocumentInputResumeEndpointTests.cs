@@ -32,6 +32,7 @@ public class DocumentInputResumeEndpointTests
         _bookmarks = new Mock<IBookmarkStore>();
         _runtime = new Mock<IWorkflowRuntime>();
         _client = new Mock<IWorkflowClient>();
+        ResumableState.Arrange(_client);
         _runtime.Setup(r => r.CreateClientAsync(It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(_client.Object);
         _client.Setup(c => c.RunInstanceAsync(It.IsAny<RunWorkflowInstanceRequest>(), It.IsAny<CancellationToken>()))
@@ -41,7 +42,9 @@ public class DocumentInputResumeEndpointTests
     private static DocumentInputResumeEndpoint.ResumeRequest Req(Guid session, string? tenant, string input = "answer") =>
         new(session, tenant, input, Respondent: "who@x.test");
 
-    private static StoredBookmark Bookmark(string name, string instanceId)
+    private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
+
+    private static StoredBookmark NewBookmark(string name, string instanceId)
         => new() { Name = name, WorkflowInstanceId = instanceId, Id = Guid.NewGuid().ToString() };
 
     private void SetupFind(string expectedName, params StoredBookmark[] matches) =>
