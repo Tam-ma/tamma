@@ -1,29 +1,30 @@
-using System.Security.Cryptography;
 using FluentAssertions;
 using NUnit.Framework;
+using Tamma.ElsaServer.Workflows;
 
 namespace Tamma.Activities.Tests.ADL;
 
 /// <summary>
-/// Story 44-7 AC9 (D3, Test 13) — pins the SHA-256 hash of
-/// <c>SingleIssueCycleWorkflow.cs</c> to guarantee Story 44-7 stays completely
-/// out of the contended 40-2 → 40-4 → 40-5 → 41-29 merge chain on that file.
+/// Story 44-7 AC9 (D3) originally pinned a SHA-256 hash of <c>SingleIssueCycleWorkflow.cs</c>
+/// to guarantee Story 44-7 stayed out of the contended <c>40-2 → 40-4 → 40-5 → 41-29</c>
+/// merge chain. Story 41-29 is the intended final writer in that chain; this guard now
+/// asserts that Story 44-7's tracker intake remains decoupled from <c>SingleIssueCycleWorkflow</c>
+/// (zero references to <c>TrackerIntakeSource</c> / <c>IWorkIntakeSource</c> in the cycle).
 /// </summary>
 [TestFixture]
 public class SingleIssueCycleUntouchedTests
 {
-    private const string PinnedSha256 = "9d58e987d3baa884b280ad19ca2c81242eb3f48051d2a33336c8a51699c4bca3";
-
     [Test]
-    public void Workflow_file_is_unmodified()
+    public void SingleIssueCycleWorkflow_remains_decoupled_from_tracker_intake_sources()
     {
         var path = LocateSingleIssueCycleWorkflow();
-        var bytes = File.ReadAllBytes(path);
-        var hash = Convert.ToHexString(SHA256.HashData(bytes)).ToLowerInvariant();
+        var text = File.ReadAllText(path);
 
-        hash.Should().Be(PinnedSha256,
-            "Story 44-7 AC9 / D3: SingleIssueCycleWorkflow.cs must remain byte-unchanged by Story 44-7 "
-            + "(contended 40-2 → 40-4 → 40-5 → 41-29 merge chain)");
+        text.Should().NotContain("TrackerIntakeSource",
+            "Story 44-7 tracker intake stays outside SingleIssueCycleWorkflow");
+        text.Should().NotContain("IWorkIntakeSource",
+            "Story 44-7 intake abstraction stays outside SingleIssueCycleWorkflow");
+        typeof(SingleIssueCycleWorkflow).Should().NotBeNull();
     }
 
     private static string LocateSingleIssueCycleWorkflow()

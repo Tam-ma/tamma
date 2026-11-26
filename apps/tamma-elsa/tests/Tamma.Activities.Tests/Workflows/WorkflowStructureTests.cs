@@ -464,8 +464,12 @@ public class WorkflowStructureTests
         // reason recorded, rather than being nudged by one each time a step lands.
         // 90 → 100: Story 40-4's task-loop crash re-entry adds three nodes
         // (ComputeTaskResumeIndex, TaskResumeOk, ApplyTaskResume), taking it to exactly 90.
-        flowchart.Activities.Count.Should().BeLessThan(100,
-            "SingleIssueCycleWorkflow should not exceed 100 activities");
+        // 100 → 130: Story 41-29 adds the issue-level pre-route sub-graph (ReadTriage,
+        // IssuePreRoute, question answer+close terminal) and the per-task FlowSwitchByKind
+        // with per-kind dispatches, gates, docs deferral, unknown-kind escalation, and
+        // ROUTE.* event emissions, taking it to 119.
+        flowchart.Activities.Count.Should().BeLessThan(130,
+            "SingleIssueCycleWorkflow should not exceed 130 activities");
     }
 
     [Test]
