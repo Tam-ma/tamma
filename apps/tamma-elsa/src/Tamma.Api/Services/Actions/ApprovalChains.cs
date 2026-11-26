@@ -122,17 +122,25 @@ public static class ApprovalChains
         All.FirstOrDefault(c => string.Equals(c.Name, name, StringComparison.Ordinal));
 
     /// <summary>
-    /// The catalog level for a target-key wire: the descriptor's
-    /// <c>DefaultMinAutonomy</c>, or NULL for a machinery row / an unknown key
-    /// (a machinery link has no dial level and can never "exceed" an entry).
+    /// The catalog level for a target-key wire: the descriptor's effective
+    /// shipped level via <see cref="IShippedLevelResolver"/> (Story 43-18 AC9),
+    /// or NULL for a machinery row / an unknown key (a machinery link has no
+    /// dial level and can never "exceed" an entry).
     /// </summary>
-    public static int? CatalogLevelOf(string targetKeyWire)
+    public static int? CatalogLevelOf(string targetKeyWire) =>
+        CatalogLevelOf(targetKeyWire, shippedLevels: null);
+
+    /// <inheritdoc cref="CatalogLevelOf(string)"/>
+    public static int? CatalogLevelOf(
+        string targetKeyWire,
+        IShippedLevelResolver? shippedLevels)
     {
         if (ActionKey.TryParse(targetKeyWire, out var key)
             && ActionCatalog.TryGet(key, out var descriptor) && descriptor is not null
             && !descriptor.IsMachinery)
         {
-            return descriptor.DefaultMinAutonomy;
+            return (shippedLevels ?? CatalogDefaultShippedLevelResolver.Instance)
+                .EffectiveShippedLevel(key);
         }
         return null;
     }

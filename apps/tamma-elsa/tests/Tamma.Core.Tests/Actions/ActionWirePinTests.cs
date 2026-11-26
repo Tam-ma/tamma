@@ -90,7 +90,9 @@ public class ActionWirePinTests
             // existing order is untouched.
             "ci.workflow.dispatch", "llm.task.execute",
             // Story 43-6, 2026-11-07: the group-enforce policy write (machinery).
-            "governance.policy.group-enforce.set");
+            "governance.policy.group-enforce.set",
+            // Story 43-18: platform-scope shipped-level override writes (machinery).
+            "governance.action-level.set", "governance.action-level.delete");
     }
 
     [Test]

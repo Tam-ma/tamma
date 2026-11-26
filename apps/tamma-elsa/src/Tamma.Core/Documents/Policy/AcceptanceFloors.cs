@@ -83,10 +83,17 @@ public static class AcceptanceFloors
     /// silently move that type's acceptor (Story 43-11 Amendment 2-G — load-bearing;
     /// pinned by AcceptanceRulesEndpointsTests' base-dial caveat test).</para>
     /// </summary>
-    public static AcceptorRequirement ShippedFloorFor(DocumentTypeKey type, int dial) =>
-        dial < ActionCatalog.Get(new ActionKey(ActionNamespace.DocumentType, type.ToWire())).DefaultMinAutonomy
+    public static AcceptorRequirement ShippedFloorFor(
+        DocumentTypeKey type,
+        int dial,
+        IShippedLevelResolver? shippedLevels = null)
+    {
+        var resolver = shippedLevels ?? CatalogDefaultShippedLevelResolver.Instance;
+        var level = resolver.EffectiveShippedLevel(new ActionKey(ActionNamespace.DocumentType, type.ToWire()));
+        return dial < level
             ? AcceptorRequirement.Human
             : AcceptorRequirement.Any;
+    }
 
     /// <summary>
     /// Raise <paramref name="resolved"/>'s <see cref="AcceptorRequirement"/> to
@@ -100,11 +107,14 @@ public static class AcceptanceFloors
     /// per-type row.
     /// </summary>
     public static ResolvedAcceptanceRules ApplyShippedAcceptorFloor(
-        ResolvedAcceptanceRules resolved, DocumentTypeKey type, int baseDial)
+        ResolvedAcceptanceRules resolved,
+        DocumentTypeKey type,
+        int baseDial,
+        IShippedLevelResolver? shippedLevels = null)
     {
         ArgumentNullException.ThrowIfNull(resolved);
 
-        var floored = Max(resolved.Rules.AcceptorRequirement, ShippedFloorFor(type, baseDial));
+        var floored = Max(resolved.Rules.AcceptorRequirement, ShippedFloorFor(type, baseDial, shippedLevels));
         if (floored == resolved.Rules.AcceptorRequirement)
         {
             return resolved;

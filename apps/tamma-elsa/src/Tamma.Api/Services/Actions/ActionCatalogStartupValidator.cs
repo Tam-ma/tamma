@@ -5,6 +5,7 @@ using Tamma.Activities.Security;
 using Tamma.Api.Services.Agents; // RolePhaseMap (historical namespace, Tamma.Core assembly)
 using Tamma.Core;
 using Tamma.Core.Actions;
+using Tamma.Data.Repositories;
 
 namespace Tamma.Api.Services.Actions;
 
@@ -32,19 +33,22 @@ internal sealed class ActionCatalogStartupValidator : Microsoft.Extensions.Hosti
     private readonly IToolExecutorRegistry _registry;
     private readonly IConfiguration _configuration;
     private readonly ILogger<ActionCatalogStartupValidator> _logger;
+    private readonly IActionLevelOverrideRepository? _levelOverrides;
 
     public ActionCatalogStartupValidator(
         IToolExecutorRegistry registry,
         IConfiguration configuration,
-        ILogger<ActionCatalogStartupValidator> logger)
+        ILogger<ActionCatalogStartupValidator> logger,
+        IActionLevelOverrideRepository? levelOverrides = null)
     {
         _registry = registry;
         _configuration = configuration;
         _logger = logger;
+        _levelOverrides = levelOverrides;
     }
 
     /// <inheritdoc />
-    public Task StartAsync(CancellationToken cancellationToken)
+    public async Task StartAsync(CancellationToken cancellationToken)
     {
         // Force the Story 43-2 static index build at boot rather than at first
         // request (AC4). ActionCatalog.Validate() already ran unwrapped at
@@ -59,13 +63,32 @@ internal sealed class ActionCatalogStartupValidator : Microsoft.Extensions.Hosti
         // a mismatch means the catalog was touched before ShellExecutionProfile
         // was composed (an ordering fault), and the fail-loud posture is to refuse
         // to boot rather than ship the wrong level silently.
+        // Story 43-18 (AC9) — read the immutable shipped constant via
+        // IShippedLevelResolver.ShippedDefault so no production file touches
+        // ActionDescriptor.DefaultMinAutonomy directly.
+        var shipped = CatalogDefaultShippedLevelResolver.Instance;
         violations = violations
             .Concat(CheckShellProfile(
-                ActionCatalog.Get(new ActionKey(ActionNamespace.Tool, ToolAction.ShellExecute.ToWire())).DefaultMinAutonomy,
-                ActionCatalog.Get(new ActionKey(ActionNamespace.Effect, ExternalEffect.ProcessSpawn.ToWire())).DefaultMinAutonomy,
+                shipped.ShippedDefault(new ActionKey(ActionNamespace.Tool, ToolAction.ShellExecute.ToWire())),
+                shipped.ShippedDefault(new ActionKey(ActionNamespace.Effect, ExternalEffect.ProcessSpawn.ToWire())),
                 _configuration.GetValue("Tools:Shell:Sandboxed", false),
                 ShellExecutionProfile.IsInitialized))
             .ToList();
+
+        // Story 43-18 (AC8) — fail startup loudly if action_level_overrides holds
+        // any stranded row (an action key that was removed from the catalog, or
+        // reclassified as machinery / non-enforceable).
+        if (_levelOverrides is not null)
+        {
+            var overrideRows = await _levelOverrides.LoadAllAsync(cancellationToken)
+                .ConfigureAwait(false);
+            var stranded = CheckStrandedOverrides(overrideRows.Select(r => r.ActionKey));
+            if (stranded.Count > 0)
+            {
+                violations = violations.Concat(stranded).ToList();
+            }
+        }
+
         if (violations.Count > 0)
         {
             throw new TammaError(
@@ -86,8 +109,17 @@ internal sealed class ActionCatalogStartupValidator : Microsoft.Extensions.Hosti
             ActionCatalog.ByKey.Keys.Count(k => k.Ns == ActionNamespace.Tool),
             _registry.GetAll().Count,
             ToolNameAliases.All.Count);
-        return Task.CompletedTask;
     }
+
+    /// <summary>
+    /// Story 43-18 (AC8) — pure check for stranded rows in
+    /// <c>action_level_overrides</c>. Shared by boot validation and tests.
+    /// </summary>
+    internal static IReadOnlyList<Violation> CheckStrandedOverrides(
+        IEnumerable<string> storedActionKeys) =>
+        ActionLevelOverrideValidator.FindStrandedOverrides(storedActionKeys)
+            .Select(v => new Violation(v.Code, v.Detail))
+            .ToList();
 
     /// <inheritdoc />
     public Task StopAsync(CancellationToken cancellationToken) => Task.CompletedTask;

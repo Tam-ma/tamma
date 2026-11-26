@@ -223,7 +223,8 @@ public static class AutonomyGateEvaluator
         AutonomyQuery query,
         GovernancePolicySnapshot snapshot,
         ResolvedAcceptanceRules? baseRules,
-        BreakGlassState? breakGlass = null)
+        BreakGlassState? breakGlass = null,
+        IShippedLevelResolver? shippedLevels = null)
     {
         ArgumentNullException.ThrowIfNull(query);
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -317,7 +318,7 @@ public static class AutonomyGateEvaluator
 
         // ── The threshold ladder (principal ladder + platform ceiling — the
         //    same composition the Seam B tool-loop gate reads) ───────────────
-        var (effectiveMin, source) = ResolveEffectiveMinAutonomy(descriptor, snapshot, breakGlass);
+        var (effectiveMin, source) = ResolveEffectiveMinAutonomy(descriptor, snapshot, breakGlass, shippedLevels);
 
         // F11, corrected 2026-07-31 (review MEDIUM-1). `ResolveEffectiveMinAutonomy`
         // reports `BreakGlass` to mean "the fail-closed SUBSTITUTION was suspended
@@ -611,15 +612,18 @@ public static class AutonomyGateEvaluator
         ResolveEffectiveMinAutonomy(
             ActionDescriptor descriptor,
             GovernancePolicySnapshot snapshot,
-            BreakGlassState? breakGlass = null)
+            BreakGlassState? breakGlass = null,
+            IShippedLevelResolver? shippedLevels = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(snapshot);
 
+        var effectiveShipped = ResolveShippedLevel(descriptor, snapshot, shippedLevels);
+
         if (!snapshot.IsAuthoritative)
         {
             return breakGlass is { IsEngaged: true }
-                ? (descriptor.DefaultMinAutonomy, ActionAssignmentSource.BreakGlass)
+                ? (effectiveShipped, ActionAssignmentSource.BreakGlass)
                 : (AutonomyDial.AlwaysHuman, ActionAssignmentSource.Unavailable);
         }
 
@@ -637,7 +641,7 @@ public static class AutonomyGateEvaluator
                 ? (pa, ActionAssignmentSource.ActionOverride)
                 : principalGroup?.MinAutonomy is int pg
                     ? (pg, ActionAssignmentSource.GroupOverride)
-                    : (descriptor.DefaultMinAutonomy, ActionAssignmentSource.SystemDefault);
+                    : (effectiveShipped, ActionAssignmentSource.SystemDefault);
 
         // Platform ceiling: composes by max() — it can only raise.
         var ceiling = platformAction?.MinAutonomy ?? platformGroup?.MinAutonomy;
@@ -685,7 +689,8 @@ public static class AutonomyGateEvaluator
         ResolveLadderWithoutActionRow(
             ActionDescriptor descriptor,
             GovernancePolicySnapshot snapshot,
-            ResolvedAcceptanceRules? baseRules)
+            ResolvedAcceptanceRules? baseRules,
+            IShippedLevelResolver? shippedLevels = null)
     {
         ArgumentNullException.ThrowIfNull(descriptor);
         ArgumentNullException.ThrowIfNull(snapshot);
@@ -703,12 +708,13 @@ public static class AutonomyGateEvaluator
         var principalGroup = Row(snapshot.PrincipalGroupRows, groupWire);
         var platformAction = Row(snapshot.PlatformActionRows, actionWire);
         var platformGroup = Row(snapshot.PlatformGroupRows, groupWire);
+        var effectiveShipped = ResolveShippedLevel(descriptor, snapshot, shippedLevels);
 
-        // Principal ladder WITHOUT the action row: group ?? shipped default.
+        // Principal ladder WITHOUT the action row: group ?? effective shipped level (43-18).
         var (effectiveMin, source) =
             principalGroup?.MinAutonomy is int pg
                 ? (pg, ActionAssignmentSource.GroupOverride)
-                : (descriptor.DefaultMinAutonomy, ActionAssignmentSource.SystemDefault);
+                : (effectiveShipped, ActionAssignmentSource.SystemDefault);
 
         // Platform ceiling: action → group, composes by max() (can only raise).
         var ceiling = platformAction?.MinAutonomy ?? platformGroup?.MinAutonomy;
@@ -800,6 +806,27 @@ public static class AutonomyGateEvaluator
                 && string.Equals(cls.Key, action.Key, StringComparison.Ordinal),
         _ => false,
     };
+
+    /// <summary>
+    /// Story 43-18 — single helper resolving the effective shipped level through
+    /// <see cref="IShippedLevelResolver"/> (explicit resolver wins, else snapshot
+    /// overrides map, else <see cref="CatalogDefaultShippedLevelResolver"/>).
+    /// </summary>
+    private static int ResolveShippedLevel(
+        ActionDescriptor descriptor,
+        GovernancePolicySnapshot snapshot,
+        IShippedLevelResolver? shippedLevels)
+    {
+        if (shippedLevels is not null)
+        {
+            return shippedLevels.EffectiveShippedLevel(descriptor.Key);
+        }
+        if (snapshot.LevelOverrides.TryGetValue(descriptor.Key.ToWire(), out var ov))
+        {
+            return ov;
+        }
+        return CatalogDefaultShippedLevelResolver.Instance.EffectiveShippedLevel(descriptor.Key);
+    }
 
     private static ActionAssignmentValue? Row(
         IReadOnlyDictionary<string, ActionAssignmentValue> rows, string key) =>

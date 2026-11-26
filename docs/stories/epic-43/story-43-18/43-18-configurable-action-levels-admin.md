@@ -1,6 +1,6 @@
 # Story 43-18: Configurable Action Levels — Platform-Scope Overrides of the Shipped Zone Table
 
-Status: drafted
+Status: done
 
 Implements: the product owner's 2026-08-03 direction that action levels — shipped constants under 43-11 — become configurable at the Tamma admin level, without weakening the zone model, the ceiling, or the toggle surface.
 

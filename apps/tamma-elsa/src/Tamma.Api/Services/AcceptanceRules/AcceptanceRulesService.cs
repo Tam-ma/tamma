@@ -1,4 +1,5 @@
 using Tamma.Core;
+using Tamma.Core.Actions;
 using Tamma.Core.Documents;
 using Tamma.Core.Documents.Policy;
 using Tamma.Data.Entities;
@@ -36,24 +37,31 @@ public sealed class AcceptanceRulesService : IAcceptanceRulesResolver
 {
     private readonly IAcceptanceRulesRepository _repository;
     private readonly AcceptanceRulesEventsService? _events;
+    private readonly IShippedLevelResolver? _shippedLevels;
     private readonly TimeProvider _time;
 
     public AcceptanceRulesService(
         IAcceptanceRulesRepository repository,
         AcceptanceRulesEventsService events,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IShippedLevelResolver? shippedLevels = null)
     {
         _repository = repository;
         _events = events;
         _time = timeProvider ?? TimeProvider.System;
+        _shippedLevels = shippedLevels;
     }
 
     /// <summary>Test seam — construct without an events service.</summary>
-    internal AcceptanceRulesService(IAcceptanceRulesRepository repository, TimeProvider? timeProvider = null)
+    internal AcceptanceRulesService(
+        IAcceptanceRulesRepository repository,
+        TimeProvider? timeProvider = null,
+        IShippedLevelResolver? shippedLevels = null)
     {
         _repository = repository;
         _events = null;
         _time = timeProvider ?? TimeProvider.System;
+        _shippedLevels = shippedLevels;
     }
 
     // -----------------------------------------------------------------------
@@ -80,7 +88,7 @@ public sealed class AcceptanceRulesService : IAcceptanceRulesResolver
             // row's own dial (Story 43-16) — this row IS the base row.
             var materialized = Materialize(baseOverride, AcceptanceRulesSource.PrincipalDefault, key);
             return AcceptanceFloors.ApplyShippedAcceptorFloor(
-                materialized, documentType, materialized.Rules.AutonomyLevel);
+                materialized, documentType, materialized.Rules.AutonomyLevel, _shippedLevels);
         }
 
         return SystemDefault(documentType, key);
@@ -106,7 +114,7 @@ public sealed class AcceptanceRulesService : IAcceptanceRulesResolver
             // floor is derived from the base row's own dial (Story 43-16).
             var materialized = Materialize(baseOverride, AcceptanceRulesSource.PrincipalDefault, key);
             return AcceptanceFloors.ApplyShippedAcceptorFloor(
-                materialized, documentType, materialized.Rules.AutonomyLevel);
+                materialized, documentType, materialized.Rules.AutonomyLevel, _shippedLevels);
         }
 
         return SystemDefault(documentType, key);
@@ -282,7 +290,7 @@ public sealed class AcceptanceRulesService : IAcceptanceRulesResolver
             DocumentTypeKey: key,
             ResolvedAt: _time.GetUtcNow());
         return AcceptanceFloors.ApplyShippedAcceptorFloor(
-            resolved, type, AcceptanceDefaults.Rules.AutonomyLevel);
+            resolved, type, AcceptanceDefaults.Rules.AutonomyLevel, _shippedLevels);
     }
 
     private async Task EmitMutationAsync(

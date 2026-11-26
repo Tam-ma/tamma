@@ -188,6 +188,10 @@ public class ControlPlaneDbContextModelTests
             // provider_settings survival pattern).
             "action_assignments",
             "action_authorizations",
+            // Story 43-18 — platform-scope overrides of catalog shipped zone
+            // levels. Same CP-residency, FK-free, DROP-list-excluded posture as
+            // action_assignments / action_authorizations.
+            "action_level_overrides",
         }, because: "Story 28-1 PR D (Decision #4) — enumerate every "
             + "CP-resident table; the 11 + 4 mentorship tenant-resident "
             + "entities have moved to TenantDbContext. Story 31-2 adds "

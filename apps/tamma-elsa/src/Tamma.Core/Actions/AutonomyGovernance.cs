@@ -58,13 +58,16 @@ public sealed record GovernancePolicySnapshot
 {
     private static readonly IReadOnlyDictionary<string, ActionAssignmentValue> s_none =
         new Dictionary<string, ActionAssignmentValue>(StringComparer.Ordinal);
+    private static readonly IReadOnlyDictionary<string, int> s_noLevelOverrides =
+        new Dictionary<string, int>(StringComparer.Ordinal);
 
     private GovernancePolicySnapshot(
         IReadOnlyDictionary<string, ActionAssignmentValue> platformActionRows,
         IReadOnlyDictionary<string, ActionAssignmentValue> platformGroupRows,
         IReadOnlyDictionary<string, ActionAssignmentValue> principalActionRows,
         IReadOnlyDictionary<string, ActionAssignmentValue> principalGroupRows,
-        bool isAuthoritative)
+        bool isAuthoritative,
+        IReadOnlyDictionary<string, int>? levelOverrides = null)
     {
         ArgumentNullException.ThrowIfNull(platformActionRows);
         ArgumentNullException.ThrowIfNull(platformGroupRows);
@@ -75,6 +78,7 @@ public sealed record GovernancePolicySnapshot
         PrincipalActionRows = principalActionRows;
         PrincipalGroupRows = principalGroupRows;
         IsAuthoritative = isAuthoritative;
+        LevelOverrides = levelOverrides ?? s_noLevelOverrides;
     }
 
     /// <summary>Platform-scope action rows (the ceiling), keyed by
@@ -90,6 +94,13 @@ public sealed record GovernancePolicySnapshot
 
     /// <summary>The resolving principal's own group rows.</summary>
     public IReadOnlyDictionary<string, ActionAssignmentValue> PrincipalGroupRows { get; }
+
+    /// <summary>
+    /// Story 43-18 — platform-scope shipped-level overrides (<c>action_level_overrides</c>),
+    /// keyed by <see cref="ActionKey.ToWire"/>. Primed alongside <c>action_assignments</c>
+    /// so every gate read resolves the effective shipped level without a DB call.
+    /// </summary>
+    public IReadOnlyDictionary<string, int> LevelOverrides { get; }
 
     /// <summary>
     /// TRUE when these rows are backed by a SUCCESSFUL read of
@@ -120,9 +131,10 @@ public sealed record GovernancePolicySnapshot
         IReadOnlyDictionary<string, ActionAssignmentValue> platformActionRows,
         IReadOnlyDictionary<string, ActionAssignmentValue> platformGroupRows,
         IReadOnlyDictionary<string, ActionAssignmentValue> principalActionRows,
-        IReadOnlyDictionary<string, ActionAssignmentValue> principalGroupRows)
+        IReadOnlyDictionary<string, ActionAssignmentValue> principalGroupRows,
+        IReadOnlyDictionary<string, int>? levelOverrides = null)
         => new(platformActionRows, platformGroupRows,
-               principalActionRows, principalGroupRows, isAuthoritative: true);
+               principalActionRows, principalGroupRows, isAuthoritative: true, levelOverrides);
 
     /// <summary>Zero rows, AUTHORITATIVELY — the table was read and it is empty,
     /// so every member resolves to its shipped default (AC10).</summary>

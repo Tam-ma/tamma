@@ -54,7 +54,7 @@ public interface IGovernancePolicySnapshotProvider
 }
 
 /// <inheritdoc />
-public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotProvider
+public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotProvider, IShippedLevelResolver
 {
     /// <summary>Lazy-refresh TTL — 60 s, matching
     /// <see cref="Providers.ProviderSettingsStore.RefreshTtl"/> (the staleness
@@ -63,6 +63,7 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
     public static readonly TimeSpan RefreshTtl = TimeSpan.FromSeconds(60);
 
     private readonly IActionAssignmentRepository? _repository;
+    private readonly IActionLevelOverrideRepository? _levelOverrideRepository;
     private readonly PromptStore.ITammaModeProvider _mode;
     private readonly ILogger<GovernancePolicySnapshotStore> _logger;
     private readonly TimeProvider _timeProvider;
@@ -93,15 +94,17 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
         IActionAssignmentRepository? repository,
         PromptStore.ITammaModeProvider mode,
         ILogger<GovernancePolicySnapshotStore> logger,
-        TimeProvider? timeProvider = null)
+        TimeProvider? timeProvider = null,
+        IActionLevelOverrideRepository? levelOverrideRepository = null)
     {
         ArgumentNullException.ThrowIfNull(mode);
         ArgumentNullException.ThrowIfNull(logger);
         _repository = repository;
+        _levelOverrideRepository = levelOverrideRepository;
         _mode = mode;
         _logger = logger;
         _timeProvider = timeProvider ?? TimeProvider.System;
-        if (repository is null)
+        if (repository is null && levelOverrideRepository is null)
         {
             // No control-plane repository — the empty snapshot IS the truth, and
             // it is authoritative (nothing could ever be read).
@@ -115,6 +118,31 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
     /// <see cref="GovernancePolicySnapshot.IsAuthoritative"/>.
     /// </summary>
     public bool IsAuthoritative => Volatile.Read(ref _everLoaded) == 1;
+
+    /// <summary>
+    /// Story 43-18 (AC8) — any stranded <c>action_level_overrides</c> rows
+    /// detected on the most recent refresh (e.g., rows inserted out-of-band or
+    /// surviving after a catalog rename/machinery change). Empty when clean.
+    /// </summary>
+    public IReadOnlyList<ActionLevelOverrideValidator.StrandedOverrideViolation> LastStrandedOverrides
+        => CurrentSnapshot().StrandedOverrides;
+
+    /// <inheritdoc />
+    public int ShippedDefault(ActionKey key)
+        => CatalogDefaultShippedLevelResolver.Instance.ShippedDefault(key);
+
+    /// <inheritdoc />
+    public int EffectiveShippedLevel(ActionKey key)
+    {
+        var s = CurrentSnapshot();
+        return s.LevelOverrides.TryGetValue(key.ToWire(), out var level)
+            ? level
+            : ShippedDefault(key);
+    }
+
+    /// <inheritdoc />
+    public bool TryGetOverride(ActionKey key, out int level)
+        => CurrentSnapshot().LevelOverrides.TryGetValue(key.ToWire(), out level);
 
     /// <inheritdoc />
     public GovernancePolicySnapshot GetSnapshot(GovernancePrincipal principal)
@@ -149,7 +177,7 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
     /// <inheritdoc />
     public async Task RefreshAsync(CancellationToken ct = default)
     {
-        if (_repository is null)
+        if (_repository is null && _levelOverrideRepository is null)
         {
             return; // no CP DB — the empty snapshot IS the truth (shipped defaults)
         }
@@ -157,9 +185,26 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
         var version = Interlocked.Increment(ref _loadVersion);
         try
         {
-            var rows = await _repository.LoadAllAsync(ct).ConfigureAwait(false);
+            var rows = _repository is not null
+                ? await _repository.LoadAllAsync(ct).ConfigureAwait(false)
+                : Array.Empty<ActionAssignment>();
+            var levelRows = _levelOverrideRepository is not null
+                ? await _levelOverrideRepository.LoadAllAsync(ct).ConfigureAwait(false)
+                : Array.Empty<ActionLevelOverride>();
+
             WarnOnCollapsedSingleUserRows(rows);
-            var snapshot = FullSnapshot.Build(rows);
+            var stranded = ActionLevelOverrideValidator.FindStrandedOverrides(
+                levelRows.Select(r => r.ActionKey));
+            if (stranded.Count > 0)
+            {
+                _logger.LogError(
+                    "Post-startup drift sweep detected {StrandedCount} stranded action_level_overrides "
+                    + "row(s) (Story 43-18 AC8): {Violations}",
+                    stranded.Count,
+                    string.Join("; ", stranded.Select(v => $"{v.Code}: {v.Detail}")));
+            }
+
+            var snapshot = FullSnapshot.Build(rows, levelRows, stranded);
             lock (_installLock)
             {
                 if (version >= _installedVersion)
@@ -223,7 +268,7 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
 
     private FullSnapshot CurrentSnapshot()
     {
-        if (_repository is not null
+        if ((_repository is not null || _levelOverrideRepository is not null)
             && _timeProvider.GetUtcNow().UtcTicks - Volatile.Read(ref _loadedAtTicks)
                 > RefreshTtl.Ticks
             && Interlocked.CompareExchange(ref _refreshing, 1, 0) == 0)
@@ -254,7 +299,8 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
             s.PlatformRows.ActionRows,
             s.PlatformRows.GroupRows,
             principalRows?.ActionRows ?? PrincipalRows.None.ActionRows,
-            principalRows?.GroupRows ?? PrincipalRows.None.GroupRows);
+            principalRows?.GroupRows ?? PrincipalRows.None.GroupRows,
+            s.LevelOverrides);
     }
 
     /// <summary>One principal's rows split by target kind.</summary>
@@ -273,18 +319,24 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
             PrincipalRows.None,
             new Dictionary<Guid, PrincipalRows>(),
             new Dictionary<Guid, PrincipalRows>(),
-            PrincipalRows.None);
+            PrincipalRows.None,
+            new Dictionary<string, int>(StringComparer.Ordinal),
+            Array.Empty<ActionLevelOverrideValidator.StrandedOverrideViolation>());
 
         private FullSnapshot(
             PrincipalRows platformRows,
             IReadOnlyDictionary<Guid, PrincipalRows> tenantRows,
             IReadOnlyDictionary<Guid, PrincipalRows> userRows,
-            PrincipalRows collapsedUserRows)
+            PrincipalRows collapsedUserRows,
+            IReadOnlyDictionary<string, int> levelOverrides,
+            IReadOnlyList<ActionLevelOverrideValidator.StrandedOverrideViolation> strandedOverrides)
         {
             PlatformRows = platformRows;
             TenantRows = tenantRows;
             UserRows = userRows;
             CollapsedUserRows = collapsedUserRows;
+            LevelOverrides = levelOverrides;
+            StrandedOverrides = strandedOverrides;
         }
 
         public PrincipalRows PlatformRows { get; }
@@ -296,7 +348,18 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
         /// than one user id contributes).</summary>
         public PrincipalRows CollapsedUserRows { get; }
 
-        public static FullSnapshot Build(IReadOnlyList<ActionAssignment> rows)
+        /// <summary>Story 43-18 — platform-scope overrides of shipped zone levels
+        /// (action key wire → effective shipped level).</summary>
+        public IReadOnlyDictionary<string, int> LevelOverrides { get; }
+
+        /// <summary>Story 43-18 (AC8) — any stranded override rows observed on
+        /// this refresh.</summary>
+        public IReadOnlyList<ActionLevelOverrideValidator.StrandedOverrideViolation> StrandedOverrides { get; }
+
+        public static FullSnapshot Build(
+            IReadOnlyList<ActionAssignment> rows,
+            IReadOnlyList<ActionLevelOverride> levelRows,
+            IReadOnlyList<ActionLevelOverrideValidator.StrandedOverrideViolation> strandedOverrides)
         {
             var platformActions = new Dictionary<string, ActionAssignmentValue>(StringComparer.Ordinal);
             var platformGroups = new Dictionary<string, ActionAssignmentValue>(StringComparer.Ordinal);
@@ -347,6 +410,15 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
                 }
             }
 
+            var overrides = new Dictionary<string, int>(StringComparer.Ordinal);
+            foreach (var lr in levelRows)
+            {
+                if (!string.IsNullOrWhiteSpace(lr.ActionKey))
+                {
+                    overrides[lr.ActionKey] = lr.Level;
+                }
+            }
+
             return new FullSnapshot(
                 new PrincipalRows(platformActions, platformGroups),
                 tenants.ToDictionary(
@@ -355,7 +427,9 @@ public sealed class GovernancePolicySnapshotStore : IGovernancePolicySnapshotPro
                     kv => kv.Key, kv => new PrincipalRows(kv.Value.A, kv.Value.G)),
                 new PrincipalRows(
                     collapsedA.ToDictionary(kv => kv.Key, kv => kv.Value.V, StringComparer.Ordinal),
-                    collapsedG.ToDictionary(kv => kv.Key, kv => kv.Value.V, StringComparer.Ordinal)));
+                    collapsedG.ToDictionary(kv => kv.Key, kv => kv.Value.V, StringComparer.Ordinal)),
+                overrides,
+                strandedOverrides);
         }
     }
 }

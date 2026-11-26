@@ -33,6 +33,15 @@ public sealed record SetActionRolesRequest(
     [property: JsonPropertyName("allowedRoles")] string[]? AllowedRoles);
 
 /// <summary>
+/// PUT /api/admin/actions/levels/{ns}/{key} body (Story 43-18 AC2) — single
+/// nullable-required <see cref="Level"/> field (missing field → 400, never
+/// defaulted) plus optional operator note.
+/// </summary>
+public sealed record SetActionLevelRequest(
+    [property: JsonPropertyName("level")] int? Level,
+    [property: JsonPropertyName("note")] string? Note = null);
+
+/// <summary>
 /// POST …/policy/reset body (Story 43-15 D4). ABSENT → today's delete-all,
 /// byte-identical. PRESENT with <see cref="Targets"/> → the BULK REVOKE: delete
 /// exactly those <c>action</c>-scope rows (the surviving-toggles revoke), each
@@ -96,8 +105,12 @@ public static class ActionPolicyEndpoints
     // GET /api/actions/catalog — the full code-resident vocabulary
     // =======================================================================
 
-    public static IResult GetCatalog(IActionEnforcementSites enforcementSites) =>
-        Results.Ok(ActionCatalog.All.Select(d => new
+    public static IResult GetCatalog(
+        IActionEnforcementSites enforcementSites,
+        IShippedLevelResolver? shippedLevels = null)
+    {
+        var resolver = shippedLevels ?? CatalogDefaultShippedLevelResolver.Instance;
+        return Results.Ok(ActionCatalog.All.Select(d => new
         {
             key = d.Key.ToWire(),
             ns = d.Key.Ns.ToWire(),
@@ -106,7 +119,11 @@ public static class ActionPolicyEndpoints
             title = d.Title,
             summary = d.Summary,
             reversible = d.Reversible,
-            defaultMinAutonomy = d.DefaultMinAutonomy,
+            defaultMinAutonomy = resolver.ShippedDefault(d.Key),
+            // Story 43-18 AC7 — distinguish catalog-shipped default from
+            // platform-overridden effective shipped level.
+            effectiveShippedLevel = resolver.EffectiveShippedLevel(d.Key),
+            levelSource = resolver.LevelSource(d.Key),
             escalatableToHuman = d.EscalatableToHuman,
             enforceable = d.Enforceable,
             siteKey = d.SiteKey,
@@ -117,6 +134,7 @@ public static class ActionPolicyEndpoints
             // rather than render it as governed.
             enforcementSites = enforcementSites.For(d.Key),
         }));
+    }
 
     // =======================================================================
     // GET /api/actions/policy?level=NN — the resolved, level-parameterized view
@@ -130,7 +148,8 @@ public static class ActionPolicyEndpoints
         IActionEnforcementSites enforcementSites,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IShippedLevelResolver? shippedLevels = null)
     {
         if (level is int l && !AutonomyDial.IsValidLevel(l))
         {
@@ -143,12 +162,13 @@ public static class ActionPolicyEndpoints
 
         var gp = await principals.ResolveAsync(principal);
         var snapshot = snapshots.GetSnapshot(gp);
+        var resolver = ResolveLevelResolver(shippedLevels, snapshot);
         var baseRules = await ResolveBaseAsync(acceptanceRules, gp);
         var dial = baseRules.Rules.AutonomyLevel;
         var viewLevel = level ?? dial;
 
         var actions = ActionCatalog.All
-            .Select(d => ActionView(d, gp, snapshot, baseRules, dial, viewLevel, enforcementSites))
+            .Select(d => ActionView(d, gp, snapshot, baseRules, dial, viewLevel, enforcementSites, resolver))
             .ToList();
 
         var groups = Enum.GetValues<ActionGroup>().Select(g => new
@@ -201,7 +221,8 @@ public static class ActionPolicyEndpoints
     /// </summary>
     private static object ActionView(
         ActionDescriptor d, GovernancePrincipal gp, GovernancePolicySnapshot snapshot,
-        ResolvedAcceptanceRules baseRules, int dial, int viewLevel, IActionEnforcementSites enforcementSites)
+        ResolvedAcceptanceRules baseRules, int dial, int viewLevel, IActionEnforcementSites enforcementSites,
+        IShippedLevelResolver resolver)
     {
         // Story 43-13 — deliberately on the defaulted Caller (Llm): the
         // policy view is the LLM-path view by definition — it renders what
@@ -209,15 +230,15 @@ public static class ActionPolicyEndpoints
         // governs (43-11 Amendment 4). Machinery rows short-circuit inside
         // the evaluator; surfacing that flag on this payload is 43-15's job.
         var decision = AutonomyGateEvaluator.Evaluate(
-            new AutonomyQuery(d.Key, gp), snapshot, baseRules);
+            new AutonomyQuery(d.Key, gp), snapshot, baseRules, shippedLevels: resolver);
 
         // Story 43-15 (AC8, closes 43-11 AC12) — the toggle/greying fields.
         // levelOwned keys on the ladder WITHOUT the principal action row
-        // (Amendment 2-E): the shipped level, group rows and the ceiling are
-        // all included, so the group-row bypass is closed and the badge is
-        // NEVER keyed on row presence alone.
+        // (Amendment 2-E): the effective shipped level (43-18), group rows and
+        // the ceiling are all included, so the group-row bypass is closed and
+        // the badge is NEVER keyed on row presence alone.
         var withoutRow = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
-            d, snapshot, baseRules);
+            d, snapshot, baseRules, shippedLevels: resolver);
         var hasActionToggle =
             snapshot.PrincipalActionRows.TryGetValue(d.Key.ToWire(), out var prow)
             && prow.MinAutonomy == AutonomyDial.Min;
@@ -256,9 +277,12 @@ public static class ActionPolicyEndpoints
             escalatableToHuman = d.EscalatableToHuman,
             enforceable = d.Enforceable,
             isMachinery = d.IsMachinery,
-            // The shipped zone level (43-11) — a LEVEL, distinct from the
-            // resolved effective threshold above.
-            shippedLevel = d.DefaultMinAutonomy,
+            // The immutable catalog-shipped zone level (43-11).
+            shippedLevel = resolver.ShippedDefault(d.Key),
+            // Story 43-18 AC7 — the effective shipped level (platform override
+            // if present, else shippedLevel) and its provenance ("shipped" | "override").
+            effectiveShippedLevel = resolver.EffectiveShippedLevel(d.Key),
+            levelSource = resolver.LevelSource(d.Key),
             // The ladder-without-the-action-row resolution the 409/greying
             // rule keys on (Amendment 2-E).
             ladderWithoutRow = withoutRow.EffectiveMinAutonomy,
@@ -303,7 +327,8 @@ public static class ActionPolicyEndpoints
         IAcceptanceRulesResolver acceptanceRules,
         IGovernancePrincipalResolver principals,
         IActionEnforcementSites enforcementSites,
-        ClaimsPrincipal principal)
+        ClaimsPrincipal principal,
+        IShippedLevelResolver? shippedLevels = null)
     {
         if (!TryResolveAction(ns, key, out var descriptor, out var error)) return error!;
         if (level is int l && !AutonomyDial.IsValidLevel(l))
@@ -317,6 +342,7 @@ public static class ActionPolicyEndpoints
 
         var gp = await principals.ResolveAsync(principal);
         var snapshot = snapshots.GetSnapshot(gp);
+        var resolver = ResolveLevelResolver(shippedLevels, snapshot);
         var baseRules = await ResolveBaseAsync(acceptanceRules, gp);
         var dial = baseRules.Rules.AutonomyLevel;
         var viewLevel = level ?? dial;
@@ -333,7 +359,7 @@ public static class ActionPolicyEndpoints
                 current = dial,
                 viewLevel,
             },
-            action = ActionView(descriptor, gp, snapshot, baseRules, dial, viewLevel, enforcementSites),
+            action = ActionView(descriptor, gp, snapshot, baseRules, dial, viewLevel, enforcementSites, resolver),
             principalRow = RowView(snapshot.PrincipalActionRows, wire),
             platformRow = RowView(snapshot.PlatformActionRows, wire),
         });
@@ -353,9 +379,9 @@ public static class ActionPolicyEndpoints
     ///
     /// <para>The delta is computed over the principal's EFFECTIVE ladder (rows
     /// included), so a toggle at <see cref="AutonomyDial.Min"/> is automated at
-    /// both ends and correctly never appears. The detents are the distinct SHIPPED
-    /// levels (a catalog fact) so the control's positions are stable under the
-    /// admin's own edits. Machinery is excluded from both (43-13).</para>
+    /// both ends and correctly never appears. The detents are the distinct
+    /// EFFECTIVE shipped levels (Story 43-18 AC6a: platform overrides move detents;
+    /// tenant/user edits do not). Machinery is excluded from both (43-13).</para>
     /// </summary>
     public static async Task<IResult> GetPolicyDiff(
         int? from, int? to,
@@ -363,7 +389,8 @@ public static class ActionPolicyEndpoints
         IAcceptanceRulesResolver acceptanceRules,
         IGovernancePrincipalResolver principals,
         ActionTelemetryReader telemetry,
-        ClaimsPrincipal principal)
+        ClaimsPrincipal principal,
+        IShippedLevelResolver? shippedLevels = null)
     {
         if (from is not int fromLevel || to is not int toLevel)
         {
@@ -384,6 +411,7 @@ public static class ActionPolicyEndpoints
 
         var gp = await principals.ResolveAsync(principal);
         var snapshot = snapshots.GetSnapshot(gp);
+        var resolver = ResolveLevelResolver(shippedLevels, snapshot);
         var baseRules = await ResolveBaseAsync(acceptanceRules, gp);
 
         var lower = Math.Min(fromLevel, toLevel);
@@ -398,7 +426,7 @@ public static class ActionPolicyEndpoints
         foreach (var d in dialGoverned)
         {
             var decision = AutonomyGateEvaluator.Evaluate(
-                new AutonomyQuery(d.Key, gp), snapshot, baseRules);
+                new AutonomyQuery(d.Key, gp), snapshot, baseRules, shippedLevels: resolver);
             var effectiveMin = decision.EffectiveMinAutonomy;
             var automatedAtFrom = fromLevel >= effectiveMin;
             var automatedAtTo = toLevel >= effectiveMin;
@@ -425,7 +453,7 @@ public static class ActionPolicyEndpoints
                     continue;
                 }
                 var withoutRow = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
-                    d, snapshot, baseRules);
+                    d, snapshot, baseRules, shippedLevels: resolver);
                 if (withoutRow.EffectiveMinAutonomy > toLevel)
                 {
                     survivingWires.Add(d.Key.ToWire());
@@ -434,7 +462,9 @@ public static class ActionPolicyEndpoints
                         key = d.Key.ToWire(),
                         group = d.Group.ToWire(),
                         title = d.Title,
-                        shippedLevel = d.DefaultMinAutonomy,
+                        shippedLevel = resolver.ShippedDefault(d.Key),
+                        effectiveShippedLevel = resolver.EffectiveShippedLevel(d.Key),
+                        levelSource = resolver.LevelSource(d.Key),
                         ladderWithoutRow = withoutRow.EffectiveMinAutonomy,
                     });
                 }
@@ -457,7 +487,9 @@ public static class ActionPolicyEndpoints
                 key = wire,
                 group = c.Descriptor.Group.ToWire(),
                 title = c.Descriptor.Title,
-                shippedLevel = c.Descriptor.DefaultMinAutonomy,
+                shippedLevel = resolver.ShippedDefault(c.Descriptor.Key),
+                effectiveShippedLevel = resolver.EffectiveShippedLevel(c.Descriptor.Key),
+                levelSource = resolver.LevelSource(c.Descriptor.Key),
                 effectiveMinAutonomy = c.EffectiveMin,
                 direction = c.Direction,
                 fireCount30d = t.FireCount30d,
@@ -466,7 +498,7 @@ public static class ActionPolicyEndpoints
         }).ToList();
 
         var detents = dialGoverned
-            .Select(d => d.DefaultMinAutonomy)
+            .Select(d => resolver.EffectiveShippedLevel(d.Key))
             .Append(baseRules.Rules.AutonomyLevel)
             .Where(AutonomyDial.IsValidLevel)
             .Distinct()
@@ -517,7 +549,8 @@ public static class ActionPolicyEndpoints
         ISoleUserProvider soleUser,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IActionLevelOverrideRepository? levelOverrides = null)
     {
         if (!TryResolveAction(ns, key, out var descriptor, out var error)) return error!;
         if (body?.MinAutonomy is not int minAutonomy) return MissingField("minAutonomy");
@@ -549,11 +582,13 @@ public static class ActionPolicyEndpoints
         if (resolveError is not null) return resolveError;
 
         // (3) Level-ownership 409 — key on the ladder WITHOUT this action row,
-        //     from FRESH rows (the F4 fresh-read pattern), so the group-row bypass
-        //     is closed and the greying rule cannot drift from the gate.
+        //     from FRESH rows (the F4 fresh-read pattern, including fresh
+        //     platform level overrides — Story 43-18 AC6b), so the group-row
+        //     bypass is closed and the greying rule cannot drift from the gate.
         var baseRules = await ResolveBaseAsync(acceptanceRules, new GovernancePrincipal(tid, uid));
         var dial = baseRules.Rules.AutonomyLevel;
-        var freshSnapshot = await BuildFreshSnapshotAsync(repository, tid, uid);
+        var freshSnapshot = await BuildFreshSnapshotAsync(
+            repository, tid, uid, levelOverrides, snapshots);
         var withoutRow = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
             descriptor!, freshSnapshot, baseRules);
         if (dial >= withoutRow.EffectiveMinAutonomy)
@@ -591,10 +626,12 @@ public static class ActionPolicyEndpoints
         ISoleUserProvider soleUser,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IActionLevelOverrideRepository? levelOverrides = null)
         => WriteActionField(ns, key, "enforce", body?.Enforce,
             (repo, tid, uid, wire, actor, ct) => UpsertNonThresholdFieldAsync(
-                repo, tid, uid, wire, body!.Enforce, enabled: null, allowedRoles: null, actor, ct),
+                repo, tid, uid, wire, body!.Enforce, enabled: null, allowedRoles: null,
+                actor, levelOverrides, snapshots, ct),
             validate: null,
             repository, snapshots, events, soleUser, principal, tenantContext, modeProvider);
 
@@ -606,10 +643,12 @@ public static class ActionPolicyEndpoints
         ISoleUserProvider soleUser,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IActionLevelOverrideRepository? levelOverrides = null)
         => WriteActionField(ns, key, "enabled", body?.Enabled,
             (repo, tid, uid, wire, actor, ct) => UpsertNonThresholdFieldAsync(
-                repo, tid, uid, wire, enforce: null, body!.Enabled, allowedRoles: null, actor, ct),
+                repo, tid, uid, wire, enforce: null, body!.Enabled, allowedRoles: null,
+                actor, levelOverrides, snapshots, ct),
             validate: null,
             repository, snapshots, events, soleUser, principal, tenantContext, modeProvider);
 
@@ -621,10 +660,12 @@ public static class ActionPolicyEndpoints
         ISoleUserProvider soleUser,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IActionLevelOverrideRepository? levelOverrides = null)
         => WriteActionField(ns, key, "allowedRoles", (object?)body?.AllowedRoles,
             (repo, tid, uid, wire, actor, ct) => UpsertNonThresholdFieldAsync(
-                repo, tid, uid, wire, enforce: null, enabled: null, body!.AllowedRoles, actor, ct),
+                repo, tid, uid, wire, enforce: null, enabled: null, body!.AllowedRoles,
+                actor, levelOverrides, snapshots, ct),
             validate: null,
             repository, snapshots, events, soleUser, principal, tenantContext, modeProvider);
 
@@ -637,7 +678,8 @@ public static class ActionPolicyEndpoints
         ISoleUserProvider soleUser,
         ClaimsPrincipal principal,
         ITenantContext tenantContext,
-        ITammaModeProvider modeProvider)
+        ITammaModeProvider modeProvider,
+        IActionLevelOverrideRepository? levelOverrides = null)
     {
         if (TryResolveAction(ns, key, out var descriptor, out var error))
         {
@@ -660,7 +702,8 @@ public static class ActionPolicyEndpoints
             // FRESH rows against the same predicate the 409 uses.
             var baseRules = await ResolveBaseAsync(
                 acceptanceRules, new GovernancePrincipal(tid, uid));
-            var freshSnapshot = await BuildFreshSnapshotAsync(repository, tid, uid);
+            var freshSnapshot = await BuildFreshSnapshotAsync(
+                repository, tid, uid, levelOverrides, snapshots);
             var nowApplies = AutonomyGateEvaluator.ResolveLadderWithoutActionRow(
                 descriptor, freshSnapshot, baseRules);
             var reason = nowApplies.Source == ActionAssignmentSource.AlwaysEscalateLegacy
@@ -944,6 +987,163 @@ public static class ActionPolicyEndpoints
     }
 
     // =======================================================================
+    // Platform-scope shipped-level overrides (Story 43-18 AC2/AC4/AC5)
+    // =======================================================================
+
+    /// <summary>
+    /// <c>GET /api/admin/actions/levels</c> — list all active platform-scope
+    /// overrides of the catalog's shipped zone table.
+    /// </summary>
+    public static async Task<IResult> GetActionLevelOverrides(
+        IActionLevelOverrideRepository repository)
+    {
+        var rows = await repository.LoadAllAsync();
+        var shipped = CatalogDefaultShippedLevelResolver.Instance;
+        var items = rows
+            .OrderBy(r => r.ActionKey, StringComparer.Ordinal)
+            .Select(r =>
+            {
+                int? shippedLevel = ActionKey.TryParse(r.ActionKey, out var ak)
+                    && ActionCatalog.TryGet(ak, out _)
+                    ? shipped.ShippedDefault(ak)
+                    : null;
+                return new
+                {
+                    key = r.ActionKey,
+                    level = r.Level,
+                    shippedLevel,
+                    note = r.Note,
+                    version = r.Version,
+                    updatedBy = r.UpdatedBy,
+                    updatedAt = r.UpdatedAt,
+                };
+            })
+            .ToList();
+
+        return Results.Ok(new { overrides = items });
+    }
+
+    /// <summary>
+    /// <c>PUT /api/admin/actions/levels/{ns}/{key}</c> — set or update a
+    /// platform-scope override of a catalogued action's shipped zone level.
+    /// Validates via <see cref="ActionLevelOverrideValidator.ValidateWrite"/>
+    /// (404 unknown, 400 missing field / machinery / non-enforceable /
+    /// non-detent / consequence-floor violation), persists, refreshes the
+    /// governance snapshot store, and emits
+    /// <c>ACTION.GATE.ASSIGNMENT_CHANGED</c> (<c>scope: "platform-level-override"</c>,
+    /// <c>field: "level"</c>, old/new values, actor id).
+    /// </summary>
+    public static async Task<IResult> PutActionLevelOverride(
+        string ns, string key, SetActionLevelRequest? body,
+        IActionLevelOverrideRepository repository,
+        IGovernancePolicySnapshotProvider snapshots,
+        ActionGateEventsService events,
+        ClaimsPrincipal principal,
+        IShippedLevelResolver? shippedLevels = null)
+    {
+        var resolver = shippedLevels ?? CatalogDefaultShippedLevelResolver.Instance;
+        var failure = ActionLevelOverrideValidator.ValidateWrite(
+            ns, key, body?.Level, resolver, out var descriptor);
+        if (failure is not null)
+        {
+            var payload = new { error = failure.Error, code = failure.Code };
+            return failure.StatusCode == 404
+                ? Results.NotFound(payload)
+                : Results.BadRequest(payload);
+        }
+
+        var wire = descriptor!.Key.ToWire();
+        var newLevel = body!.Level!.Value;
+        var shippedDefault = resolver.ShippedDefault(descriptor.Key);
+        var (saved, _, previousLevel) = await repository.UpsertAsync(
+            wire, newLevel, body.Note, principal.GetUserId());
+        await snapshots.RefreshAsync();
+
+        var oldLevel = previousLevel ?? shippedDefault;
+        await events.EmitAssignmentChangedAsync(
+            tenantId: null,
+            userId: null,
+            actorUserId: principal.GetUserId(),
+            scope: "platform-level-override",
+            targetKind: "action",
+            targetKey: wire,
+            field: "level",
+            oldValue: oldLevel,
+            newValue: newLevel);
+
+        return Results.Ok(new
+        {
+            key = wire,
+            level = saved.Level,
+            shippedLevel = shippedDefault,
+            effectiveShippedLevel = saved.Level,
+            levelSource = IShippedLevelResolver.SourceOverride,
+            note = saved.Note,
+            version = saved.Version,
+            scope = "platform-level-override",
+        });
+    }
+
+    /// <summary>
+    /// <c>DELETE /api/admin/actions/levels/{ns}/{key}</c> — remove a
+    /// platform-scope level override so the catalog's shipped default applies
+    /// again. Emits <c>ACTION.GATE.ASSIGNMENT_CHANGED</c> with
+    /// <c>scope: "platform-level-override"</c>, <c>field: "level"</c>,
+    /// <c>oldValue: previousLevel</c>, and <c>newValue: null</c>.
+    /// </summary>
+    public static async Task<IResult> DeleteActionLevelOverride(
+        string ns, string key,
+        IActionLevelOverrideRepository repository,
+        IGovernancePolicySnapshotProvider snapshots,
+        ActionGateEventsService events,
+        ClaimsPrincipal principal)
+    {
+        if (!ActionKey.TryParse($"{ns}:{key}", out var actionKey)
+            || !ActionCatalog.TryGet(actionKey, out var descriptor)
+            || descriptor is null)
+        {
+            return Results.NotFound(new
+            {
+                error = $"'{ns}:{key}' is not a catalogued action.",
+                code = ActionLevelOverrideValidator.CodeUnknownAction,
+            });
+        }
+
+        var wire = descriptor.Key.ToWire();
+        var (deleted, previousLevel) = await repository.DeleteAsync(wire);
+        if (!deleted)
+        {
+            return Results.NotFound(new
+            {
+                error = $"No platform level override exists for '{wire}'.",
+                code = "ACTION_LEVEL.NOT_FOUND",
+            });
+        }
+
+        await snapshots.RefreshAsync();
+        await events.EmitAssignmentChangedAsync(
+            tenantId: null,
+            userId: null,
+            actorUserId: principal.GetUserId(),
+            scope: "platform-level-override",
+            targetKind: "action",
+            targetKey: wire,
+            field: "level",
+            oldValue: previousLevel,
+            newValue: null);
+
+        var restored = CatalogDefaultShippedLevelResolver.Instance.ShippedDefault(descriptor.Key);
+        return Results.Ok(new
+        {
+            key = wire,
+            restoredShippedLevel = restored,
+            effectiveShippedLevel = restored,
+            levelSource = IShippedLevelResolver.SourceShipped,
+            message = "Platform level override removed; catalog-shipped default now applies.",
+        });
+    }
+
+    // =======================================================================
     // Helpers
     // =======================================================================
 
@@ -1005,7 +1205,10 @@ public static class ActionPolicyEndpoints
             IActionAssignmentRepository repository,
             Guid? tenantId, Guid? userId, string actionWire,
             bool? enforce, bool? enabled, string[]? allowedRoles,
-            Guid? actingUserId, CancellationToken ct)
+            Guid? actingUserId,
+            IActionLevelOverrideRepository? levelOverrides,
+            IGovernancePolicySnapshotProvider? snapshots,
+            CancellationToken ct)
     {
         var principalRows = await repository.ListForPrincipalAsync(tenantId, userId, ct);
         int? threshold = null;
@@ -1014,7 +1217,8 @@ public static class ActionPolicyEndpoints
                 && string.Equals(r.TargetKey, actionWire, StringComparison.Ordinal)))
         {
             var platformRows = await repository.ListPlatformAsync(ct);
-            threshold = PinnedEffectiveThreshold(actionWire, platformRows, principalRows);
+            var overrideMap = await LoadFreshLevelOverridesAsync(levelOverrides, snapshots, ct);
+            threshold = PinnedEffectiveThreshold(actionWire, platformRows, principalRows, overrideMap);
         }
 
         return await repository.UpsertAsync(
@@ -1028,7 +1232,8 @@ public static class ActionPolicyEndpoints
     private static int PinnedEffectiveThreshold(
         string actionWire,
         IReadOnlyList<Tamma.Data.Entities.ActionAssignment> platformRows,
-        IReadOnlyList<Tamma.Data.Entities.ActionAssignment> principalRows)
+        IReadOnlyList<Tamma.Data.Entities.ActionAssignment> principalRows,
+        IReadOnlyDictionary<string, int>? levelOverrides = null)
     {
         if (!ActionKey.TryParse(actionWire, out var k)
             || !ActionCatalog.TryGet(k, out var d) || d is null)
@@ -1043,7 +1248,8 @@ public static class ActionPolicyEndpoints
             RowsByKind(platformRows, "action"),
             RowsByKind(platformRows, "group"),
             RowsByKind(principalRows, "action"),
-            RowsByKind(principalRows, "group"));
+            RowsByKind(principalRows, "group"),
+            levelOverrides);
         return AutonomyGateEvaluator.ResolveEffectiveMinAutonomy(d, snapshot).EffectiveMinAutonomy;
     }
 
@@ -1052,18 +1258,56 @@ public static class ActionPolicyEndpoints
     /// repository reads on THIS request (never the ≤60s-stale provider snapshot),
     /// so the level-ownership 409 and the DELETE fallback see the true current
     /// rows. The F4 fresh-read pattern (<see cref="PinnedEffectiveThreshold"/>),
-    /// lifted to a whole snapshot.
+    /// lifted to a whole snapshot, and extended in Story 43-18 (AC6b) to also
+    /// read fresh platform level overrides.
     /// </summary>
     private static async Task<GovernancePolicySnapshot> BuildFreshSnapshotAsync(
-        IActionAssignmentRepository repository, Guid? tenantId, Guid? userId)
+        IActionAssignmentRepository repository,
+        Guid? tenantId,
+        Guid? userId,
+        IActionLevelOverrideRepository? levelOverrides = null,
+        IGovernancePolicySnapshotProvider? snapshots = null)
     {
         var principalRows = await repository.ListForPrincipalAsync(tenantId, userId);
         var platformRows = await repository.ListPlatformAsync();
+        var overrideMap = await LoadFreshLevelOverridesAsync(levelOverrides, snapshots, default);
         return GovernancePolicySnapshot.FromSuccessfulRead(
             RowsByKind(platformRows, "action"),
             RowsByKind(platformRows, "group"),
             RowsByKind(principalRows, "action"),
-            RowsByKind(principalRows, "group"));
+            RowsByKind(principalRows, "group"),
+            overrideMap);
+    }
+
+    private static async Task<IReadOnlyDictionary<string, int>?> LoadFreshLevelOverridesAsync(
+        IActionLevelOverrideRepository? levelOverrides,
+        IGovernancePolicySnapshotProvider? snapshots,
+        CancellationToken ct)
+    {
+        if (levelOverrides is not null)
+        {
+            var rows = await levelOverrides.LoadAllAsync(ct);
+            var map = new Dictionary<string, int>(rows.Count, StringComparer.Ordinal);
+            foreach (var r in rows)
+            {
+                if (!string.IsNullOrWhiteSpace(r.ActionKey))
+                {
+                    map[r.ActionKey] = r.Level;
+                }
+            }
+            return map;
+        }
+        return snapshots?.GetSnapshot(GovernancePrincipal.Platform).LevelOverrides;
+    }
+
+    private static IShippedLevelResolver ResolveLevelResolver(
+        IShippedLevelResolver? shippedLevels,
+        GovernancePolicySnapshot snapshot)
+    {
+        if (shippedLevels is not null) return shippedLevels;
+        if (snapshot.LevelOverrides.Count > 0)
+            return new DictionaryShippedLevelResolver(snapshot.LevelOverrides);
+        return CatalogDefaultShippedLevelResolver.Instance;
     }
 
     /// <summary>Map the surviving ladder source to the DELETE-fallback wire

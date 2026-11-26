@@ -671,6 +671,13 @@ public static partial class ActionCatalog
         // restores the previous state.
         Effect(ExternalEffect.GovernancePolicyGroupEnforceSet, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Set group enforcement", "Write the enforce flag on the caller's group-scope autonomy policy row (policy administration — machinery, never dial-governed).",
             "PUT /api/actions/policy/groups/{group}/enforce — ActionPolicyEndpoints.PutGroupEnforce", machinery: true),
+        // Story 43-18 (2026-11-26) — platform-scope action level override writes.
+        // Machinery (43-13): platform-owner policy administration is never dial-governed;
+        // bound so 43-9's shrink-only ratchets stay unchanged.
+        Effect(ExternalEffect.GovernanceActionLevelSet, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Set action level override", "Set a platform-scope override for an action's shipped automation level (policy administration — machinery, never dial-governed).",
+            "PUT /api/admin/actions/levels/{ns}/{key} — ActionPolicyEndpoints.PutActionLevelOverride", machinery: true),
+        Effect(ExternalEffect.GovernanceActionLevelDelete, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Delete action level override", "Remove a platform-scope action level override so the shipped default applies again (policy administration — machinery, never dial-governed).",
+            "DELETE /api/admin/actions/levels/{ns}/{key} — ActionPolicyEndpoints.DeleteActionLevelOverride", machinery: true),
 
         // ── automation (27) — EscalatableToHuman=false for the whole plane ────
 

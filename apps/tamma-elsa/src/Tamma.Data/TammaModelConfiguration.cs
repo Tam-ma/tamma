@@ -1393,6 +1393,26 @@ internal static class TammaModelConfiguration
             entity.HasIndex(e => new { e.CorrelationId, e.State })
                 .HasDatabaseName("IX_action_authorizations_Correlation_State");
         });
+
+        // Story 43-18 (AC1) — platform-scope overrides of the catalog's shipped
+        // zone levels. CP-resident, platform-global, FK-free, deliberately NO
+        // numeric CHECK on Level (domain-validated by ActionLevelOverrideValidator).
+        modelBuilder.Entity<Entities.ActionLevelOverride>(entity =>
+        {
+            entity.ToTable("action_level_overrides");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ActionKey).IsRequired().HasMaxLength(200);
+            entity.Property(e => e.Level).IsRequired();
+            entity.Property(e => e.Note).HasMaxLength(500);
+            entity.Property(e => e.Version).IsRequired().HasDefaultValue(1);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => e.ActionKey)
+                .IsUnique()
+                .HasDatabaseName("ux_action_level_overrides_action_key");
+        });
     }
 
     #endregion

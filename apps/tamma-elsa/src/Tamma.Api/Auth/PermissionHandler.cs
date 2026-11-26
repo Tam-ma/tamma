@@ -165,3 +165,50 @@ public class ServicePrincipalHandler(IHttpContextAccessor httpContextAccessor)
         return Task.CompletedTask;
     }
 }
+
+/// <summary>
+/// Story 43-18 (AC2, §4) — authorization requirement for platform-scope
+/// shipped-level overrides (<c>/api/admin/actions/levels/*</c>).
+/// In SaaS mode this matches <c>PlatformOwnerAccess</c> (<c>platformRole == "platform_admin"</c>
+/// or service key <c>"*"</c> — tenant admins holding <c>ActionsManage</c> receive 403).
+/// In single-user mode the sole user IS the admin and succeeds.
+/// </summary>
+public class ActionLevelAdminRequirement : IAuthorizationRequirement;
+
+/// <inheritdoc cref="ActionLevelAdminRequirement"/>
+public class ActionLevelAdminHandler(
+    Services.PromptStore.ITammaModeProvider modeProvider)
+    : AuthorizationHandler<ActionLevelAdminRequirement>
+{
+    protected override Task HandleRequirementAsync(
+        AuthorizationHandlerContext context,
+        ActionLevelAdminRequirement requirement)
+    {
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            return Task.CompletedTask;
+        }
+
+        var platformRole = context.User.FindFirst("platformRole")?.Value;
+        if (string.Equals(platformRole, "platform_admin", StringComparison.Ordinal))
+        {
+            context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+
+        var permClaims = context.User.FindAll("permission").Select(c => c.Value);
+        if (permClaims.Contains("*"))
+        {
+            context.Succeed(requirement);
+            return Task.CompletedTask;
+        }
+
+        // Single-user mode: the sole user IS the admin (Story 43-18 §4 / AC2).
+        if (modeProvider.Mode == Services.PromptStore.TammaMode.SingleUser)
+        {
+            context.Succeed(requirement);
+        }
+
+        return Task.CompletedTask;
+    }
+}

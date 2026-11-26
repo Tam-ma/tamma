@@ -1643,6 +1643,9 @@ if (!string.IsNullOrEmpty(jwtSecret))
     builder.Services.AddScoped<IAuthorizationHandler, SelfOrPermissionHandler>();
     // Story 28-R2 / C1 — handler for the new PlatformOwnerAccess policy.
     builder.Services.AddScoped<IAuthorizationHandler, PlatformPermissionHandler>();
+    // Story 43-18 (AC2) — handler for ActionLevelsAdmin (PlatformOwnerAccess in
+    // SaaS; sole user in single-user mode).
+    builder.Services.AddScoped<IAuthorizationHandler, ActionLevelAdminHandler>();
     // I4 / Story 32-5 Finding C2 — handler for the EngineServiceOnly policy
     // (service-principal-only: engine→API callbacks + POST /api/v1/llm/call).
     builder.Services.AddScoped<IAuthorizationHandler, ServicePrincipalHandler>();
@@ -1681,6 +1684,11 @@ if (!string.IsNullOrEmpty(jwtSecret))
         {
             p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, "ApiKey");
             p.AddRequirements(new PlatformPermissionRequirement("platform_admin"));
+        });
+        options.AddPolicy("ActionLevelsAdmin", p =>
+        {
+            p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, "ApiKey");
+            p.AddRequirements(new ActionLevelAdminRequirement());
         });
         options.AddPolicy("MemberAccess", p =>
         {
@@ -1917,7 +1925,7 @@ else if (builder.Environment.IsDevelopment())
             .AddRequirements(new Tamma.Api.Infrastructure.AllowAnonymousRequirement())
             .Build();
         // Register all named policies with permissive default
-        foreach (var name in new[] { "AdminAccess", "OwnerAccess", "PlatformOwnerAccess", "MemberAccess", "SettingsView",
+        foreach (var name in new[] { "AdminAccess", "OwnerAccess", "PlatformOwnerAccess", "ActionLevelsAdmin", "MemberAccess", "SettingsView",
             "SettingsManage", "PromptManage", "ConventionManage", "PlatformsManage", "AgentManage", "PricingManage", "AcceptanceRulesManage", "ScheduleManage", "ActionsManage",
             // Story 44-2 — the tracker pair. THIS array is the third of the
             // three RBAC places (Permissions.Matrix, the AddAuthorization block,
@@ -3101,6 +3109,18 @@ actionsCeiling.MapDelete("/actions/{ns}/{key}", ActionPolicyEndpoints.DeleteCeil
 actionsCeiling.MapPut("/groups/{group}/threshold", ActionPolicyEndpoints.PutCeilingGroupThreshold);
 actionsCeiling.MapDelete("/groups/{group}", ActionPolicyEndpoints.DeleteCeilingGroup);
 
+// Story 43-18 (AC2) — platform-scope overrides of the catalog's shipped zone
+// levels. Platform-owner only in SaaS (tenant admin holding ActionsManage gets
+// 403); sole user in single-user mode (ActionLevelsAdmin).
+// Mutating routes are bound to MACHINERY ExternalEffect members (metadata only,
+// never dial-governed) so 43-9's shrink-only ungoverned-route ratchet holds.
+var actionsLevels = app.MapGroup("/api/admin/actions/levels").RequireAuthorization("ActionLevelsAdmin");
+actionsLevels.MapGet("", ActionPolicyEndpoints.GetActionLevelOverrides);
+actionsLevels.MapPut("/{ns}/{key}", ActionPolicyEndpoints.PutActionLevelOverride)
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.GovernanceActionLevelSet.ToWire()));
+actionsLevels.MapDelete("/{ns}/{key}", ActionPolicyEndpoints.DeleteActionLevelOverride)
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.GovernanceActionLevelDelete.ToWire()));
+
 // ── Story 44-2 — the native tracker (projects, work items, preferences) ──
 // ONE group, three nouns (plan D1) so the literal-before-parameterized ordering
 // is got right in one place rather than three; 44-4's iterations join here.
@@ -3862,6 +3882,11 @@ using (var scope = app.Services.CreateScope())
             //     that makes fires at-most-once across restarts. Pinned by
             //     ScheduledTriggerSourcePinTests.Schedule_Tables_Are_Not_In_The_Destructive_Startup_DropList,
             //     which reads this SQL literal and fails if either name appears.
+            //   * action_assignments + action_authorizations (Story 43-5, AC5) +
+            //     action_level_overrides (Story 43-18, AC1): safety policy and
+            //     platform-scope shipped-level overrides; sweeping them in would
+            //     silently revert operator governance decisions on every deploy.
+            //     Pinned by ActionGovernanceResidencyTests.
             // Excluded tables carry NO FK to wiped tables (a cascade from
             // tenants would defeat the exclusion) and use IF NOT EXISTS
             // idempotent migrations (they persist while the migration history
