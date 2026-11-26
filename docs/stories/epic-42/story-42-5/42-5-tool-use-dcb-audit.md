@@ -1,6 +1,6 @@
 # Story 42-5: Tool-Use DCB Audit
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

@@ -103,6 +103,7 @@ public class ToolCatalogBackCompatTests
             loopConfig: loopConfig,
             correlationId: "story-42-1-backcompat",
             repair: null,
+            trailContext: null,
             ct: CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();

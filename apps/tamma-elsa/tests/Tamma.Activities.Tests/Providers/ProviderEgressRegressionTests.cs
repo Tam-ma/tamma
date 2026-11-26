@@ -120,6 +120,7 @@ public class ProviderEgressRegressionTests
             loopConfig: new ToolLoopConfig { MaxSteps = 2 },
             correlationId: "egress-regr",
             repair: null,
+            trailContext: null,
             ct: CancellationToken.None);
 
     // ── F1/F2/F6 — full URIs through the REAL registration + dispatch path ──

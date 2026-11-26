@@ -37,7 +37,7 @@ public class InlineToolLoopRunnerRepairTests
 
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "SYS-PROMPT", "user", 4096, 0.7,
-            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-a", plan, CancellationToken.None);
+            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-a", plan, trailContext: null, CancellationToken.None);
 
         result.ContentValid.Should().BeTrue();
         result.RepairTurns.Should().Be(1);
@@ -72,7 +72,7 @@ public class InlineToolLoopRunnerRepairTests
 
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
-            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-b", plan, CancellationToken.None);
+            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-b", plan, trailContext: null, CancellationToken.None);
 
         result.ContentValid.Should().BeFalse();
         result.RepairTurns.Should().Be(2, "bounded by the cap of 2");
@@ -92,7 +92,7 @@ public class InlineToolLoopRunnerRepairTests
 
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
-            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-c", plan, CancellationToken.None);
+            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-c", plan, trailContext: null, CancellationToken.None);
 
         result.ContentValid.Should().BeFalse();
         result.RepairTurns.Should().Be(0, "the gate is off ⇒ zero extra turns (AC9)");
@@ -112,7 +112,7 @@ public class InlineToolLoopRunnerRepairTests
 
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
-            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-d", plan, CancellationToken.None);
+            tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-d", plan, trailContext: null, CancellationToken.None);
 
         result.Response.Success.Should().BeFalse("a transport failure during repair is a provider failure");
         result.Response.HttpStatusCode.Should().Be(503, "the upstream status is preserved (orthogonality)");
@@ -131,7 +131,7 @@ public class InlineToolLoopRunnerRepairTests
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
             tools: null, enableToolLoop: true, new ToolLoopConfig { MaxSteps = 20 }, "corr-e", plan,
-            CancellationToken.None);
+            trailContext: null, CancellationToken.None);
 
         result.Turns.Should().Be(1, "only the single produce turn counts as a tool-loop turn");
         result.Exhausted.Should().BeFalse("repair turns never drive MaxSteps exhaustion");
@@ -148,7 +148,7 @@ public class InlineToolLoopRunnerRepairTests
         var result = await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
             tools: null, enableToolLoop: true, new ToolLoopConfig(), "corr-f", repair: null,
-            CancellationToken.None);
+            trailContext: null, CancellationToken.None);
 
         result.ContentValid.Should().BeNull();
         result.RepairTurns.Should().Be(0);

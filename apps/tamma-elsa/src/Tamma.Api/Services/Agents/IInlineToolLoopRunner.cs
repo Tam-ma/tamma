@@ -70,6 +70,12 @@ public interface IInlineToolLoopRunner
     /// C# expression trees reject omitted optional arguments (CS0854), so a defaulted
     /// parameter would silently break strict Moq setups — an explicit parameter makes
     /// every call site a conscious edit.</param>
+    /// <param name="trailContext">Story 42-5 (D4) — the run's action-trail context
+    /// carrying <c>TenantId</c>, <c>IssueId</c>, <c>AgentId</c>, <c>Role</c>, and
+    /// <c>CorrelationId</c> so durable <c>TOOL.*</c> DCB audit events are tagged with the
+    /// full lineage contract (or <c>null</c> in unit-test compositions without a managed run).
+    /// Explicit (no default value) for the same CS0854 expression-tree reason as
+    /// <paramref name="repair"/>.</param>
     Task<InlineToolLoopResult> RunAsync(
         string provider,
         LlmProviderConfig providerConfig,
@@ -83,6 +89,7 @@ public interface IInlineToolLoopRunner
         ToolLoopConfig loopConfig,
         string correlationId,
         RepairRingPlan? repair,
+        AgentTrailContext? trailContext,
         CancellationToken ct);
 
     /// <summary>

@@ -847,6 +847,8 @@ else
 // dep is the cabinet-backed DefaultProviderCredentialResolver (registered above
 // via AddProviderCredentialResolution) — but the loop never re-resolves: the key
 // is set on the provider config ManagedAgent hands it.
+builder.Services.TryAddScoped<Tamma.Api.Services.Agents.IToolAuditEmitter,
+    Tamma.Api.Services.Agents.ToolAuditEmitter>();
 builder.Services.AddScoped<Tamma.Api.Services.Agents.IInlineToolLoopRunner,
     Tamma.Api.Services.Agents.InlineToolLoopRunner>();
 builder.Services.AddScoped<Tamma.Api.Services.Agents.IManagedAgent,

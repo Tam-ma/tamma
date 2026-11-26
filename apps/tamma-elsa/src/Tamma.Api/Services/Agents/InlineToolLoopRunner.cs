@@ -66,6 +66,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
     // (AddScriptedLlmProvider); null everywhere else ⇒ the dispatch below is
     // byte-identical to before the seam existed.
     private readonly Scripted.IScriptedLlmResponder? _scriptedResponder;
+    // Story 42-5 (D1) — durable DCB invocation audit emitter (TOOL.INVOKED /
+    // TOOL.SUCCEEDED / TOOL.FAILED). Optional trailing collaborator so pre-42-5
+    // unit compositions keep compiling; DI registers ToolAuditEmitter in production.
+    private readonly IToolAuditEmitter? _toolAuditEmitter;
 
     public InlineToolLoopRunner(
         ILogger<InlineToolLoopRunner>? logger,
@@ -109,7 +113,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
         // caller silently fell back to another provider's model. Optional
         // trailing arg (the established pattern): DI supplies the composed
         // options; unit compositions without it fall back to the config bind.
-        IOptions<ProviderAllowlistOptions>? allowlistOptions = null)
+        IOptions<ProviderAllowlistOptions>? allowlistOptions = null,
+        // Story 42-5 (D1) — durable DCB tool-use audit emitter. Optional trailing
+        // arg so existing unit compositions stay untouched; DI wires ToolAuditEmitter.
+        IToolAuditEmitter? toolAuditEmitter = null)
     {
         _logger = logger;
         _httpClientFactory = httpClientFactory;
@@ -133,6 +140,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
         _authorizationBroker = authorizationBroker;
         _scriptedResponder = scriptedResponder;
         _allowlistOptions = allowlistOptions;
+        _toolAuditEmitter = toolAuditEmitter;
     }
 
     /// <inheritdoc />
@@ -149,6 +157,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
         ToolLoopConfig loopConfig,
         string correlationId,
         RepairRingPlan? repair,
+        AgentTrailContext? trailContext,
         CancellationToken ct)
     {
         // The loop already folds the cumulative totals onto the response's
@@ -159,7 +168,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
         var (response, _, turns, exhausted, contentValid, repairTurns, repairHistory) =
             await AgenticToolLoop(
                 provider, providerConfig, model, systemPrompt, userPrompt,
-                maxTokens, temperature, tools, loopConfig, correlationId, repair, ct);
+                maxTokens, temperature, tools, loopConfig, correlationId, repair, trailContext, ct);
 
         return new InlineToolLoopResult
         {
@@ -176,6 +185,78 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
             RepairTurns = repairTurns,
             RepairHistory = repairHistory,
         };
+    }
+
+    // =======================================================================
+    // Story 42-5 (D1) — shared durable tool-audit helpers (both branches)
+    // =======================================================================
+
+    private static AgentTrailContext BuildTurnTrailContext(
+        AgentTrailContext? baseContext,
+        string correlationId,
+        string provider,
+        string model,
+        int turn) =>
+        baseContext is not null
+            ? baseContext with { Iteration = turn }
+            : new AgentTrailContext
+            {
+                TenantId = null,
+                AgentId = Guid.Empty,
+                AgentVersion = 0,
+                Role = string.Empty,
+                Provider = provider,
+                Model = model,
+                IssueId = null,
+                Iteration = turn,
+                CorrelationId = correlationId,
+                CredentialSource = "platform",
+            };
+
+    private Task EmitToolAuditInvokedAsync(
+        AgentTrailContext trailContext,
+        LlmToolCall toolCall,
+        ToolDescriptor? descriptor,
+        CancellationToken ct) =>
+        _toolAuditEmitter is null
+            ? Task.CompletedTask
+            : _toolAuditEmitter.EmitInvokedAsync(
+                trailContext,
+                toolCall.ToolName,
+                toolCall.Id,
+                toolCall.ArgumentsJson,
+                descriptor,
+                ct);
+
+    private Task EmitToolAuditOutcomeAsync(
+        AgentTrailContext trailContext,
+        ToolExecutionResult result,
+        CancellationToken ct)
+    {
+        if (_toolAuditEmitter is null)
+        {
+            return Task.CompletedTask;
+        }
+
+        if (result.Success)
+        {
+            var outputSizeBytes = Encoding.UTF8.GetByteCount(result.Output ?? string.Empty);
+            return _toolAuditEmitter.EmitSucceededAsync(
+                trailContext,
+                result.ToolName,
+                result.ToolCallId,
+                result.DurationMs,
+                outputSizeBytes,
+                ct);
+        }
+
+        return _toolAuditEmitter.EmitFailedAsync(
+            trailContext,
+            result.ToolName,
+            result.ToolCallId,
+            result.DurationMs,
+            result.Output,
+            ct);
     }
 
     // =======================================================================
@@ -199,6 +280,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
             ToolLoopConfig loopConfig,
             string workflowInstanceId,
             RepairRingPlan? repair,
+            AgentTrailContext? trailContext,
             CancellationToken cancellationToken)
     {
         var messages = new List<ConversationMessage>
@@ -491,6 +573,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
             var toolsExecuted = 0;
             var toolsSucceeded = 0;
             var toolsFailed = 0;
+            var turnTrailCtx = BuildTurnTrailContext(trailContext, workflowInstanceId, providerName, model, step);
 
             // First, handle all rejected tool calls
             foreach (var toolCall in response.ToolCalls)
@@ -502,6 +585,14 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                     toolsFailed++;
                     totalToolCalls++;
                     toolsExecuted++;
+
+                    // Story 42-5 (D2) — audit pre-execution rejections (validator / Seam B) as
+                    // TOOL.INVOKED + TOOL.FAILED so refused model calls stay visible in the trail.
+                    var rejDescriptor = _toolRegistry?.GetExecutor(toolCall.ToolName)?.Descriptor;
+                    await EmitToolAuditInvokedAsync(turnTrailCtx, toolCall, rejDescriptor, cancellationToken)
+                        .ConfigureAwait(false);
+                    await EmitToolAuditOutcomeAsync(turnTrailCtx, rejResult, cancellationToken)
+                        .ConfigureAwait(false);
 
                     var rejOutput = rejResult.Output;
                     if (_sanitizer != null && !string.IsNullOrEmpty(rejOutput))
@@ -546,6 +637,12 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                         totalToolCalls++;
                         toolsExecuted++;
 
+                        await EmitToolAuditInvokedAsync(
+                            turnTrailCtx, toolCall, _toolRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
+                            .ConfigureAwait(false);
+                        await EmitToolAuditOutcomeAsync(turnTrailCtx, notAllowedResult, cancellationToken)
+                            .ConfigureAwait(false);
+
                         var naOutput = notAllowedResult.Output;
                         if (_sanitizer != null && !string.IsNullOrEmpty(naOutput))
                         {
@@ -567,6 +664,14 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
 
                 if (validForExecution.Count > 0)
                 {
+                    // Story 42-5 (D2) — emit TOOL.INVOKED per entry before parallel execution.
+                    foreach (var tc in validForExecution)
+                    {
+                        await EmitToolAuditInvokedAsync(
+                            turnTrailCtx, tc, _toolRegistry.GetExecutor(tc.ToolName)?.Descriptor, cancellationToken)
+                            .ConfigureAwait(false);
+                    }
+
                     var parallelResults = await _parallelExecutor.ExecuteToolsInParallelAsync(
                         validForExecution.ToArray(), _toolRegistry, loopConfig.ToolTimeoutMs,
                         workflowInstanceId, step,
@@ -579,6 +684,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                         toolsExecuted++;
                         if (result.Success) toolsSucceeded++;
                         else toolsFailed++;
+
+                        // Story 42-5 (D2) — emit terminal TOOL.SUCCEEDED / TOOL.FAILED per returned result.
+                        await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
+                            .ConfigureAwait(false);
 
                         var toolOutput = result.Output;
                         if (_sanitizer != null && !string.IsNullOrEmpty(toolOutput))
@@ -610,6 +719,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                         result = new ToolExecutionResult(toolCall.Id, toolCall.ToolName, false,
                             "Tool execution not available (registry not configured)", 0);
                         toolsFailed++;
+                        await EmitToolAuditInvokedAsync(turnTrailCtx, toolCall, descriptor: null, cancellationToken)
+                            .ConfigureAwait(false);
+                        await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
+                            .ConfigureAwait(false);
                     }
                     else if (!_toolRegistry.IsAllowed(toolCall.ToolName, loopConfig.AllowedTools))
                     {
@@ -620,6 +733,11 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                             $"Tool '{toolCall.ToolName}' is not allowed. Available tools: {string.Join(", ", loopConfig.AllowedTools ?? Array.Empty<string>())}",
                             0);
                         toolsFailed++;
+                        await EmitToolAuditInvokedAsync(
+                            turnTrailCtx, toolCall, _toolRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
+                            .ConfigureAwait(false);
+                        await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
+                            .ConfigureAwait(false);
                     }
                     else
                     {
@@ -632,6 +750,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                             result = new ToolExecutionResult(toolCall.Id, toolCall.ToolName, false,
                                 $"Unknown tool: '{toolCall.ToolName}'", 0);
                             toolsFailed++;
+                            await EmitToolAuditInvokedAsync(turnTrailCtx, toolCall, descriptor: null, cancellationToken)
+                                .ConfigureAwait(false);
+                            await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
+                                .ConfigureAwait(false);
                         }
                         else
                         {
@@ -646,6 +768,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                             _logger?.LogDebug(
                                 "Tool call dispatched: WorkflowInstanceId={WorkflowInstanceId}, TurnNumber={TurnNumber}, ToolCallId={ToolCallId}, ToolName={ToolName}",
                                 workflowInstanceId, step, toolCall.Id, toolCall.ToolName);
+
+                            // Story 42-5 (D2) — emit durable TOOL.INVOKED immediately before execution.
+                            await EmitToolAuditInvokedAsync(turnTrailCtx, toolCall, executor.Descriptor, cancellationToken)
+                                .ConfigureAwait(false);
 
                             var toolSw = System.Diagnostics.Stopwatch.StartNew();
                             try
@@ -669,6 +795,16 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                                 else
                                     toolsFailed++;
                             }
+                            catch (OperationCanceledException) when (!cancellationToken.IsCancellationRequested)
+                            {
+                                toolSw.Stop();
+                                _logger?.LogWarning(
+                                    "Tool call timed out: WorkflowInstanceId={WorkflowInstanceId}, TurnNumber={TurnNumber}, ToolCallId={ToolCallId}, ToolName={ToolName}, TimeoutMs={TimeoutMs}",
+                                    workflowInstanceId, step, toolCall.Id, toolCall.ToolName, loopConfig.ToolTimeoutMs);
+                                result = new ToolExecutionResult(toolCall.Id, toolCall.ToolName, false,
+                                    $"Tool execution timed out after {loopConfig.ToolTimeoutMs}ms", toolSw.ElapsedMilliseconds);
+                                toolsFailed++;
+                            }
                             catch (Exception ex)
                             {
                                 toolSw.Stop();
@@ -680,6 +816,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                                     $"Tool execution error: {ex.Message}", toolSw.ElapsedMilliseconds);
                                 toolsFailed++;
                             }
+
+                            // Story 42-5 (D2) — emit terminal TOOL.SUCCEEDED / TOOL.FAILED for every exit path.
+                            await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
+                                .ConfigureAwait(false);
 
                             // Emit TOOL_COMPLETED event (sequential path)
                             if (loopConfig.EnableStreaming && _eventEmitter != null)

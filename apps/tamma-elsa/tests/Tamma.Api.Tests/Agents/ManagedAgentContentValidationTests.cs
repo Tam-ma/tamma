@@ -258,10 +258,10 @@ public class ManagedAgentContentValidationTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (_, _, _, _, _, _, _, _, _, _, _, plan, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (_, _, _, _, _, _, _, _, _, _, _, plan, _, _) =>
                 {
                     captured = plan;
                     return Task.FromResult(loop);
