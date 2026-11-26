@@ -29,7 +29,7 @@ public interface ITrackerEventsService
     Task EmitWorkItemUpdatedAsync(WorkItemEntity item, string? projectKey = null, Guid? userId = null);
     Task EmitWorkItemStatusChangedAsync(
         WorkItemEntity item, string fromStatus, string toStatus,
-        TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null);
+        TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null, string? actor = null);
     Task EmitWorkItemAssignedAsync(
         WorkItemEntity item, Guid? fromAssignee, Guid? toAssignee,
         TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null);
@@ -196,15 +196,20 @@ public sealed class TrackerEventsService(
 
     public Task EmitWorkItemStatusChangedAsync(
         WorkItemEntity item, string fromStatus, string toStatus,
-        TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null) =>
-        EmitWorkItemEventAsync(WorkItemEvents.StatusChanged, item, new Dictionary<string, object?>
+        TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null, string? actor = null)
+    {
+        var data = new Dictionary<string, object?>
         {
             ["workItemId"] = item.Id,
             ["key"] = item.Key,
             ["from"] = fromStatus,
             ["to"] = toStatus,
             ["version"] = item.Version,
-        }, transactionDb, projectKey, userId);
+        };
+        if (!string.IsNullOrWhiteSpace(actor))
+            data["actor"] = actor;
+        return EmitWorkItemEventAsync(WorkItemEvents.StatusChanged, item, data, transactionDb, projectKey, userId);
+    }
 
     public Task EmitWorkItemAssignedAsync(
         WorkItemEntity item, Guid? fromAssignee, Guid? toAssignee,
@@ -531,7 +536,7 @@ public sealed class NullTrackerEventsService : ITrackerEventsService
     public Task EmitProjectDeletedAsync(ProjectEntity project, Guid? userId = null) => Task.CompletedTask;
     public Task EmitWorkItemCreatedAsync(WorkItemEntity item, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;
     public Task EmitWorkItemUpdatedAsync(WorkItemEntity item, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;
-    public Task EmitWorkItemStatusChangedAsync(WorkItemEntity item, string fromStatus, string toStatus, TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;
+    public Task EmitWorkItemStatusChangedAsync(WorkItemEntity item, string fromStatus, string toStatus, TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null, string? actor = null) => Task.CompletedTask;
     public Task EmitWorkItemAssignedAsync(WorkItemEntity item, Guid? fromAssignee, Guid? toAssignee, TenantDbContext? transactionDb = null, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;
     public Task EmitWorkItemReparentedAsync(WorkItemEntity item, Guid? fromParentId, Guid? toParentId, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;
     public Task EmitWorkItemMovedAsync(WorkItemEntity item, string fromRank, string toRank, string? projectKey = null, Guid? userId = null) => Task.CompletedTask;

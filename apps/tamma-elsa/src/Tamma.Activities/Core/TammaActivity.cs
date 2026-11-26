@@ -69,6 +69,18 @@ public interface ITammaActivity
     /// Custom data for the end event (success or failure).
     /// </summary>
     Dictionary<string, object?> BuildEndData(ActivityExecutionContext context);
+
+    /// <summary>
+    /// Optional DCB tags stamped on the emitted end event (Story 44-7 AC10 / D9).
+    /// </summary>
+    Dictionary<string, object?>? BuildTags(ActivityExecutionContext context) => null;
+
+    /// <summary>
+    /// Optional non-throwing failure reason for activities that take a fallback
+    /// outcome on I/O failure while emitting a distinguishable failure event
+    /// (Story 44-7 AC2 / D2). Null means normal completion.
+    /// </summary>
+    string? GetSoftFailureReason(ActivityExecutionContext context) => null;
 }
 
 // ============================================
@@ -95,12 +107,28 @@ public static class TammaEventEmitter
     public static void EmitSuccess(ActivityExecutionContext context, ITammaActivity activity, IActivity source, ILogger? logger, TimeSpan duration)
     {
         if (activity.EventType == null) return;
+        var softError = activity.GetSoftFailureReason(context);
+        var tags = activity.BuildTags(context);
+        if (!string.IsNullOrEmpty(softError))
+        {
+            Emit(context, source, logger, new TammaEvent
+            {
+                EventType = $"{activity.EventType}.FAILED",
+                Status = "error",
+                Error = softError,
+                Duration = duration,
+                Data = activity.BuildEndData(context),
+                Tags = tags,
+            });
+            return;
+        }
         Emit(context, source, logger, new TammaEvent
         {
             EventType = $"{activity.EventType}.COMPLETED",
             Status = "success",
             Duration = duration,
             Data = activity.BuildEndData(context),
+            Tags = tags,
         });
     }
 
@@ -114,6 +142,7 @@ public static class TammaEventEmitter
             Error = error,
             Duration = duration,
             Data = activity.BuildEndData(context),
+            Tags = activity.BuildTags(context),
         });
     }
 
@@ -192,6 +221,8 @@ public abstract class TammaAsyncActivity : CodeActivity, ITammaActivity
     public virtual string? EventType => null;
     public virtual Dictionary<string, object?> BuildStartData(ActivityExecutionContext context) => new();
     public virtual Dictionary<string, object?> BuildEndData(ActivityExecutionContext context) => new();
+    public virtual Dictionary<string, object?>? BuildTags(ActivityExecutionContext context) => null;
+    public virtual string? GetSoftFailureReason(ActivityExecutionContext context) => null;
 
     protected abstract Task RunAsync(ActivityExecutionContext context);
 
@@ -257,6 +288,8 @@ public abstract class TammaOutcomeActivity : Activity, ITammaActivity
     public virtual string? EventType => null;
     public virtual Dictionary<string, object?> BuildStartData(ActivityExecutionContext context) => new();
     public virtual Dictionary<string, object?> BuildEndData(ActivityExecutionContext context) => new();
+    public virtual Dictionary<string, object?>? BuildTags(ActivityExecutionContext context) => null;
+    public virtual string? GetSoftFailureReason(ActivityExecutionContext context) => null;
 
     protected abstract Task RunAsync(ActivityExecutionContext context);
 

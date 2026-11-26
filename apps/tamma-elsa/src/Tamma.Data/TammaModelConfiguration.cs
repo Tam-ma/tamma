@@ -2466,6 +2466,10 @@ internal static class TammaModelConfiguration
                     "\"EstimateScale\" IN ('not_used','linear','fibonacci','exponential','t_shirt')");
                 // The mint counter can never fall below the first mintable number.
                 t.HasCheckConstraint("ck_projects_next_number", "\"NextNumber\" >= 1");
+                // Story 44-7 AC7/D6 — mirrors ProjectAutomationMode's 3 wire strings (default 'off').
+                t.HasCheckConstraint(
+                    "ck_projects_automation_mode",
+                    "\"AutomationMode\" IN ('off','assist','auto')");
             });
             entity.HasKey(e => e.Id);
             entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
@@ -2475,6 +2479,8 @@ internal static class TammaModelConfiguration
             entity.Property(e => e.Name).IsRequired().HasMaxLength(200);
             entity.Property(e => e.EstimateScale)
                 .IsRequired().HasMaxLength(16).HasDefaultValue("not_used");
+            entity.Property(e => e.AutomationMode)
+                .IsRequired().HasMaxLength(16).HasDefaultValue("off");
             entity.Property(e => e.NextNumber).HasDefaultValue(1);
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");

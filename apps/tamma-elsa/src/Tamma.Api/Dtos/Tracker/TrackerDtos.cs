@@ -141,7 +141,9 @@ public sealed record ProjectResponse(
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
     // Optimistic-concurrency token; also the response <c>ETag</c> (AC9).
-    [property: JsonPropertyName("version")] int Version);
+    [property: JsonPropertyName("version")] int Version,
+    // Story 44-7 AC7/D6 — autonomous-loop intake & status write-back gate (off|assist|auto, default off).
+    [property: JsonPropertyName("automationMode")] string AutomationMode = "off");
 
 /// <summary>
 /// POST /api/projects body. <c>key</c> is validated by
@@ -155,7 +157,8 @@ public sealed record CreateProjectRequest(
     [property: JsonPropertyName("name")] string? Name,
     [property: JsonPropertyName("description")] string? Description,
     [property: JsonPropertyName("repositoryId")] Guid? RepositoryId,
-    [property: JsonPropertyName("estimateScale")] string? EstimateScale);
+    [property: JsonPropertyName("estimateScale")] string? EstimateScale,
+    [property: JsonPropertyName("automationMode")] string? AutomationMode = null);
 
 /// <summary>
 /// PATCH /api/projects/{projectId} body — tri-state per field (AC3).
@@ -168,6 +171,7 @@ public sealed class PatchProjectRequest
     [JsonPropertyName("description")] public Optional<string> Description { get; init; }
     [JsonPropertyName("repositoryId")] public Optional<Guid?> RepositoryId { get; init; }
     [JsonPropertyName("estimateScale")] public Optional<string> EstimateScale { get; init; }
+    [JsonPropertyName("automationMode")] public Optional<string> AutomationMode { get; init; }
 
     /// <summary>true archives (stamps <c>ArchivedAt</c>), false un-archives.</summary>
     [JsonPropertyName("archived")] public Optional<bool?> Archived { get; init; }
@@ -259,7 +263,8 @@ public sealed class AssignRequest
 
 /// <summary>POST /api/work-items/{id}/status body — the wire status string.</summary>
 public sealed record SetStatusRequest(
-    [property: JsonPropertyName("status")] string? Status);
+    [property: JsonPropertyName("status")] string? Status,
+    [property: JsonPropertyName("actor")] string? Actor = null);
 
 // ── Story 44-3 — Hierarchy, ranking, subtree & BacklogOrdering apply seam ──
 

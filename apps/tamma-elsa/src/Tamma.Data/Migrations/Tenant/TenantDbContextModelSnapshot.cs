@@ -1464,6 +1464,13 @@ namespace Tamma.Data.Migrations.Tenant
                     b.Property<DateTime?>("ArchivedAt")
                         .HasColumnType("timestamp with time zone");
 
+                    b.Property<string>("AutomationMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("off");
+
                     b.Property<DateTime>("CreatedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1519,6 +1526,8 @@ namespace Tamma.Data.Migrations.Tenant
 
                     b.ToTable("projects", null, t =>
                         {
+                            t.HasCheckConstraint("ck_projects_automation_mode", "\"AutomationMode\" IN ('off','assist','auto')");
+
                             t.HasCheckConstraint("ck_projects_estimate_scale", "\"EstimateScale\" IN ('not_used','linear','fibonacci','exponential','t_shirt')");
 
                             t.HasCheckConstraint("ck_projects_next_number", "\"NextNumber\" >= 1");

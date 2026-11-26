@@ -1,6 +1,6 @@
 # Story 44-7: Loop Integration — Native Work Items as an Intake Source, the `issueId` Join, and the Broken-Selector Fix
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
