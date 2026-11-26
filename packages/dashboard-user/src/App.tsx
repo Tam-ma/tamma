@@ -61,6 +61,9 @@ import { ConnectedPlatforms } from './pages/settings/ConnectedPlatforms';
 import { PlanPricingPage } from './pages/settings/PlanPricingPage';
 // Story 46-3 — tenant model settings page.
 import { ModelSettingsPage } from './pages/models/ModelSettingsPage';
+// Story 39-19 — Orchestrator Chat & Task View.
+import { OrchestratorChat } from './pages/chat/OrchestratorChat';
+import { TaskView } from './pages/tasks/TaskView';
 import { NotFoundPage } from './pages/NotFoundPage';
 
 import type { JSX } from 'react';
@@ -82,6 +85,8 @@ export const ROUTE_PATHS: string[] = [
   '/invites/accept',
   '/invites/pending',
   '/',
+  '/chat',
+  '/tasks',
   '/alerts',
   '/settings/billing',
   '/settings/models',
@@ -142,6 +147,9 @@ export function App(): JSX.Element {
             }
           >
             <Route path="/" element={<DashboardHome />} />
+            {/* Story 39-19 — Orchestrator Chat & Task View (MemberAccess, per-user scoped). */}
+            <Route path="/chat" element={<OrchestratorChat />} />
+            <Route path="/tasks" element={<TaskView />} />
             <Route path="/alerts" element={<TenantAlertFeed />} />
             {/* Story 34-9 — Plan & Pricing. Rendered for all members; the page
                 itself gates mutations (member = read-only) so members can VIEW. */}

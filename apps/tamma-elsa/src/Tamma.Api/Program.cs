@@ -478,10 +478,21 @@ builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IOrchestratorTurnRunn
 builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorAgentRegistry,
     Tamma.Api.Services.Orchestrator.OrchestratorAgentRegistry>();
 builder.Services.AddHostedService<Tamma.Api.Services.Orchestrator.OrchestratorAgentHost>();
-// D8 — chat relay is OFF until 39-19's OrchestratorChatService lands: the stand-in
-// refuses every message with an agent-offline result and records nothing.
+// Story 39-19 — Orchestrator Chat + Task View services.
+// EventStoreChatTranscriptRecorder is the SOLE IChatTranscriptRecorder (fail-loud, redacted);
+// OrchestratorChatService replaces AgentOfflineChatRelay as the IOrchestratorChatRelay seam
+// wired to UserChannelHub / OrchestratorChannelHub.
+builder.Services.AddScoped<Tamma.Api.Services.Chat.EventStoreChatTranscriptRecorder>();
+builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IChatTranscriptRecorder>(sp =>
+    sp.GetRequiredService<Tamma.Api.Services.Chat.EventStoreChatTranscriptRecorder>());
+builder.Services.AddScoped<Tamma.Api.Services.Chat.ChatHistoryProjection>();
+builder.Services.AddSingleton<Tamma.Api.Services.Chat.IUserChannelSender,
+    Tamma.Api.Services.Chat.SignalRUserChannelSender>();
+builder.Services.AddScoped<Tamma.Api.Services.Chat.IChatWorkflowInitiationService,
+    Tamma.Api.Services.Chat.ChatWorkflowInitiationService>();
 builder.Services.AddScoped<Tamma.Api.Services.Channels.IOrchestratorChatRelay,
-    Tamma.Api.Services.Channels.AgentOfflineChatRelay>();
+    Tamma.Api.Services.Chat.OrchestratorChatService>();
+builder.Services.AddScoped<Tamma.Api.Services.Tasks.TaskInboxProjection>();
 // D6 — the slow sweeper re-publishes stale unacked rows (crash / missed-reconnect).
 builder.Services.AddSingleton<Tamma.Api.Services.Channels.ChannelOutboxSweeperOptions>();
 builder.Services.AddHostedService<Tamma.Api.Services.Channels.ChannelOutboxSweeper>();
@@ -3177,6 +3188,19 @@ acceptanceRules.MapGet("/defaults", AcceptanceRulesEndpoints.GetDefaults);
 acceptanceRules.MapGet("/{documentTypeKey}", AcceptanceRulesEndpoints.GetResolved);
 acceptanceRules.MapPut("/{documentTypeKey}", AcceptanceRulesEndpoints.Upsert).RequireAuthorization("AcceptanceRulesManage");
 acceptanceRules.MapDelete("/{documentTypeKey}", AcceptanceRulesEndpoints.Delete).RequireAuthorization("AcceptanceRulesManage");
+
+// ── Orchestrator Chat & Task View Read Projections (Story 39-19) ──
+// Pure read-only DCB projections (no new tables, no mutating endpoints — task
+// actions post directly to Story 39-8's POST /api/documents/decisions/{sessionId}/resume
+// and chat turns travel over Story 39-18's /hubs/user SignalR hub).
+app.MapGet("/api/chat/conversations", ChatEndpoints.ListConversations)
+    .RequireAuthorization("MemberAccess");
+app.MapGet("/api/chat/conversations/{conversationId:guid}", ChatEndpoints.GetConversation)
+    .RequireAuthorization("MemberAccess");
+app.MapGet("/api/tasks", TaskEndpoints.ListTasks)
+    .RequireAuthorization("MemberAccess");
+app.MapGet("/api/tasks/{sessionId:guid}", TaskEndpoints.GetTask)
+    .RequireAuthorization("MemberAccess");
 
 // ── Orchestrator Agent Configuration (Story 39-17) ──
 // Effective config read is AuthenticatedAny (parity with acceptance-rules);

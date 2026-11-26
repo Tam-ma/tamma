@@ -66,10 +66,22 @@ public static class CredentialRedactor
 
     /// <summary>
     /// Redact credential-shaped substrings and return a JSON-safe,
-    /// length-bounded string. Null/empty inputs return the empty string.
+    /// length-bounded string using <see cref="MaxLength"/>. Null/empty inputs
+    /// return the empty string.
     /// </summary>
-    public static string Clean(string? value)
+    public static string Clean(string? value) => Clean(value, MaxLength);
+
+    /// <summary>
+    /// Redact credential-shaped substrings and return a JSON-safe string
+    /// bounded to <paramref name="maxLength"/> characters (Story 39-19 D3 —
+    /// allows longer chat transcripts while keeping the single-arg overload's
+    /// 1024-char error-string budget byte-identical).
+    /// </summary>
+    public static string Clean(string? value, int maxLength)
     {
+        if (maxLength < 0)
+            throw new ArgumentOutOfRangeException(nameof(maxLength), "maxLength must be non-negative.");
+
         if (string.IsNullOrEmpty(value)) return string.Empty;
 
         var s = value;
@@ -95,9 +107,9 @@ public static class CredentialRedactor
         // JSON-embedded strings.
         s = s.Replace("\r", " ").Replace("\n", " ");
 
-        if (s.Length > MaxLength)
+        if (s.Length > maxLength)
         {
-            s = s[..MaxLength];
+            s = s[..maxLength];
         }
 
         return s;

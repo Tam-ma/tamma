@@ -1,6 +1,6 @@
 # Story 39-19: Orchestrator Chat — primary user interface, and the Task View
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
@@ -72,3 +72,4 @@ P0 — This is the epic's user-facing face: 39-17's agent needs a front door, an
 | Date       | Version | Changes                | Author |
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-20 | 1.0.0   | Initial story creation | Claude |
+| 2026-11-26 | 1.1.0   | Implemented Orchestrator Chat (`/chat`) and Task View (`/tasks`) end-to-end across `Tamma.Core`, `Tamma.Api`, and `packages/dashboard-user` against live Stories 39-8, 39-11, 39-17, 39-18, and 39-20 seams. Note: confirm-before-dispatch remains prompt-enforced (D6) and unverified against a live LLM provider; server-side authorization (`IWorkflowInitiationAuthorizer`), `initiatedBy` stamping, and `CHAT.WORKFLOW.INITIATED`/`REFUSED` auditing are enforced and pinned by automated tests. | Antigravity |

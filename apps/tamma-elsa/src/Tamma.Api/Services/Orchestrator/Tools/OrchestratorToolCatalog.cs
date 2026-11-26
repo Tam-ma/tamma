@@ -3,7 +3,9 @@ using Tamma.Activities.LlmCall.Models;
 using Tamma.Activities.LlmCall.Tools;
 using Tamma.Api.Services.AcceptanceRules;
 using Tamma.Api.Services.Access;
+using Tamma.Api.Services.Chat;
 using Tamma.Api.Services.Diagnostics;
+using Tamma.Api.Services.Documents;
 using Tamma.Data.Repositories;
 using Tamma.Platforms.Abstractions;
 
@@ -22,7 +24,9 @@ public sealed record OrchestratorToolDependencies(
     IDiagnosticsService? Diagnostics = null,
     ITaskAudienceResolver? AudienceResolver = null,
     IRepoAccessEvaluator? RepoAccessEvaluator = null,
-    ILogger? AuditLogger = null);
+    ILogger? AuditLogger = null,
+    IChatWorkflowInitiationService? ChatWorkflowInitiation = null,
+    ITaskAssignmentService? TaskAssignment = null);
 
 /// <summary>
 /// Story 39-17 (AC2 / AC4 / D5 / D6) — the CLOSED, drift-tested orchestrator
@@ -74,7 +78,13 @@ public static class OrchestratorToolCatalog
             new GitReadTool(context, deps.Platforms, deps.RepoAccessEvaluator),
             new EventStoreQueryTool(context, deps.Events),
             new LogSearchTool(context, deps.Events, deps.Diagnostics),
-            new WorkflowControlTool(context, deps.Elsa),
+            new WorkflowControlTool(
+                context,
+                deps.Elsa,
+                deps.ChatWorkflowInitiation,
+                new DocumentDecisionSubmissionService(deps.Elsa),
+                deps.AudienceResolver,
+                deps.TaskAssignment),
             new DocumentGetTool(context, deps.Documents, deps.AudienceResolver),
             new DocumentLineageTool(context, deps.Documents, deps.AudienceResolver),
             new KbSearchTool(),

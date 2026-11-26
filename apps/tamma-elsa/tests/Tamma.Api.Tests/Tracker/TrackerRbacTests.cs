@@ -333,14 +333,23 @@ public class TrackerRbacTests
     }
 
     [Test]
-    public void No_api_tasks_route_is_introduced()
+    public void No_tracker_route_uses_api_tasks()
     {
-        // Story 39-19 owns /api/tasks (the decision inbox). The two surfaces
-        // must stay distinguishable in a route table (44-2 technical notes).
-        AllRoutes().Should().NotBeEmpty("the route table must actually have been read");
-        AllRoutes().Should().NotContain(
+        // Story 39-19 owns /api/tasks (the read-only decision inbox: GET /api/tasks and
+        // GET /api/tasks/{sessionId:guid}). The tracker stays on /api/work-items so the
+        // two surfaces remain cleanly distinguishable in the route table (44-2 technical notes).
+        var all = AllRoutes();
+        all.Should().NotBeEmpty("the route table must actually have been read");
+
+        TrackerRoutes().Should().NotContain(
             r => r.Pattern.StartsWith("/api/tasks", StringComparison.OrdinalIgnoreCase),
-            "the tracker is /api/work-items; /api/tasks belongs to 39-19");
+            "the tracker is /api/work-items; /api/tasks belongs to Story 39-19's Task View");
+
+        all.Where(r => r.Pattern.StartsWith("/api/tasks", StringComparison.OrdinalIgnoreCase))
+            .Select(r => $"{r.Method} {r.Pattern}")
+            .Should().BeEquivalentTo(
+                new[] { "GET /api/tasks", "GET /api/tasks/{sessionId:guid}" },
+                "only Story 39-19's read-only Task View routes may live under /api/tasks");
     }
 
     // ══════════════════ AC10 — the catalog descriptors ══════════════════════
