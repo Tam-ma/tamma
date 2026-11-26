@@ -22,8 +22,8 @@
     <PackageReference Include="Elsa.Studio.Login.BlazorWasm" Version="3.5.3" />
 
     <!-- Blazor WASM runtime -->
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.0" />
-    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.0" PrivateAssets="all" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly" Version="8.0.34" />
+    <PackageReference Include="Microsoft.AspNetCore.Components.WebAssembly.DevServer" Version="8.0.34" PrivateAssets="all" />
   </ItemGroup>
 
   <ItemGroup>
