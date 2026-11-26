@@ -49,6 +49,12 @@ public enum PlatformTaskKind
 
     /// <summary><c>CreateBillingCustomerTaskHandler</c> — <c>CreateBillingCustomerTaskHandler.TaskTypeName</c>.</summary>
     [Wire("billing.customer.create")] CreateBillingCustomer,
+
+    /// <summary><c>MeterEventFlushTaskHandler</c> — <c>MeterEventFlushTaskHandler.TaskTypeName</c> (Story 35-3).</summary>
+    [Wire("billing.meter_flush")] BillingMeterFlush,
+
+    /// <summary><c>UsageReconciliationTaskHandler</c> — <c>UsageReconciliationTaskHandler.TaskTypeName</c> (Story 35-3).</summary>
+    [Wire("billing.usage_reconcile")] BillingUsageReconcile,
 }
 
 /// <summary><see cref="PlatformTaskKind"/> wire helper.</summary>

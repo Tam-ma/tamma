@@ -164,7 +164,8 @@ public class ActionWirePinTests
         Enum.GetValues<PlatformTaskKind>().Select(p => p.ToWire()).Should().Equal(
             "RETIRE_SECRET_VERSION", "plan.activate_scheduled", "tenant.move",
             "provisioning.tenant", "provisioning.tenant.v2", "provisioning.tenant.deprovision",
-            "billing.webhook.followup", "billing.customer.create");
+            "billing.webhook.followup", "billing.customer.create",
+            "billing.meter_flush", "billing.usage_reconcile");
     }
 
     [Test]
