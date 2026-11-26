@@ -1,6 +1,6 @@
 # Story 35-3: BYOK-Aware Usage Metering & Stripe Meter Event Reporting
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

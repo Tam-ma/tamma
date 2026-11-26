@@ -690,6 +690,18 @@ public class ControlPlaneDbContext : DbContext
     public DbSet<BillingSubscription> BillingSubscriptions => Set<BillingSubscription>();
 
     /// <summary>
+    /// Story 35-3 — control-plane per-tenant per-billing-period usage rollup
+    /// splitting platform-provided vs BYOK tokens alongside 34-5 priced totals.
+    /// </summary>
+    public DbSet<BillingUsageRollup> BillingUsageRollups => Set<BillingUsageRollup>();
+
+    /// <summary>
+    /// Story 35-3 — control-plane outbox/buffer of pending Stripe Billing Meter
+    /// events flushed in bounded batches by <c>MeterEventFlushTaskHandler</c>.
+    /// </summary>
+    public DbSet<BillingMeterEventBuffer> BillingMeterEventBuffers => Set<BillingMeterEventBuffer>();
+
+    /// <summary>
     /// Story 37-1 — platform-scope curated audit trail. Tenant-scope rows live
     /// in the per-tenant schema's <c>audit_records</c>; these are the
     /// platform/lifecycle rows (impersonation, tenant provision/move, etc.).
@@ -1594,6 +1606,10 @@ public class ControlPlaneDbContext : DbContext
             entity.Property(e => e.AgentDispatches).HasDefaultValue(0L);
             entity.Property(e => e.TokensIn).HasDefaultValue(0L);
             entity.Property(e => e.TokensOut).HasDefaultValue(0L);
+            entity.Property(e => e.PlatformTokensIn).HasDefaultValue(0L);
+            entity.Property(e => e.PlatformTokensOut).HasDefaultValue(0L);
+            entity.Property(e => e.ByokTokensIn).HasDefaultValue(0L);
+            entity.Property(e => e.ByokTokensOut).HasDefaultValue(0L);
             entity.Property(e => e.CostUsd).HasPrecision(20, 4).HasDefaultValue(0m);
             entity.Property(e => e.ActiveTenantsAtHourEnd).HasDefaultValue(0);
             entity.Property(e => e.ComputedAt).HasDefaultValueSql("now()");

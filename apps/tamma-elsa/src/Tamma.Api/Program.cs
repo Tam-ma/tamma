@@ -1649,6 +1649,11 @@ builder.Services.AddTammaBilling(builder.Configuration);
 // below are mapped only in SaaS mode.
 builder.Services.AddBillingWebhookIngestion(builder.Configuration);
 
+// Story 35-3 — BYOK-aware usage metering + Stripe Billing Meter flush &
+// reconciliation handlers (SaaS only). Single-user registers no handlers and
+// leaves GET /api/v1/billing/usage unmapped (zero Stripe surface — AC12).
+builder.Services.AddBillingUsageMetering(builder.Configuration);
+
 // Unified-tenancy Phase 4 — `tenant.move` platform-task handler. Drives
 // ITenantMoveService.MoveAsync for tasks enqueued by
 // POST /api/admin/tenants/{tenantId}/move; on failure it stamps the
@@ -3754,6 +3759,11 @@ if (app.Services.GetRequiredService<Tamma.Api.Services.PromptStore.ITammaModePro
     // tenant owner/admin (checked in-handler). Single-user leaves these unmapped
     // (NullBillingProvider, zero Stripe — AC11).
     Tamma.Api.Endpoints.Billing.SubscriptionEndpoints.MapSubscriptionEndpoints(app);
+
+    // ── Story 35-3 — current-period BYOK-aware usage read (SaaS only) ──
+    // GET /api/v1/billing/usage reads from local control-plane BillingUsageRollup
+    // for the caller's ambient ITenantContext (MemberAccess; single-user unmapped).
+    Tamma.Api.Endpoints.Billing.BillingUsageEndpoints.MapBillingUsageEndpoints(app);
 }
 
 // ── SaaS (API key auth) ──
@@ -4115,6 +4125,7 @@ using (var scope = app.Services.CreateScope())
                     audit_records, audit_projector_cursor, audit_chain_checkpoints,
                     billing_customers, billing_plan_prices,
                     billing_webhook_events, billing_subscriptions,
+                    billing_usage_rollup, billing_meter_event_buffer,
                     alert_delivery_attempts, alert_channels, alerts,
                     alert_evaluator_cursor, alert_rules,
                     api_keys, agent_configs, budget_configs, domain_events,

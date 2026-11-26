@@ -1697,6 +1697,82 @@ internal static class TammaModelConfiguration
                 .HasForeignKey(e => e.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // ── BillingUsageRollup (Story 35-3 — per-tenant per-period usage rollup) ──
+        modelBuilder.Entity<BillingUsageRollup>(entity =>
+        {
+            entity.ToTable("billing_usage_rollup");
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.PeriodStart).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.PeriodEnd).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.PlatformInputTokens).HasDefaultValue(0L);
+            entity.Property(e => e.PlatformOutputTokens).HasDefaultValue(0L);
+            entity.Property(e => e.ByokInputTokens).HasDefaultValue(0L);
+            entity.Property(e => e.ByokOutputTokens).HasDefaultValue(0L);
+            entity.Property(e => e.PlatformCostUsd).HasPrecision(20, 4).HasDefaultValue(0m);
+            entity.Property(e => e.BillableAmountUsd).HasPrecision(20, 4).HasDefaultValue(0m);
+            entity.Property(e => e.Seats).HasDefaultValue(0);
+            entity.Property(e => e.LastSourceCursor).HasDefaultValue(0L);
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            // Idempotent upsert key: one rollup row per (TenantId, PeriodStart).
+            entity.HasIndex(e => new { e.TenantId, e.PeriodStart })
+                .HasDatabaseName("UX_billing_usage_rollup_TenantId_PeriodStart")
+                .IsUnique();
+
+            // Tenant purge cascades its billing usage rollups.
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── BillingMeterEventBuffer (Story 35-3 — pending Stripe meter-event outbox) ──
+        modelBuilder.Entity<BillingMeterEventBuffer>(entity =>
+        {
+            entity.ToTable("billing_meter_event_buffer", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_billing_meter_event_buffer_billing_mode",
+                    "\"BillingMode\" IN ('platform','byok')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.StripeCustomerId).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.EventName).IsRequired().HasMaxLength(128);
+            entity.Property(e => e.BillingMode)
+                .IsRequired().HasMaxLength(32).HasDefaultValue("platform");
+            entity.Property(e => e.Value).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.IdempotencyKey).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.PeriodStart).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.EventTimestamp).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.ReportedToStripe).HasDefaultValue(false);
+            entity.Property(e => e.StripeEventId).HasMaxLength(255);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.AttemptCount).HasDefaultValue(0);
+            entity.Property(e => e.LastError).HasMaxLength(2000);
+
+            // Authoritative dedup key — re-buffering or retrying never duplicates.
+            entity.HasIndex(e => e.IdempotencyKey)
+                .HasDatabaseName("UX_billing_meter_event_buffer_IdempotencyKey")
+                .IsUnique();
+
+            // Flush worker hot path — partial index scans only unreported rows.
+            entity.HasIndex(e => e.CreatedAt)
+                .HasDatabaseName("IX_billing_meter_event_buffer_Pending")
+                .HasFilter("\"ReportedToStripe\" = FALSE");
+
+            // Delta lookup per (TenantId, PeriodStart, EventName).
+            entity.HasIndex(e => new { e.TenantId, e.PeriodStart, e.EventName })
+                .HasDatabaseName("IX_billing_meter_event_buffer_TenantId_PeriodStart_EventName");
+
+            // Tenant purge cascades its buffered meter events.
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     /// <summary>

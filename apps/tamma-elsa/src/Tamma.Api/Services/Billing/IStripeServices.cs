@@ -35,6 +35,14 @@ public interface IStripeServices
 
     /// <summary>Stripe Checkout sessions (mode=subscription) — Story 35-4.</summary>
     Stripe.Checkout.SessionService CheckoutSessions { get; }
+
+    // ── Story 35-3 — Billing Meters event reporting & reconciliation surface ──
+
+    /// <summary>Stripe Billing Meter event ingestion (<c>v1/billing/meter_events</c>) — Story 35-3.</summary>
+    MeterEventService MeterEvents { get; }
+
+    /// <summary>Stripe Billing Meter event summaries (<c>v1/billing/meters/{id}/event_summaries</c>) — Story 35-3.</summary>
+    MeterEventSummaryService MeterEventSummaries { get; }
 }
 
 /// <summary>Concrete bundle wrapping the Stripe service classes over one client.</summary>
@@ -50,6 +58,8 @@ public sealed class StripeServices : IStripeServices
         Subscriptions = new Stripe.SubscriptionService(client);
         SubscriptionSchedules = new Stripe.SubscriptionScheduleService(client);
         CheckoutSessions = new Stripe.Checkout.SessionService(client);
+        MeterEvents = new MeterEventService(client);
+        MeterEventSummaries = new MeterEventSummaryService(client);
     }
 
     public CustomerService Customers { get; }
@@ -59,4 +69,6 @@ public sealed class StripeServices : IStripeServices
     public Stripe.SubscriptionService Subscriptions { get; }
     public Stripe.SubscriptionScheduleService SubscriptionSchedules { get; }
     public Stripe.Checkout.SessionService CheckoutSessions { get; }
+    public MeterEventService MeterEvents { get; }
+    public MeterEventSummaryService MeterEventSummaries { get; }
 }
