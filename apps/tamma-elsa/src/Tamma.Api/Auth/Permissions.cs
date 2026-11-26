@@ -142,6 +142,10 @@ public static class Permissions
         ["teams:manage"] = ["admin", "owner"],
         ["repos:manage"] = ["admin", "owner"],
         ["tasks:assign"] = ["admin", "owner"],
+        // Story 39-17 (AC6 / D8) — per-tenant orchestrator agent configuration
+        // (provider/model, context budget, spend caps). Admin+owner write access;
+        // single-user sole user is auto-owner of their personal tenant.
+        ["orchestrator:manage"] = ["admin", "owner"],
     };
 
     public static bool HasPermission(string? role, string? permission)

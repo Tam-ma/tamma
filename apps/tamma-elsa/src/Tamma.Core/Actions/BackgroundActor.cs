@@ -207,6 +207,12 @@ public enum BackgroundActor
     /// to a GIT.WEBHOOK_REGISTER.SKIPPED audit event (the §4 alternative
     /// step), never a startup failure.</summary>
     [Wire("webhook-registration-startup")] WebhookRegistrationStartup,
+
+    /// <summary><c>Tamma.Api.Services.Orchestrator.OrchestratorAgentHost</c> —
+    /// Story 39-17: opt-in hosted service (<c>OrchestratorAgent:Enabled</c>,
+    /// default <c>false</c>) managing per-tenant <c>OrchestratorAgentInstance</c>
+    /// lifecycle (start on inbox activity, idle with zero token burn, idle eviction).</summary>
+    [Wire("orchestrator-agent-host")] OrchestratorAgentHost,
 }
 
 /// <summary><see cref="BackgroundActor"/> wire helper.</summary>

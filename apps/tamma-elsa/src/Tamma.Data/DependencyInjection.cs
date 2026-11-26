@@ -165,6 +165,8 @@ public static class DependencyInjection
         services.AddScoped<IPromptRepository, PromptRepository>();
         // Story 39-5 — tenant-resident acceptance-rules overrides.
         services.AddScoped<IAcceptanceRulesRepository, AcceptanceRulesRepository>();
+        // Story 39-17 — tenant-resident per-principal orchestrator agent configs.
+        services.AddScoped<IOrchestratorAgentConfigRepository, OrchestratorAgentConfigRepository>();
         services.AddScoped<IConventionRepository, ConventionRepository>();
         // Story 44-1 — the native tracker (tenant-schema resident, Epic 44).
         // Work items/projects/iterations carry NO mode split (content, epic

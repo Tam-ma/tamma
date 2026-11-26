@@ -158,7 +158,7 @@ public class PermissionsMatrixTests
             "users:view", "users:manage", "admin:access", "logs:access", "elsa:access",
             "settings:view", "settings:manage", "apikeys:manage", "prompts:manage",
             "conventions:manage", "platforms:manage", "agents:manage", "pricing:manage",
-            "acceptance-rules:manage", "schedules:manage", "actions:manage",
+            "acceptance-rules:manage", "orchestrator:manage", "schedules:manage", "actions:manage",
             "tracker:view", "tracker:manage",
             "teams:manage", "repos:manage", "tasks:assign",
         };

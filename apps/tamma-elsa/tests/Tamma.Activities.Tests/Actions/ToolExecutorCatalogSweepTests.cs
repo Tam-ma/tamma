@@ -89,12 +89,13 @@ public class ToolExecutorCatalogSweepTests
     }
 
     [Test]
-    public void The_executor_count_is_pinned_at_7()
+    public void The_executor_count_is_pinned_at_16()
     {
-        // 6 DI-registered (Program.cs AddSingleton<IToolExecutor, …>) + the
-        // deliberately-unregistered GetAcceptanceRulesTool (Story 39-5 D6:
-        // principal-bound instances minted per session — a singleton registration
-        // would be the bug; Story 43-4's startup validator allowlists it).
-        ExecutorTypes().Should().HaveCount(7);
+        // 6 DI-registered (Program.cs AddSingleton<IToolExecutor, …>) + 10
+        // deliberately-unregistered IPrincipalScopedToolExecutor implementations
+        // (Story 39-5 D6's GetAcceptanceRulesTool + Story 39-17's 9 orchestrator
+        // tools: git_read, event_store_query, log_search, workflow_control,
+        // document_get, document_lineage, kb_search, rag_query, issue_read).
+        ExecutorTypes().Should().HaveCount(16);
     }
 }

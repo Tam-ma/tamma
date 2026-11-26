@@ -40,6 +40,16 @@ internal static class ToolNameAliases
             ["shell_execute"] = Key(ToolAction.ShellExecute),
             ["run_tests"] = Key(ToolAction.RunTests),
             ["get_acceptance_rules"] = Key(ToolAction.GetAcceptanceRules),
+            // Story 39-17 — principal-scoped Orchestrator Agent closed toolset.
+            ["git_read"] = Key(ToolAction.GitRead),
+            ["event_store_query"] = Key(ToolAction.EventStoreQuery),
+            ["log_search"] = Key(ToolAction.LogSearch),
+            ["workflow_control"] = Key(ToolAction.WorkflowControl),
+            ["document_get"] = Key(ToolAction.DocumentGet),
+            ["document_lineage"] = Key(ToolAction.DocumentLineage),
+            ["kb_search"] = Key(ToolAction.KbSearch),
+            ["rag_query"] = Key(ToolAction.RagQuery),
+            ["issue_read"] = Key(ToolAction.IssueRead),
 
             // The Claude-Code advertised names (DefaultAgentConfig.Tools).
             ["Read"] = Key(ToolAction.FileRead),

@@ -537,6 +537,13 @@ public enum ExternalEffect
 
     /// <summary><c>DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants</c> — <c>RepoAccessEndpoints.RevokeGrantByGrantee</c>.</summary>
     [Wire("access.repo.grant.revoke-by-grantee")] AccessRepoGrantRevokeByGrantee,
+
+    // ── Story 39-17 — per-tenant orchestrator agent configuration writes (machinery) ──
+    /// <summary><c>PUT /api/orchestrator/config</c> — <c>OrchestratorConfigEndpoints.Upsert</c>.</summary>
+    [Wire("orchestrator.config.set")] OrchestratorConfigSet,
+
+    /// <summary><c>DELETE /api/orchestrator/config</c> — <c>OrchestratorConfigEndpoints.Delete</c>.</summary>
+    [Wire("orchestrator.config.delete")] OrchestratorConfigDelete,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

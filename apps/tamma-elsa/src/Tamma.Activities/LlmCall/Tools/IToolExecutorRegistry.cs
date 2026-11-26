@@ -1,3 +1,5 @@
+using Tamma.Activities.LlmCall.Models;
+
 namespace Tamma.Activities.LlmCall.Tools;
 
 /// <summary>
@@ -41,4 +43,22 @@ public interface IToolExecutorRegistry
     /// built-in executors with <see cref="InvalidOperationException"/>.
     /// </summary>
     bool Unregister(string toolName);
+
+    /// <summary>
+    /// Execute a registered tool by name. Default implementation resolves
+    /// <see cref="GetExecutor"/> and invokes <see cref="IToolExecutor.ExecuteAsync"/>;
+    /// custom registries (such as <c>AuditedToolRegistry</c>) override this seam to
+    /// attach per-invocation audit events without introducing wrapper <see cref="IToolExecutor"/>
+    /// classes into the catalog sweep.
+    /// </summary>
+    Task<ToolExecutionResult> ExecuteAsync(
+        string toolCallId,
+        string toolName,
+        string argumentsJson,
+        CancellationToken cancellationToken = default)
+    {
+        var executor = GetExecutor(toolName)
+            ?? throw new InvalidOperationException($"Unknown tool '{toolName}'.");
+        return executor.ExecuteAsync(toolCallId, argumentsJson, cancellationToken);
+    }
 }

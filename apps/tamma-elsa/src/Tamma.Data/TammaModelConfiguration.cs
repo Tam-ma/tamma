@@ -2140,6 +2140,37 @@ internal static class TammaModelConfiguration
             ApplyTenantFilter(entity, fixedTenantId, e => e.TenantId);
         });
 
+        // ── OrchestratorAgentConfigRow ──
+        // Story 39-17 (AC6 / D8): dual-scoping, mirrors AcceptanceRulesOverride.
+        // Single-user rows carry user_id (tenant_id IS NULL); SaaS rows carry
+        // tenant_id (user_id IS NULL). The principal_xor CHECK enforces
+        // exactly-one; unique index (UserId, TenantId) NULLS NOT DISTINCT
+        // ensures at most one config row per principal.
+        modelBuilder.Entity<OrchestratorAgentConfigRow>(entity =>
+        {
+            entity.ToTable("orchestrator_agent_configs", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_orchestrator_agent_configs_principal_xor",
+                    "(\"UserId\" IS NOT NULL AND \"TenantId\" IS NULL) " +
+                    "OR (\"UserId\" IS NULL AND \"TenantId\" IS NOT NULL)");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.ConfigJson).IsRequired().HasColumnType("jsonb");
+            entity.Property(e => e.Version).HasDefaultValue(1);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.UserId, e.TenantId })
+                .IsUnique()
+                .AreNullsDistinct(false)
+                .HasDatabaseName("IX_orchestrator_agent_configs_UserId_TenantId");
+
+            if (omitTenantIdColumn) entity.Ignore(e => e.TenantId);
+            ApplyTenantFilter(entity, fixedTenantId, e => e.TenantId);
+        });
+
         // ── Convention ──
         // Story 27-8: two-tier convention store.
         //   tenant_id IS NULL  → system default (shipped by Tamma, seeded in 27-16)

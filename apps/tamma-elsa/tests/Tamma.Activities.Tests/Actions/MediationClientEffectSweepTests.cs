@@ -326,6 +326,13 @@ public class MediationClientEffectSweepTests
             [ExternalEffect.AccessRepoGrantRevokeByGrantee] = new(SiteKind.RouteOnly, null,
                 "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — tenant-admin repo grant revoke by grantee (machinery member), no TammaApiClient method"),
 
+            // Story 39-17 — principal orchestrator agent config routes.
+            // Reached by tenant admins / single-user owners via dashboard or API, never through the engine mediation client.
+            [ExternalEffect.OrchestratorConfigSet] = new(SiteKind.RouteOnly, null,
+                "PUT /api/orchestrator/config — principal orchestrator configuration upsert (machinery member), no TammaApiClient method"),
+            [ExternalEffect.OrchestratorConfigDelete] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/orchestrator/config — principal orchestrator configuration delete (machinery member), no TammaApiClient method"),
+
             // ── In-process: no HTTP hop, so no route sweep can ever see them ──
             [ExternalEffect.ProcessSpawn] = new(SiteKind.InProcess, null,
                 "ShellExecuteTool's ProcessStartInfo, inside the tool loop — invisible to any route sweep"),

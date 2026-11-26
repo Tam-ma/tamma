@@ -33,7 +33,10 @@ public class ActionWirePinTests
     {
         Enum.GetValues<ToolAction>().Select(t => t.ToWire()).Should().Equal(
             "file_read", "file_write", "search_code", "shell_execute", "run_tests",
-            "get_acceptance_rules", "git_operations.read", "git_operations.write");
+            "get_acceptance_rules", "git_operations.read", "git_operations.write",
+            // Story 39-17: Orchestrator Agent closed, principal-scoped tools.
+            "git_read", "event_store_query", "log_search", "workflow_control",
+            "document_get", "document_lineage", "kb_search", "rag_query", "issue_read");
     }
 
     [Test]
@@ -103,7 +106,9 @@ public class ActionWirePinTests
             "access.team.create", "access.team.update", "access.team.delete",
             "access.team.member.add", "access.team.member.role.update", "access.team.member.remove",
             "access.repo.register", "access.repo.visibility.update",
-            "access.repo.grant.upsert", "access.repo.grant.revoke-by-id", "access.repo.grant.revoke-by-grantee");
+            "access.repo.grant.upsert", "access.repo.grant.revoke-by-id", "access.repo.grant.revoke-by-grantee",
+            // Story 39-17: principal orchestrator agent config writes (machinery).
+            "orchestrator.config.set", "orchestrator.config.delete");
     }
 
     [Test]
@@ -145,7 +150,9 @@ public class ActionWirePinTests
             "agent-run-wait-reconciler",
             // Epic 31 P4 M3 (2026-08-08) — the single-user startup webhook
             // registration pass (git.webhook.register's config-tier caller).
-            "webhook-registration-startup");
+            "webhook-registration-startup",
+            // Story 39-17 — per-tenant orchestrator agent host.
+            "orchestrator-agent-host");
     }
 
     [Test]
