@@ -108,7 +108,9 @@ public class ActionWirePinTests
             "access.repo.register", "access.repo.visibility.update",
             "access.repo.grant.upsert", "access.repo.grant.revoke-by-id", "access.repo.grant.revoke-by-grantee",
             // Story 39-17: principal orchestrator agent config writes (machinery).
-            "orchestrator.config.set", "orchestrator.config.delete");
+            "orchestrator.config.set", "orchestrator.config.delete",
+            // Story 34-10: admin pricing backfill re-run trigger (machinery).
+            "pricing.backfill.run");
     }
 
     [Test]

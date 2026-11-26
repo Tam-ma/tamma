@@ -336,7 +336,8 @@ public class ActionCatalogLevelTests
         // 64 → 67 (Story 39-17: + effect:orchestrator.config.{set,delete} + automation:orchestrator-agent-host — machinery).
         // 67 → 69 (Story 35-3: + platform-task:billing.{meter_flush,usage_reconcile} — machinery).
         // 69 → 70 (Story 35-8: + platform-task:billing.dunning.advance — machinery).
-        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(70);
+        // 70 → 71 (Story 34-10: + effect:pricing.backfill.run — machinery).
+        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(71);
         ActionCatalog.All.Where(d => d.IsMachinery).Select(d => d.Key.ToWire())
             .Should().OnlyContain(k => !LevelTable.ContainsKey(k));
     }

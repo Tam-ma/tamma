@@ -72,6 +72,8 @@ public class MachineryInventoryTests
         // Story 39-17: principal orchestrator agent config writes (machinery).
         "effect:orchestrator.config.set",
         "effect:orchestrator.config.delete",
+        // Story 34-10: admin pricing backfill re-run trigger (machinery).
+        "effect:pricing.backfill.run",
 
         // ── Background services — all 32 automation:* ─────────────────────
         "automation:action-catalog-startup-validator",
@@ -172,7 +174,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(70, "22 + 37 + 11 = 70 (43-11's count check, amended through Story 39-17 [67], Story 35-3 [+2], and Story 35-8 [+1 platform-task:billing.dunning.advance])");
+        MachineryInventory.Should().HaveCount(71, "23 + 37 + 11 = 71 (43-11's count check, amended through Story 39-17 [67], Story 35-3 [+2], Story 35-8 [+1], and Story 34-10 [+1 effect:pricing.backfill.run])");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(

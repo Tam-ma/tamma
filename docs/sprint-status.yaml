@@ -565,7 +565,7 @@ development_status:
   34-7-trials-credits-and-promo-codes: drafted        # Trials, Credits & Promo Codes [P1]
   34-8-pricing-audit-events-and-reproducibility: drafted # Pricing Audit, Events & Reproducibility [P1]
   34-9-pricing-and-plan-management-dashboards: done    # Pricing & Plan Management Dashboards [P1] | DONE 2026-08-18 (checked in code, not from a changelog): BOTH halves. Server: Endpoints/Admin/AdminPricingDashboardEndpoints.cs (GET /api/admin/pricing/overview, mapped Program.cs:2211) + Api.Tests/Pricing/AdminPricingDashboardEndpointsTests. UI: packages/dashboard/src/pages/admin/pricing/{PricingTab,PricingOverviewPanel,MarginPolicyPanel,PlanVersionEditor,CustomPlanPanel}.tsx + its __tests__
-  34-10-epic-20-decommission-and-pricing-contract-migration: drafted # Epic 20 Decommission & Pricing Contract Migration [P0]
+  34-10-epic-20-decommission-and-pricing-contract-migration: done # Epic 20 Decommission & Pricing Contract Migration [P0]
   34-11-provider-cost-price-book: done                # Provider Cost Price-Book (Provider + ProviderModelPrice cost entities behind IProviderPricingService; before 34-5) (added 2026-06-21) [P0] | DONE 2026-08-18 (checked in code, not from a changelog): Api/Services/Providers/{DbProviderPricingService,ProviderCostResolver,ProviderRateLookup,ProviderPricingEventTypes}.cs + Extensions/ProviderPricingServiceCollectionExtensions.cs + Api.Tests/Providers/{DbProviderPricingServiceTests,ProviderPricingSeederTests,ProviderPricingParityTests}
   epic-34-retrospective: optional
 

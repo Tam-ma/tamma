@@ -1,6 +1,6 @@
 # Story 34-10: Epic 20 Decommission & Pricing Contract Migration
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
