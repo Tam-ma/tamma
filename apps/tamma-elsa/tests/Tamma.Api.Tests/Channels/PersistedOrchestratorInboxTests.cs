@@ -29,6 +29,9 @@ namespace Tamma.Api.Tests.Channels;
 [TestFixture]
 public class PersistedOrchestratorInboxTests
 {
+    [SetUp]
+    public Task SetUp() => ApiTestFixture.ResetDatabaseAsync();
+
     private static async Task<Guid> CreateAndProvisionTenantAsync(string slugPrefix)
     {
         Guid tenantId;
