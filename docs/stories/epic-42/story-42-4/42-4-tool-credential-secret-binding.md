@@ -1,6 +1,6 @@
 # Story 42-4: Tool Credential / Secret Binding
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
