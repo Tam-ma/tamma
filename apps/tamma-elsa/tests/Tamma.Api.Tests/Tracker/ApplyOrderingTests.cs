@@ -331,7 +331,8 @@ public class ApplyOrderingTests
               ]
             }
             """;
-        var docBefore = await SeedBacklogOrderingDocAsync(body, DocumentInstanceStatus.Accepted);
+        var seeded = await SeedBacklogOrderingDocAsync(body, DocumentInstanceStatus.Accepted);
+        var docBefore = (await _documents.GetByIdAsync(_tenantId, seeded.Id, CancellationToken.None))!;
 
         await ApplyService().ApplyAsync(project.Id, docBefore.Id, CancellationToken.None);
 
