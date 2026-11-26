@@ -3,6 +3,7 @@ using Microsoft.AspNetCore.SignalR;
 using Tamma.Activities.Documents;
 using Tamma.Api.Hubs;
 using Tamma.Api.Services.Access;
+using Tamma.Api.Services.Orchestrator;
 using Tamma.Core;
 using Tamma.Core.Documents;
 using Tamma.Core.Documents.Channels;
@@ -29,6 +30,7 @@ public sealed class ChannelOutboxService
     private readonly IHubContext<OrchestratorChannelHub, IOrchestratorChannelClient> _orchestratorHub;
     private readonly IHubContext<UserChannelHub, IUserChannelClient> _userHub;
     private readonly ILogger<ChannelOutboxService> _logger;
+    private readonly IOrchestratorInboxNotifier? _inboxNotifier;
 
     public ChannelOutboxService(
         IChannelOutboxRepository outbox,
@@ -36,7 +38,8 @@ public sealed class ChannelOutboxService
         ITaskAudienceResolver audience,
         IHubContext<OrchestratorChannelHub, IOrchestratorChannelClient> orchestratorHub,
         IHubContext<UserChannelHub, IUserChannelClient> userHub,
-        ILogger<ChannelOutboxService> logger)
+        ILogger<ChannelOutboxService> logger,
+        IOrchestratorInboxNotifier? inboxNotifier = null)
     {
         _outbox = outbox;
         _events = events;
@@ -44,6 +47,7 @@ public sealed class ChannelOutboxService
         _orchestratorHub = orchestratorHub;
         _userHub = userHub;
         _logger = logger;
+        _inboxNotifier = inboxNotifier;
     }
 
     /// <summary>
@@ -140,7 +144,13 @@ public sealed class ChannelOutboxService
         if (envelope.Message is not TaskAssigned task)
             return new[] { await PersistSingleAsync(envelope, kind, envelope.RecipientUserId, ct) };
 
-        var taskRef = new TaskRef(envelope.TenantId, InitiatorUserId: null, RepoKey: null, IssueId: task.IssueId);
+        var repoKey = ExtractRepoKey(task.IssueId);
+        var taskRef = new TaskRef(
+            envelope.TenantId,
+            InitiatorUserId: null,
+            RepoKey: repoKey,
+            IssueId: task.IssueId,
+            DocumentId: task.DocumentId);
         var members = await _audience.EligibleAudienceAsync(taskRef, task.AssignedRole);
 
         var rows = new List<ChannelOutboxMessage>(members.Count);
@@ -231,6 +241,18 @@ public sealed class ChannelOutboxService
                 await _orchestratorHub.Clients
                     .Group(OrchestratorChannelHub.GroupFor(envelope.TenantId))
                     .Receive(perRecipient);
+
+                // Story 39-18 + 39-17 lockstep — wake the in-process PersistedOrchestratorInbox
+                // immediately so the tenant's OrchestratorAgentInstance drains the already-persisted
+                // channel_outbox row without waiting for a poll/sweep cycle.
+                if (_inboxNotifier is not null && PersistedOrchestratorInbox.IsInboundForOrchestrator(envelope.Message))
+                {
+                    _inboxNotifier.NotifyPersisted(new OrchestratorInboxItem(
+                        ItemId: row.Id,
+                        TenantId: row.TenantId,
+                        Message: envelope.Message,
+                        EnqueuedAt: envelope.CreatedAt));
+                }
             }
             else if (row.RecipientUserId is { } recipient)
             {
@@ -267,6 +289,15 @@ public sealed class ChannelOutboxService
         TaskAssigned t => t.DecisionSessionId,
         _ => null,
     };
+
+    private static string? ExtractRepoKey(string? issueId)
+    {
+        if (string.IsNullOrWhiteSpace(issueId)) return null;
+        var hashIdx = issueId.IndexOf('#');
+        if (hashIdx > 0 && issueId[..hashIdx].Contains('/'))
+            return issueId[..hashIdx];
+        return null;
+    }
 
     private static string Bounded(string value, int max) =>
         string.IsNullOrEmpty(value) || value.Length <= max ? value : value[..max];
