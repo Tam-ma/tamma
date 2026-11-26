@@ -26,7 +26,8 @@ public sealed record IterationPatch
 public sealed record IterationTransitionResult(
     IterationEntity Iteration,
     int MovedCount,
-    int LeftCount);
+    int LeftCount,
+    string PreviousStatus = "");
 
 /// <summary>Per-status SQL aggregation row for <see cref="IterationSummaryData"/>.</summary>
 public sealed record IterationStatusBucket(
@@ -69,7 +70,8 @@ public interface IIterationRepository
     /// executing carry-over atomically when closing.
     /// </summary>
     Task<IterationTransitionResult?> PatchAndTransitionAsync(
-        Guid id, IterationPatch patch, int? expectedVersion = null);
+        Guid id, IterationPatch patch, int? expectedVersion = null,
+        Func<TenantDbContext, IterationTransitionResult, Task>? beforeCommit = null);
 
     /// <summary>
     /// Delete an iteration. Work items referencing it get

@@ -148,6 +148,9 @@ public class TrackerRbacTests
             .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
         (await member.GetAsync($"/api/work-items/{Guid.NewGuid()}/subtree"))
             .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        // Story 44-5 AC7: timeline read rides TrackerView.
+        (await member.GetAsync($"/api/work-items/{Guid.NewGuid()}/timeline"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
 
         // Story 44-4 AC1/AC3: board read, iteration reads, and item commit/uncommit ride TrackerView.
         (await member.GetAsync($"/api/projects/{Guid.NewGuid()}/board"))

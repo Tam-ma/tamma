@@ -17,8 +17,11 @@ namespace Tamma.Api.Services.Tracker;
 /// </summary>
 public sealed class TrackerHierarchyService(
     IWorkItemRepository workItems,
-    ITenantContext tenantContext)
+    ITenantContext tenantContext,
+    ITrackerEventsService? events = null)
 {
+    private readonly ITrackerEventsService _events = events ?? NullTrackerEventsService.Instance;
+
     private void EnsureTenant()
     {
         if (tenantContext.TenantId is Guid id && id != Guid.Empty)
@@ -35,10 +38,14 @@ public sealed class TrackerHierarchyService(
     /// AC1/AC2 — reparent a work item (null detaches to top-level) inside ONE
     /// serialized Postgres transaction against persisted state.
     /// </summary>
-    public Task<WorkItemEntity?> ReparentAsync(Guid id, Guid? parentId, int? ifMatchVersion)
+    public async Task<WorkItemEntity?> ReparentAsync(Guid id, Guid? parentId, int? ifMatchVersion)
     {
         EnsureTenant();
-        return workItems.ReparentTransactionalAsync(id, parentId, ifMatchVersion);
+        var before = _events is NullTrackerEventsService ? null : await workItems.GetAsync(id);
+        var updated = await workItems.ReparentTransactionalAsync(id, parentId, ifMatchVersion);
+        if (updated is not null && _events is not NullTrackerEventsService)
+            await _events.EmitWorkItemReparentedAsync(updated, before?.ParentId, updated.ParentId);
+        return updated;
     }
 
     /// <summary>
@@ -126,7 +133,11 @@ public sealed class TrackerHierarchyService(
             newRank = Rank.Between(after.Rank, before.Rank);
         }
 
-        return await workItems.SetRanksAsync(id, newRank, siblingRank: null, expectedVersion: ifMatchVersion);
+        var fromRank = target.Rank;
+        var updated = await workItems.SetRanksAsync(id, newRank, siblingRank: null, expectedVersion: ifMatchVersion);
+        if (updated is not null && _events is not NullTrackerEventsService)
+            await _events.EmitWorkItemMovedAsync(updated, fromRank, updated.Rank);
+        return updated;
     }
 
     /// <summary>

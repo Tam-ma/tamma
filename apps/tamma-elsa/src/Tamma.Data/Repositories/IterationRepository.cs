@@ -139,7 +139,8 @@ public class IterationRepository(
     }
 
     public async Task<IterationTransitionResult?> PatchAndTransitionAsync(
-        Guid id, IterationPatch patch, int? expectedVersion = null)
+        Guid id, IterationPatch patch, int? expectedVersion = null,
+        Func<TenantDbContext, IterationTransitionResult, Task>? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(patch);
 
@@ -167,6 +168,8 @@ public class IterationRepository(
 
         if (expectedVersion is int expected && existing.Version != expected)
             throw VersionConflict(id, expected, existing.Version);
+
+        var previousStatus = existing.Status;
 
         if (patch.HasName)
         {
@@ -351,8 +354,13 @@ public class IterationRepository(
         existing.Version += 1;
         PinExpectedVersion(db, existing, expectedVersion);
         await SaveGuardingVersionAsync(db, existing.Id, existing.ProjectId, existing.Name);
+
+        var result = new IterationTransitionResult(existing, movedCount, leftCount, previousStatus);
+        if (beforeCommit is not null)
+            await beforeCommit(db, result);
+
         await tx.CommitAsync();
-        return new IterationTransitionResult(existing, movedCount, leftCount);
+        return result;
     }
 
     public async Task<bool> DeleteAsync(Guid id, int? expectedVersion = null)

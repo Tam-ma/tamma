@@ -1,29 +1,35 @@
 using Tamma.Api.Dtos.Tracker;
 using Tamma.Core;
+using Tamma.Core.Tracking;
 using Tamma.Data;
 using Tamma.Data.Repositories;
 
 namespace Tamma.Api.Services.Tracker;
 
 /// <summary>
-/// Story 44-4 AC9 / AC10 (D7–D10) — applies an accepted <c>SprintPlan</c>
-/// document's <c>Committed</c> entries to an iteration in one idempotent
-/// transaction.
+/// Story 44-4 AC9 / AC10 (D7–D10) &amp; Story 44-5 AC2/AC6 — applies an accepted
+/// <c>SprintPlan</c> document's <c>Committed</c> entries to an iteration in one
+/// idempotent transaction, emitting <c>ITERATION.PLAN_APPLIED.SUCCESS</c> inside
+/// the commit transaction (or <c>ITERATION.PLAN_APPLIED.FAILED</c> on rejection).
 ///
 /// <para><b>Carry-over entries are NEVER committed (AC9 / A4):</b>
 /// <c>SprintPlan.CarryOver</c> lists unfinished work from a prior sprint with
 /// reasons; only <c>SprintPlan.Committed</c> acquires <c>IterationId</c>.</para>
 ///
 /// <para><b>41-6 AC3 correction in code (D9 / AC10):</b> committing an item to
-/// an iteration writes <c>IterationId</c> only. It does NOT create a decision-inbox
-/// entry and emits NO domain events here (Story 44-5 owns tracker emission).</para>
+/// an iteration writes <c>IterationId</c> and appends <c>ITERATION.PLAN_APPLIED.*</c>
+/// only — never a decision-inbox entry, and never a <c>DOCUMENT.*</c> event.</para>
 /// </summary>
 public sealed class SprintPlanApplyService(
     IIterationRepository iterations,
     IWorkItemRepository workItems,
     ISprintPlanReader sprintPlanReader,
-    ITenantContext tenantContext)
+    ITenantContext tenantContext,
+    ITrackerEventsService? events = null,
+    IProjectRepository? projects = null)
 {
+    private readonly ITrackerEventsService _events = events ?? NullTrackerEventsService.Instance;
+
     public async Task<ApplySprintPlanResponse> ApplyAsync(
         Guid iterationId, Guid documentId, CancellationToken ct = default)
     {
@@ -49,18 +55,36 @@ public sealed class SprintPlanApplyService(
                 severity: TammaErrorSeverity.Medium);
         }
 
+        var projectKey = projects is not null
+            ? (await projects.GetAsync(iteration.ProjectId))?.Key ?? string.Empty
+            : string.Empty;
+
         if (string.Equals(iteration.Status, IterationRepository.StatusClosed, StringComparison.Ordinal))
         {
-            throw new TammaError(
+            var err = new TammaError(
                 "ITERATION_CLOSED",
                 $"Cannot apply a sprint plan to closed iteration '{iteration.Name}'.",
                 new Dictionary<string, object?> { ["iterationId"] = iterationId },
                 retryable: false,
                 severity: TammaErrorSeverity.Medium);
+            if (_events is not NullTrackerEventsService)
+                await _events.EmitPlanApplyFailedAsync(iteration, projectKey, documentId, err.Code, err.Message);
+            throw err;
         }
 
         // AC9 / D7: enforces DocumentType == "sprint-plan" and Status == "accepted" (409).
-        var doc = await sprintPlanReader.ReadAcceptedAsync(tid, documentId, ct);
+        SprintPlanDocument doc;
+        try
+        {
+            doc = await sprintPlanReader.ReadAcceptedAsync(tid, documentId, ct);
+        }
+        catch (TammaError te)
+        {
+            if (_events is not NullTrackerEventsService)
+                await _events.EmitPlanApplyFailedAsync(iteration, projectKey, documentId, te.Code, te.Message);
+            throw;
+        }
+
         var plan = doc.Plan;
 
         var outcomes = new List<ApplyOutcome>(plan.Committed.Count);
@@ -94,6 +118,9 @@ public sealed class SprintPlanApplyService(
                 continue;
             }
 
+            if (string.IsNullOrEmpty(projectKey) && WorkItemRef.TryParse(item.Key, out var parsedRef))
+                projectKey = parsedRef.ProjectKey;
+
             if (item.IterationId is Guid existingIterationId && existingIterationId != iteration.Id)
             {
                 // D8: moved into this iteration, but reported DISTINCTLY so the
@@ -118,8 +145,18 @@ public sealed class SprintPlanApplyService(
                 issueId, ApplyOutcomeCodes.Applied, item.Id, item.Key));
         }
 
-        if (idsToCommit.Count > 0)
-            await workItems.BulkSetIterationAsync(iteration.ProjectId, idsToCommit, iteration.Id);
+        // Story 44-5 AC6 / D6: ITERATION.PLAN_APPLIED.SUCCESS emits INSIDE the
+        // bulk-commit transaction so an audit failure rolls back the commitment write.
+        Func<TenantDbContext, Task>? beforeCommit = _events is NullTrackerEventsService
+            ? null
+            : db => _events.EmitPlanAppliedAsync(
+                iteration, projectKey, doc.DocumentId, doc.Revision, plan.SprintId,
+                appliedCount, notFoundCount, wrongProjectCount,
+                alreadyCommittedElsewhereCount, plan.CarryOver.Count,
+                transactionDb: db);
+
+        if (idsToCommit.Count > 0 || beforeCommit is not null)
+            await workItems.BulkSetIterationAsync(iteration.ProjectId, idsToCommit, iteration.Id, beforeCommit);
 
         return new ApplySprintPlanResponse(
             doc.DocumentId,

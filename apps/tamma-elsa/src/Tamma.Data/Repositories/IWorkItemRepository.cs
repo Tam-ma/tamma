@@ -157,10 +157,23 @@ public interface IWorkItemRepository
     /// <summary>
     /// Story 44-4 AC3/AC9 — set <c>IterationId</c> (or clear when null) on a batch
     /// of work items in <paramref name="projectId"/> in ONE SQL <c>UPDATE</c> inside
-    /// ONE transaction.
+    /// ONE transaction. Optional <paramref name="beforeCommit"/> runs inside the
+    /// same transaction (Story 44-5 AC6 transactional event emission).
     /// </summary>
     Task<int> BulkSetIterationAsync(
-        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId);
+        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId,
+        Func<TenantDbContext, Task>? beforeCommit = null);
+
+    /// <summary>
+    /// Story 44-5 AC7 / D7 — keyset-paged chronological timeline of ALL
+    /// <c>domain_events</c> rows carrying <c>Tags-&gt;&gt;'issueId'</c> equal to
+    /// <paramref name="issueId"/> (or any of <paramref name="previousKeys"/>),
+    /// ordered by <see cref="DomainEvent.SequenceNumber"/> ascending. Does NOT
+    /// filter by event family so <c>WORKITEM.*</c>, <c>DOCUMENT.*</c>,
+    /// <c>APPROVAL.*</c>, and <c>ESCALATION.*</c> interleave natively.
+    /// </summary>
+    Task<(IReadOnlyList<DomainEvent> Events, bool HasMore)> GetTimelineAsync(
+        string issueId, long? cursor, int limit, IReadOnlyList<string>? previousKeys = null);
 
     /// <summary>
     /// Resolve a wire key (<c>TAM-142</c>) to its item — the CURRENT key or
@@ -226,7 +239,9 @@ public interface IWorkItemRepository
     /// raises the typed, retryable <c>TRACKER.CONCURRENCY_CONFLICT</c>. Null
     /// means "no precondition".
     /// </param>
-    Task<WorkItemEntity?> UpdateAsync(WorkItemEntity item, int? expectedVersion = null);
+    Task<WorkItemEntity?> UpdateAsync(
+        WorkItemEntity item, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null);
 
     /// <summary>
     /// Transition status (wire string, validated). Stamps
@@ -235,7 +250,10 @@ public interface IWorkItemRepository
     /// and clears it on reopen.
     /// </summary>
     /// <param name="expectedVersion">See <see cref="UpdateAsync"/>.</param>
-    Task<WorkItemEntity?> SetStatusAsync(Guid id, string statusWire, int? expectedVersion = null);
+    /// <param name="beforeCommit">Optional in-transaction callback (Story 44-5 AC6).</param>
+    Task<WorkItemEntity?> SetStatusAsync(
+        Guid id, string statusWire, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null);
 
     /// <summary>
     /// Move the item in either ordering axis. A drag is ONE UPDATE (44-0 D7 /
@@ -252,7 +270,9 @@ public interface IWorkItemRepository
     /// transaction. Validates every rank via <c>Rank.IsValid</c> before touching
     /// the database. Returns the number of rows updated.
     /// </summary>
-    Task<int> BulkSetRanksAsync(Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates);
+    Task<int> BulkSetRanksAsync(
+        Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates,
+        Func<TenantDbContext, Task>? beforeCommit = null);
 
     /// <summary>
     /// Reparent (null = make top-level) and place among the new siblings.
@@ -291,7 +311,10 @@ public interface IWorkItemRepository
     /// the item's relation edges cascade away.
     /// </summary>
     /// <param name="expectedVersion">See <see cref="UpdateAsync"/>.</param>
-    Task<bool> DeleteAsync(Guid id, int? expectedVersion = null);
+    /// <param name="beforeCommit">Optional in-transaction callback (Story 44-5 AC6).</param>
+    Task<bool> DeleteAsync(
+        Guid id, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null);
 
     // ── Relations (44-0 AC14; stored canonical — D8) ──
 
