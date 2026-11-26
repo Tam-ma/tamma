@@ -1,6 +1,6 @@
 # Story 43-17: Action-to-Workflow Coverage Map — Every Dial Row Names Its Performer, or Says Why Not
 
-Status: drafted
+Status: done
 
 Implements: Story 43-11's **Caller-kind re-audit** (the 156-row dial table) and **Missing actions** section, as a permanent, build-enforced map instead of a one-off hunt. Extends the 43-8 sweep family with the one direction it does not run.
 
@@ -303,3 +303,4 @@ Existing workflows and routes that must be edited to route through NEW keys. Thi
 | Date       | Version | Changes                                                                 | Author |
 | ---------- | ------- | ----------------------------------------------------------------------- | ------ |
 | 2026-08-03 | 1.0.0   | Initial story — coverage map (86 P / 47 R-owned / 23 R-unowned / 6 live holes), performer drift harness, workflow-update list cross-linked to owners | Claude |
+| 2026-11-26 | 1.1.0   | Implemented `ActionPerformerCoverageSweepTests` (`apps/tamma-elsa/tests/Tamma.Activities.Tests/Actions/ActionPerformerCoverageSweepTests.cs`) deriving live performers across all 4 planes (Route, Method, Tool, Dispatch) over the current 230-member catalog (177 dial rows + 53 machinery): **112 performed dial rows + 65 reserved rows (46 owned + 19 unowned `owner: "none"`) = 177 dial rows**. Settled AC6 (`agent-action:implement-feature` is live-performed by `WriteImplementationActivity.cs:99` via `MediatedLlmText.CompleteAsync`). Re-verified holes: 5 of 6 closed by Story 31-13 and PR #509; 1 remaining (`git push --force`) pinned in shrink-only `KnownUncataloguedPerformers`. Cross-referenced unowned list in Story 43-11 Change Log (AC8). | Antigravity |
