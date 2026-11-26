@@ -1801,6 +1801,98 @@ internal static class TammaModelConfiguration
                 .HasForeignKey(e => e.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // ── BillingInvoice (Story 35-8 — Stripe invoice mirror) ──
+        modelBuilder.Entity<BillingInvoice>(entity =>
+        {
+            entity.ToTable("billing_invoices", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_billing_invoices_status",
+                    "\"Status\" IN ('draft','open','paid','uncollectible','void')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.StripeInvoiceId).HasMaxLength(128);
+            entity.Property(e => e.StripeSubscriptionId).HasMaxLength(128);
+            entity.Property(e => e.Status).IsRequired().HasMaxLength(32).HasDefaultValue("draft");
+            entity.Property(e => e.Currency).IsRequired().HasMaxLength(16).HasDefaultValue("usd");
+            entity.Property(e => e.HostedInvoiceUrl).HasMaxLength(2048);
+            entity.Property(e => e.PdfUrl).HasMaxLength(2048);
+            entity.Property(e => e.PeriodStart).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.PeriodEnd).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.NextPaymentAttempt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.FinalizedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.PaidAt).HasColumnType("timestamp with time zone");
+
+            // Filtered unique index so multiple draft rows with null StripeInvoiceId are allowed
+            // while finalized/mirrored Stripe invoice ids are strictly unique.
+            entity.HasIndex(e => e.StripeInvoiceId)
+                .HasDatabaseName("IX_billing_invoices_stripe_invoice_id")
+                .IsUnique()
+                .HasFilter("\"StripeInvoiceId\" IS NOT NULL");
+
+            entity.HasIndex(e => new { e.TenantId, e.CreatedAt })
+                .HasDatabaseName("IX_billing_invoices_tenant_created");
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── BillingInvoiceLine (Story 35-8 — invoice line items) ──
+        modelBuilder.Entity<BillingInvoiceLine>(entity =>
+        {
+            entity.ToTable("billing_invoice_lines", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_billing_invoice_lines_kind",
+                    "\"Kind\" IN ('base','metered_overage','credit')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Kind).IsRequired().HasMaxLength(32).HasDefaultValue("base");
+            entity.Property(e => e.Description).IsRequired().HasMaxLength(1024);
+            entity.Property(e => e.Currency).IsRequired().HasMaxLength(16).HasDefaultValue("usd");
+
+            entity.HasIndex(e => e.InvoiceId)
+                .HasDatabaseName("IX_billing_invoice_lines_invoice_id");
+
+            entity.HasOne(e => e.Invoice)
+                .WithMany(i => i.Lines)
+                .HasForeignKey(e => e.InvoiceId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── BillingDunningState (Story 35-8 — one-per-tenant dunning & suspension state) ──
+        modelBuilder.Entity<BillingDunningState>(entity =>
+        {
+            entity.ToTable("billing_dunning_states", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_billing_dunning_states_stage",
+                    "\"Stage\" IN ('active','past_due','grace','suspended','flagged')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Stage).IsRequired().HasMaxLength(32).HasDefaultValue("active");
+            entity.Property(e => e.StageEnteredAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.NextAdvanceAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.SuspendedAt).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => e.TenantId)
+                .HasDatabaseName("IX_billing_dunning_states_tenant_id")
+                .IsUnique();
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     /// <summary>

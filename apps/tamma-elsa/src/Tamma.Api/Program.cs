@@ -3780,6 +3780,11 @@ if (app.Services.GetRequiredService<Tamma.Api.Services.PromptStore.ITammaModePro
 // Mapped in both modes; in single-user NullQuotaService returns Allowed=true.
 Tamma.Api.Endpoints.Billing.QuotaEndpoints.MapEngineTokenQuotaEndpoint(app);
 
+// Story 35-8 (AC4, AC13) — tenant-scoped read-only invoice history & detail
+// (GET /api/v1/billing/invoices, GET /api/v1/billing/invoices/{id}).
+// Mapped in both modes; single-user short-circuits with "Billing is SaaS-only".
+Tamma.Api.Endpoints.Billing.InvoiceEndpoints.MapInvoiceEndpoints(app);
+
 // ── SaaS (API key auth) ──
 app.MapPost("/api/v1/llm/chat", SaaSEndpoints.LlmChat).RequireAuthorization();
 
@@ -4140,6 +4145,7 @@ using (var scope = app.Services.CreateScope())
                     billing_customers, billing_plan_prices,
                     billing_webhook_events, billing_subscriptions,
                     billing_usage_rollup, billing_meter_event_buffer,
+                    billing_invoice_lines, billing_invoices, billing_dunning_states,
                     quota_notifications,
                     alert_delivery_attempts, alert_channels, alerts,
                     alert_evaluator_cursor, alert_rules,

@@ -70,10 +70,30 @@ public sealed class QuotaService : IQuotaService
         }
 
         // AC3 — BYOK tenants are NEVER blocked on token volume: short-circuit
-        // before any rollup or plan DB read.
+        // before any rollup, dunning, or plan DB read.
         if (IsByok(billingMode))
         {
             return QuotaDecision.Allow(QuotaDimension.PlatformTokens);
+        }
+
+        // Story 35-8 (AC8): if the tenant is in billing-suspended dunning stage,
+        // hard-block platform-provided LLM calls with reason "billing_suspended".
+        var isSuspended = await _cp.BillingDunningStates
+            .AsNoTracking()
+            .AnyAsync(d => d.TenantId == tenantId && d.Stage == DunningStages.Suspended, ct)
+            .ConfigureAwait(false);
+        if (isSuspended)
+        {
+            _logger.LogWarning(
+                "Token quota hard-blocked due to billing suspension tenantId={TenantId}",
+                tenantId);
+            return QuotaDecision.Deny(
+                QuotaDimension.PlatformTokens,
+                limit: 0,
+                used: 0,
+                resetAt: null,
+                httpStatus: StatusCodes.Status402PaymentRequired,
+                reason: "billing_suspended");
         }
 
         var quota = await _resolver.ResolveAsync(tenantId, ct).ConfigureAwait(false);

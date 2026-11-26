@@ -55,6 +55,9 @@ public enum PlatformTaskKind
 
     /// <summary><c>UsageReconciliationTaskHandler</c> — <c>UsageReconciliationTaskHandler.TaskTypeName</c> (Story 35-3).</summary>
     [Wire("billing.usage_reconcile")] BillingUsageReconcile,
+
+    /// <summary><c>DunningAdvanceTaskHandler</c> — <c>DunningAdvanceTaskHandler.TaskTypeName</c> (Story 35-8).</summary>
+    [Wire("billing.dunning.advance")] BillingDunningAdvance,
 }
 
 /// <summary><see cref="PlatformTaskKind"/> wire helper.</summary>

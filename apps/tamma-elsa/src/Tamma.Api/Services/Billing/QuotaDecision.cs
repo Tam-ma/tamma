@@ -15,41 +15,45 @@ public sealed record QuotaDecision(
     long Limit,
     long Used,
     DateTimeOffset? ResetAt,
-    int HttpStatus)
+    int HttpStatus,
+    string? Reason = null)
 {
     public static QuotaDecision Allow(
         QuotaDimension dimension,
         long limit = 0,
         long used = 0,
         DateTimeOffset? resetAt = null) =>
-        new(true, dimension, limit, used, resetAt, 0);
+        new(true, dimension, limit, used, resetAt, 0, null);
 
     public static QuotaDecision Deny(
         QuotaDimension dimension,
         long limit,
         long used,
         DateTimeOffset? resetAt,
-        int httpStatus) =>
-        new(false, dimension, limit, used, resetAt, httpStatus);
+        int httpStatus,
+        string? reason = null) =>
+        new(false, dimension, limit, used, resetAt, httpStatus, reason);
 }
 
 /// <summary>
 /// Story 35-6 (AC8) — machine-readable over-quota response body returned on
-/// HTTP 402 (token allowance HardBlock) or HTTP 429 (cap exhaustion).
+/// HTTP 402 (token allowance HardBlock or billing suspension) or HTTP 429 (cap exhaustion).
 /// </summary>
 public sealed record QuotaResponse(
     [property: JsonPropertyName("error")] string Error,
     [property: JsonPropertyName("which_quota")] string WhichQuota,
     [property: JsonPropertyName("reset_at")] string? ResetAt,
     [property: JsonPropertyName("limit")] long Limit,
-    [property: JsonPropertyName("used")] long Used)
+    [property: JsonPropertyName("used")] long Used,
+    [property: JsonPropertyName("reason"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] string? Reason = null)
 {
     public static QuotaResponse From(QuotaDecision decision) => new(
         Error: "quota_exceeded",
         WhichQuota: decision.WhichQuota.ToWire(),
         ResetAt: decision.ResetAt?.UtcDateTime.ToString("O"),
         Limit: decision.Limit,
-        Used: decision.Used);
+        Used: decision.Used,
+        Reason: decision.Reason);
 }
 
 /// <summary>

@@ -165,7 +165,7 @@ public class ActionWirePinTests
             "RETIRE_SECRET_VERSION", "plan.activate_scheduled", "tenant.move",
             "provisioning.tenant", "provisioning.tenant.v2", "provisioning.tenant.deprovision",
             "billing.webhook.followup", "billing.customer.create",
-            "billing.meter_flush", "billing.usage_reconcile");
+            "billing.meter_flush", "billing.usage_reconcile", "billing.dunning.advance");
     }
 
     [Test]
