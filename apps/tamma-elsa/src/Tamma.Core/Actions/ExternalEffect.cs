@@ -440,6 +440,28 @@ public enum ExternalEffect
     /// never dial-governed; bound so 43-9's shrink-only ungoverned-route ratchet
     /// stays intact.</para></summary>
     [Wire("governance.action-level.delete")] GovernanceActionLevelDelete,
+
+    // ── Story 44-3 — hierarchy, ranking, and the BacklogOrdering apply seam ──
+    // Appended at the END so the existing wire-pin order is untouched.
+    // All three carry the `tracker.` wire prefix (selected by
+    // TrackerRbacTests.Every_mutating_route_has_a_descriptor) and are born
+    // `.Governs`-bound in Program.cs (Story 44-3 AC10/AC11).
+
+    /// <summary><c>POST /api/work-items/{id:guid}/parent</c> —
+    /// <c>TrackerEndpoints.SetParent</c>. Reparents a work item inside its
+    /// project after validating cycles, max depth, and the Epic kind rule.</summary>
+    [Wire("tracker.work-item.reparent")] TrackerWorkItemReparent,
+
+    /// <summary><c>POST /api/work-items/{id:guid}/move</c> —
+    /// <c>TrackerEndpoints.MoveWorkItem</c>. Reorders a work item between two
+    /// neighbours via a single-row fractional-index rank update.</summary>
+    [Wire("tracker.work-item.move")] TrackerWorkItemMove,
+
+    /// <summary><c>POST /api/projects/{projectId:guid}/apply-ordering</c> —
+    /// <c>TrackerEndpoints.ApplyOrdering</c>. Applies an accepted
+    /// <c>backlog-ordering</c> document to a project's backlog ranks in one
+    /// idempotent transaction.</summary>
+    [Wire("tracker.backlog.apply-ordering")] TrackerBacklogApplyOrdering,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

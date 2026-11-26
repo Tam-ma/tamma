@@ -92,7 +92,10 @@ public class ActionWirePinTests
             // Story 43-6, 2026-11-07: the group-enforce policy write (machinery).
             "governance.policy.group-enforce.set",
             // Story 43-18: platform-scope shipped-level override writes (machinery).
-            "governance.action-level.set", "governance.action-level.delete");
+            "governance.action-level.set", "governance.action-level.delete",
+            // Story 44-3 AC10: hierarchy, ranking, and BacklogOrdering apply seam.
+            "tracker.work-item.reparent", "tracker.work-item.move",
+            "tracker.backlog.apply-ordering");
     }
 
     [Test]

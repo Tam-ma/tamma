@@ -12,6 +12,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.IdentityModel.Tokens;
 using NUnit.Framework;
 using Tamma.Api.Auth;
+using Tamma.Api.Infrastructure;
 using Tamma.Api.Tests.Infrastructure;
 using Tamma.Core.Actions;
 using Tamma.Core.Documents.Policy;
@@ -138,6 +139,16 @@ public class TrackerRbacTests
             $"/api/work-items/{Guid.NewGuid()}/assign", new { assigneeUserId = (Guid?)null });
         assign.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
 
+        // Story 44-3: reparent, move, and subtree read ride TrackerView (members reorder their board).
+        (await member.PostAsJsonAsync(
+            $"/api/work-items/{Guid.NewGuid()}/parent", new { parentId = (Guid?)null }))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await member.PostAsJsonAsync(
+            $"/api/work-items/{Guid.NewGuid()}/move", new { }))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await member.GetAsync($"/api/work-items/{Guid.NewGuid()}/subtree"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+
         var read = await member.GetAsync("/api/work-items");
         read.StatusCode.Should().NotBe(HttpStatusCode.Forbidden, "reads ride tracker:view too");
     }
@@ -185,6 +196,12 @@ public class TrackerRbacTests
         // …but a member can still READ the resolved preferences.
         (await member.GetAsync("/api/tracker/preferences"))
             .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+
+        // Story 44-3: apply-ordering rewrites the whole project's backlog → TrackerManage (admin+).
+        (await member.PostAsJsonAsync(
+            $"/api/projects/{Guid.NewGuid()}/apply-ordering", new { documentId = Guid.NewGuid() }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden,
+                "applying a BacklogOrdering rewrites the entire project's order — admin+ (TrackerManage)");
     }
 
     [TestCase("admin")]
@@ -208,6 +225,12 @@ public class TrackerRbacTests
         (await client.DeleteAsync($"/api/work-items/{Guid.NewGuid()}"))
             .StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
                 $"role={role} must clear TrackerManage on the destructive work-item route too");
+
+        // Story 44-3: apply-ordering also clears TrackerManage for admin and owner.
+        (await client.PostAsJsonAsync(
+            $"/api/projects/{Guid.NewGuid()}/apply-ordering", new { documentId = Guid.NewGuid() }))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+                $"role={role} must clear TrackerManage on apply-ordering");
     }
 
     [Test]
@@ -322,7 +345,7 @@ public class TrackerRbacTests
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToArray();
 
-        mutating.Should().HaveCount(10, "AC2's ten mutating tracker routes");
+        mutating.Should().HaveCount(13, "44-2's ten mutating tracker routes + 44-3's three (parent, move, apply-ordering)");
         catalogued.Should().BeEquivalentTo(mutating);
 
         // …and every one carries its zone level (Story 43-11, 2026-08-03).
@@ -344,6 +367,38 @@ public class TrackerRbacTests
         byKey.Where(kv => kv.Key is not ("tracker.work-item.delete" or "tracker.project.delete"))
             .Should().OnlyContain(kv => kv.Value == 20,
                 "every non-delete tracker write is level 20 (write-own-records zone)");
+    }
+
+    [Test]
+    public void New_44_3_routes_carry_IActionGateMetadata()
+    {
+        // Story 44-3 AC11: the three new mutating routes MUST be born .Governs-bound.
+        using var _ = _factory.CreateClient();
+        var services = _factory.Services;
+        var sources = services.GetServices<EndpointDataSource>().ToList();
+        var single = services.GetService<EndpointDataSource>();
+        if (single is not null && !sources.Contains(single))
+            sources.Add(single);
+
+        var endpoints = sources.SelectMany(s => s.Endpoints).Distinct().OfType<RouteEndpoint>().ToList();
+
+        foreach (var (method, pattern, effect, _) in TrackerGovernanceBindingTests.NewStory443Routes)
+        {
+            var expectedKey = new ActionKey(ActionNamespace.Effect, effect.ToWire());
+            var matching = endpoints
+                .Where(e =>
+                {
+                    var normalized = Slash(e.RoutePattern.RawText ?? string.Empty);
+                    var methods = e.Metadata.GetMetadata<HttpMethodMetadata>()?.HttpMethods ?? [];
+                    return normalized == pattern && methods.Contains(method, StringComparer.OrdinalIgnoreCase);
+                })
+                .ToList();
+
+            matching.Should().ContainSingle($"route '{method} {pattern}' must be registered on the host");
+            var gate = matching[0].Metadata.GetMetadata<IActionGateMetadata>();
+            gate.Should().NotBeNull($"AC11: '{method} {pattern}' MUST carry .Governs(...) metadata");
+            gate!.Action.Should().Be(expectedKey);
+        }
     }
 
     // ── Route-table helpers ────────────────────────────────────────────────

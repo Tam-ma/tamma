@@ -609,6 +609,17 @@ public static partial class ActionCatalog
             "PUT /api/tracker/preferences — TrackerEndpoints.PutPreferences", min: 20),
         Effect(ExternalEffect.TrackerPreferencesDelete, ActionGroup.IssueTracking, ActionRisk.Mutating, "Reset tracker preferences", "Delete the tracker preference row so the shipped defaults apply again.",
             "DELETE /api/tracker/preferences — TrackerEndpoints.DeletePreferences", min: 20),
+        // Story 44-3 (AC10/AC11) — hierarchy, ranking, and the BacklogOrdering apply seam.
+        // All three sit in issue-tracking at level 20 (write-own-records zone, matching
+        // every other non-delete native tracker mutation) and are born `.Governs`-bound
+        // in Program.cs so 43-8's shrink-only ungoverned-route ratchet stays intact.
+        // SiteKeys carry `:guid` verbatim for ordinal parity with RoutePattern.RawText.
+        Effect(ExternalEffect.TrackerWorkItemReparent, ActionGroup.IssueTracking, ActionRisk.Mutating, "Reparent work item", "Set or clear a native work item's parent inside its project (validated for cycles, max depth, and the Epic kind rule).",
+            "POST /api/work-items/{id:guid}/parent — TrackerEndpoints.SetParent", min: 20),
+        Effect(ExternalEffect.TrackerWorkItemMove, ActionGroup.IssueTracking, ActionRisk.Mutating, "Move work item rank", "Reorder a native work item between two neighbours in the project backlog (single-row fractional-index rank update).",
+            "POST /api/work-items/{id:guid}/move — TrackerEndpoints.MoveWorkItem", min: 20),
+        Effect(ExternalEffect.TrackerBacklogApplyOrdering, ActionGroup.IssueTracking, ActionRisk.Mutating, "Apply backlog ordering", "Apply an accepted backlog-ordering document to a project's work-item ranks in one idempotent transaction.",
+            "POST /api/projects/{projectId:guid}/apply-ordering — TrackerEndpoints.ApplyOrdering", min: 20),
 
         // Story 43-8 (AC1 step 2, carve-out §A1 #1 closed 2026-07-30) — the four
         // MentorshipController [HttpPost] actions, the repo's only attribute-routed

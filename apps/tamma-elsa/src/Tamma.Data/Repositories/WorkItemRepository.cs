@@ -1,4 +1,8 @@
+using System.Text;
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Npgsql;
+using NpgsqlTypes;
 using Tamma.Core;
 using Tamma.Core.Documents;
 using Tamma.Core.Documents.Types;
@@ -100,22 +104,254 @@ public class WorkItemRepository(
             items = items.Where(w => EF.Functions.ILike(
                 w.Title, $"%{EscapeLike(query.TitleContains)}%"));
 
-        // Keyset cursor over the SQL order itself — (Rank, Key), both
+        // Keyset cursor over the SQL order itself — (Rank, Id), both
         // DB-side comparisons, so paging can never disagree with the
-        // COLLATE "C" ordering (AC4). No OFFSET: stable under insertion.
-        if (query.AfterRank is not null && query.AfterKey is not null)
+        // COLLATE "C" ordering (AC4) and immutable UUIDv7 Id ensures a
+        // sanctioned RekeyAsync never duplicates or skips rows across a
+        // duplicate-rank boundary (Story 44-3 AC12 / D13).
+        if (query.AfterRank is not null && query.AfterId is { } afterId)
         {
-            items = items.Where(w =>
-                string.Compare(w.Rank, query.AfterRank) > 0
-                || (w.Rank == query.AfterRank && string.Compare(w.Key, query.AfterKey) > 0));
+            items = items.Where(w => EF.Functions.GreaterThan(
+                ValueTuple.Create(w.Rank, w.Id),
+                ValueTuple.Create(query.AfterRank, afterId)));
         }
 
         var limit = query.Limit is > 0 and <= 500 ? query.Limit : 100;
         return await items
             .OrderBy(w => w.Rank)
-            .ThenBy(w => w.Key)
+            .ThenBy(w => w.Id)
             .Take(limit)
             .ToListAsync();
+    }
+
+    public async Task<List<WorkItemWithRollup>> ListWithRollupsAsync(WorkItemQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+
+        var where = new StringBuilder("WHERE TRUE");
+        var parameters = new List<object>();
+
+        if (query.ProjectId is { } projectId)
+        {
+            where.Append(""" AND w."ProjectId" = @projectId""");
+            parameters.Add(new NpgsqlParameter("projectId", projectId));
+        }
+        if (query.Statuses is { Count: > 0 } statuses)
+        {
+            where.Append(""" AND w."Status" = ANY(@statuses)""");
+            parameters.Add(new NpgsqlParameter("statuses", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = statuses.ToArray(),
+            });
+        }
+        if (query.Kinds is { Count: > 0 } kinds)
+        {
+            where.Append(""" AND w."Kind" = ANY(@kinds)""");
+            parameters.Add(new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = kinds.ToArray(),
+            });
+        }
+        if (query.AssigneeUserId is { } assignee)
+        {
+            where.Append(""" AND w."AssigneeUserId" = @assignee""");
+            parameters.Add(new NpgsqlParameter("assignee", assignee));
+        }
+        if (query.IterationId is { } iteration)
+        {
+            where.Append(""" AND w."IterationId" = @iteration""");
+            parameters.Add(new NpgsqlParameter("iteration", iteration));
+        }
+        if (query.TopLevelOnly)
+        {
+            where.Append(""" AND w."ParentId" IS NULL""");
+        }
+        else if (query.ParentId is { } parent)
+        {
+            where.Append(""" AND w."ParentId" = @parent""");
+            parameters.Add(new NpgsqlParameter("parent", parent));
+        }
+        if (query.ExternalLinked is bool externalLinked)
+        {
+            where.Append(externalLinked
+                ? """ AND w."ExternalRefJson" IS NOT NULL"""
+                : """ AND w."ExternalRefJson" IS NULL""");
+        }
+        if (query.HasEstimate is bool hasEstimate)
+        {
+            where.Append(hasEstimate
+                ? """ AND w."Estimate" IS NOT NULL"""
+                : """ AND w."Estimate" IS NULL""");
+        }
+        if (!string.IsNullOrWhiteSpace(query.TitleContains))
+        {
+            where.Append(""" AND w."Title" ILIKE @titlePattern ESCAPE '\'""");
+            parameters.Add(new NpgsqlParameter("titlePattern", $"%{EscapeLike(query.TitleContains)}%"));
+        }
+        if (query.AfterRank is not null && query.AfterId is { } afterId)
+        {
+            where.Append(""" AND (w."Rank" > @afterRank COLLATE "C" OR (w."Rank" = @afterRank COLLATE "C" AND w."Id" > @afterId))""");
+            parameters.Add(new NpgsqlParameter("afterRank", query.AfterRank));
+            parameters.Add(new NpgsqlParameter("afterId", afterId));
+        }
+
+        var limit = query.Limit is > 0 and <= 500 ? query.Limit : 100;
+        parameters.Add(new NpgsqlParameter("limit", limit));
+
+        // ONE single SQL statement (AC6 / D5): the CTE slices the keyset page first
+        // and the LEFT JOIN LATERAL computes direct-child counts + per-status breakdown
+        // for only the returned rows. Query count is constant (1) regardless of row count.
+        var sql = $$"""
+            WITH page AS (
+                SELECT
+                    w."Id", w."ProjectId", w."Key",
+                    array_to_json(w."PreviousKeys")::text AS "PreviousKeysJson",
+                    w."Number", w."Kind", w."Status", w."Priority", w."IssueType",
+                    w."Title", w."Description", w."ParentId", w."IterationId",
+                    w."Rank", w."SiblingRank", w."AssigneeUserId", w."CreatedByUserId",
+                    w."Estimate", w."ExternalRefJson"::text AS "ExternalRefJson",
+                    w."CreatedAt", w."UpdatedAt", w."ClosedAt", w."Version"
+                FROM work_items w
+                {{where}}
+                ORDER BY w."Rank" COLLATE "C" ASC, w."Id" ASC
+                LIMIT @limit
+            )
+            SELECT
+                p."Id", p."ProjectId", p."Key", p."PreviousKeysJson",
+                p."Number", p."Kind", p."Status", p."Priority", p."IssueType",
+                p."Title", p."Description", p."ParentId", p."IterationId",
+                p."Rank", p."SiblingRank", p."AssigneeUserId", p."CreatedByUserId",
+                p."Estimate", p."ExternalRefJson",
+                p."CreatedAt", p."UpdatedAt", p."ClosedAt", p."Version",
+                rollups.child_count AS "ChildCount",
+                rollups.child_count_by_status_json AS "ChildCountByStatusJson"
+            FROM page p
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(SUM(c.cnt), 0)::int AS child_count,
+                    COALESCE(jsonb_object_agg(c."Status", c.cnt), jsonb_build_object())::text AS child_count_by_status_json
+                FROM (
+                    SELECT ch."Status", COUNT(*)::int AS cnt
+                    FROM work_items ch
+                    WHERE ch."ParentId" = p."Id"
+                    GROUP BY ch."Status"
+                ) c
+            ) rollups ON TRUE
+            ORDER BY p."Rank" COLLATE "C" ASC, p."Id" ASC
+            """;
+
+        var rows = await db.Database
+            .SqlQueryRaw<WorkItemRollupSqlRow>(sql, parameters.ToArray())
+            .ToListAsync();
+
+        return rows.Select(MapRollupRow).ToList();
+    }
+
+    public async Task<List<WorkItemEntity>> ListAllForProjectAsync(Guid projectId)
+    {
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        return await db.WorkItems
+            .Where(w => w.ProjectId == projectId)
+            .OrderBy(w => w.Rank)
+            .ThenBy(w => w.Id)
+            .ToListAsync();
+    }
+
+    public async Task<List<WorkItemSubtreeNode>> GetSubtreeAsync(Guid id, int maxDepth)
+    {
+        if (maxDepth < 1)
+            throw new ArgumentOutOfRangeException(nameof(maxDepth), maxDepth, "maxDepth must be >= 1.");
+
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+
+        // ONE recursive CTE statement (AC5/AC6/D5):
+        // - Depth-bounded by `WHERE t.depth < @maxDepth` (caller passes TrackerHierarchy.MaxDepth).
+        // - Cycle belt-and-braces via `visited_ids` so corrupted data cannot loop infinitely.
+        // - `sort_path` uses bytea[] (pure unsigned byte order == COLLATE "C" for ASCII base-62
+        //   and UUID hex) so ORDER BY produces DFS pre-order with no second client sort.
+        // - LEFT JOIN LATERAL computes direct-child roll-ups in the exact same statement.
+        const string sql = """
+            WITH RECURSIVE tree AS (
+                SELECT
+                    w."Id", w."ProjectId", w."Key",
+                    array_to_json(w."PreviousKeys")::text AS "PreviousKeysJson",
+                    w."Number", w."Kind", w."Status", w."Priority", w."IssueType",
+                    w."Title", w."Description", w."ParentId", w."IterationId",
+                    w."Rank", w."SiblingRank", w."AssigneeUserId", w."CreatedByUserId",
+                    w."Estimate", w."ExternalRefJson"::text AS "ExternalRefJson",
+                    w."CreatedAt", w."UpdatedAt", w."ClosedAt", w."Version",
+                    1 AS depth,
+                    ARRAY[w."Id"] AS visited_ids,
+                    ARRAY[convert_to(w."SiblingRank", 'UTF8'), convert_to(w."Id"::text, 'UTF8')] AS sort_path
+                FROM work_items w
+                WHERE w."Id" = @rootId
+                UNION ALL
+                SELECT
+                    c."Id", c."ProjectId", c."Key",
+                    array_to_json(c."PreviousKeys")::text AS "PreviousKeysJson",
+                    c."Number", c."Kind", c."Status", c."Priority", c."IssueType",
+                    c."Title", c."Description", c."ParentId", c."IterationId",
+                    c."Rank", c."SiblingRank", c."AssigneeUserId", c."CreatedByUserId",
+                    c."Estimate", c."ExternalRefJson"::text AS "ExternalRefJson",
+                    c."CreatedAt", c."UpdatedAt", c."ClosedAt", c."Version",
+                    t.depth + 1 AS depth,
+                    t.visited_ids || c."Id" AS visited_ids,
+                    t.sort_path || ARRAY[convert_to(c."SiblingRank", 'UTF8'), convert_to(c."Id"::text, 'UTF8')] AS sort_path
+                FROM work_items c
+                JOIN tree t ON c."ParentId" = t."Id"
+                WHERE t.depth < @maxDepth
+                  AND NOT (c."Id" = ANY(t.visited_ids))
+            )
+            SELECT
+                t."Id", t."ProjectId", t."Key", t."PreviousKeysJson",
+                t."Number", t."Kind", t."Status", t."Priority", t."IssueType",
+                t."Title", t."Description", t."ParentId", t."IterationId",
+                t."Rank", t."SiblingRank", t."AssigneeUserId", t."CreatedByUserId",
+                t."Estimate", t."ExternalRefJson",
+                t."CreatedAt", t."UpdatedAt", t."ClosedAt", t."Version",
+                t.depth AS "Depth",
+                rollups.child_count AS "ChildCount",
+                rollups.child_count_by_status_json AS "ChildCountByStatusJson"
+            FROM tree t
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(SUM(c.cnt), 0)::int AS child_count,
+                    COALESCE(jsonb_object_agg(c."Status", c.cnt), jsonb_build_object())::text AS child_count_by_status_json
+                FROM (
+                    SELECT ch."Status", COUNT(*)::int AS cnt
+                    FROM work_items ch
+                    WHERE ch."ParentId" = t."Id"
+                    GROUP BY ch."Status"
+                ) c
+            ) rollups ON TRUE
+            ORDER BY t.sort_path ASC
+            """;
+
+        var rows = await db.Database
+            .SqlQueryRaw<WorkItemSubtreeSqlRow>(
+                sql,
+                new NpgsqlParameter("rootId", id),
+                new NpgsqlParameter("maxDepth", maxDepth))
+            .ToListAsync();
+
+        return rows.Select(MapSubtreeRow).ToList();
+    }
+
+    public async Task<string?> GetMaxRankAsync(Guid projectId, Guid? excludeWorkItemId = null)
+    {
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        var q = db.WorkItems.Where(w => w.ProjectId == projectId);
+        if (excludeWorkItemId is { } excludeId)
+            q = q.Where(w => w.Id != excludeId);
+        return await q
+            .OrderByDescending(w => w.Rank)
+            .Select(w => w.Rank)
+            .FirstOrDefaultAsync();
     }
 
     public async Task<WorkItemEntity> CreateAsync(WorkItemEntity item)
@@ -251,7 +487,8 @@ public class WorkItemRepository(
         return existing;
     }
 
-    public async Task<WorkItemEntity?> SetRanksAsync(Guid id, string? rank, string? siblingRank)
+    public async Task<WorkItemEntity?> SetRanksAsync(
+        Guid id, string? rank, string? siblingRank, int? expectedVersion = null)
     {
         if (rank is null && siblingRank is null)
             throw new ArgumentException("At least one of rank / siblingRank must be supplied.");
@@ -266,14 +503,71 @@ public class WorkItemRepository(
         if (existing is null)
             return null;
 
+        if (expectedVersion is int expected && existing.Version != expected)
+        {
+            throw new TammaError(
+                "TRACKER.CONCURRENCY_CONFLICT",
+                $"Work item '{id}' is at version {existing.Version}, but If-Match asked for {expected}. "
+                + "Another writer changed it; re-read the resource and retry against its current state.",
+                new Dictionary<string, object?>
+                {
+                    ["id"] = id,
+                    ["expectedVersion"] = expected,
+                    ["actualVersion"] = existing.Version,
+                },
+                retryable: true,
+                severity: TammaErrorSeverity.Medium);
+        }
+
         if (rank is not null)
             existing.Rank = rank;
         if (siblingRank is not null)
             existing.SiblingRank = siblingRank;
         existing.UpdatedAt = DateTime.UtcNow;
         existing.Version += 1;
+        PinExpectedVersion(db, existing, expectedVersion);
         await SaveGuardingVersionAsync(db, existing.Id);
         return existing;
+    }
+
+    public async Task<int> BulkSetRanksAsync(Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates)
+    {
+        ArgumentNullException.ThrowIfNull(updates);
+        if (updates.Count == 0)
+            return 0;
+
+        var ids = new Guid[updates.Count];
+        var ranks = new string[updates.Count];
+        for (var i = 0; i < updates.Count; i++)
+        {
+            ValidateRank(updates[i].Rank, $"updates[{i}].Rank");
+            ids[i] = updates[i].Id;
+            ranks[i] = updates[i].Rank;
+        }
+
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        // ONE bulk SQL UPDATE inside ONE transaction (AC7/AC8).
+        const string sql = """
+            UPDATE work_items AS w
+            SET "Rank" = v.rank,
+                "UpdatedAt" = now(),
+                "Version" = w."Version" + 1
+            FROM unnest(@ids, @ranks) AS v(id, rank)
+            WHERE w."Id" = v.id
+              AND w."ProjectId" = @projectId
+            """;
+
+        var affected = await db.Database.ExecuteSqlRawAsync(
+            sql,
+            new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids },
+            new NpgsqlParameter("ranks", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = ranks },
+            new NpgsqlParameter("projectId", projectId));
+
+        await tx.CommitAsync();
+        return affected;
     }
 
     public async Task<WorkItemEntity?> SetParentAsync(Guid id, Guid? parentId, string? siblingRank = null)
@@ -316,6 +610,217 @@ public class WorkItemRepository(
         existing.Version += 1;
         await SaveGuardingVersionAsync(db, existing.Id);
         return existing;
+    }
+
+    public async Task<WorkItemEntity?> ReparentTransactionalAsync(
+        Guid id, Guid? parentId, int? expectedVersion = null)
+    {
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        // Discover the item's project first (ProjectId is immutable here), then
+        // lock the project row FOR UPDATE before reading hierarchy state so all
+        // concurrent reparents within the project serialize cleanly with ZERO
+        // deadlocks and can never jointly form a cycle (AC2 / D1).
+        var targetProjectId = await db.WorkItems
+            .Where(w => w.Id == id)
+            .Select(w => (Guid?)w.ProjectId)
+            .FirstOrDefaultAsync();
+        if (targetProjectId is null)
+            return null;
+
+        await db.Projects
+            .FromSqlInterpolated(
+                $"""SELECT * FROM projects WHERE "Id" = {targetProjectId.Value} FOR UPDATE""")
+            .AsNoTracking()
+            .SingleOrDefaultAsync();
+
+        // Re-read the target fresh AFTER acquiring the project row lock so we
+        // observe every committed concurrent write.
+        var target = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
+        if (target is null)
+            return null;
+
+        if (expectedVersion is int expected && target.Version != expected)
+        {
+            throw new TammaError(
+                "TRACKER.CONCURRENCY_CONFLICT",
+                $"Work item '{id}' is at version {target.Version}, but If-Match asked for {expected}. "
+                + "Another writer changed it; re-read the resource and retry against its current state.",
+                new Dictionary<string, object?>
+                {
+                    ["id"] = id,
+                    ["expectedVersion"] = expected,
+                    ["actualVersion"] = target.Version,
+                },
+                retryable: true,
+                severity: TammaErrorSeverity.Medium);
+        }
+
+        if (parentId is Guid pid)
+        {
+            if (pid == id)
+            {
+                throw new TammaError(
+                    "WOULD_CREATE_CYCLE",
+                    $"Work item '{target.Key}' cannot be its own parent (WOULD_CREATE_CYCLE).",
+                    new Dictionary<string, object?>
+                    {
+                        ["workItemId"] = id,
+                        ["parentId"] = pid,
+                    },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+            }
+
+            var parent = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == pid)
+                ?? throw new TammaError(
+                    "TRACKER.PARENT_NOT_FOUND",
+                    $"Parent work item '{pid}' does not exist in this tenant.",
+                    new Dictionary<string, object?> { ["parentId"] = pid },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+
+            if (parent.ProjectId != target.ProjectId)
+            {
+                throw new TammaError(
+                    "CROSS_PROJECT_PARENT",
+                    $"Cannot reparent '{target.Key}' under '{parent.Key}': parent and child belong to "
+                    + "different projects (CROSS_PROJECT_PARENT).",
+                    new Dictionary<string, object?>
+                    {
+                        ["workItemId"] = id,
+                        ["workItemProjectId"] = target.ProjectId,
+                        ["parentId"] = pid,
+                        ["parentProjectId"] = parent.ProjectId,
+                    },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+            }
+
+            var parentKind = WorkItemKindExtensions.Parse(parent.Kind);
+            var childKind = WorkItemKindExtensions.Parse(target.Kind);
+            if (!TrackerHierarchy.CanParent(parentKind, childKind))
+            {
+                throw new TammaError(
+                    "KIND_NOT_PERMITTED",
+                    $"A '{target.Kind}' ('{target.Key}') cannot be a child of a '{parent.Kind}' "
+                    + $"('{parent.Key}') — an epic may not be a child of a non-epic (KIND_NOT_PERMITTED).",
+                    new Dictionary<string, object?>
+                    {
+                        ["workItemId"] = id,
+                        ["childKind"] = target.Kind,
+                        ["parentId"] = pid,
+                        ["parentKind"] = parent.Kind,
+                    },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+            }
+
+            // Walk the persisted ancestor chain of the prospective parent inside
+            // this locked transaction (cycle detection + parent depth).
+            const string ancestorSql = """
+                WITH RECURSIVE anc AS (
+                    SELECT "Id", "ParentId", 1 AS depth, ARRAY["Id"] AS visited
+                    FROM work_items
+                    WHERE "Id" = @parentId
+                    UNION ALL
+                    SELECT w."Id", w."ParentId", anc.depth + 1, anc.visited || w."Id"
+                    FROM work_items w
+                    JOIN anc ON w."Id" = anc."ParentId"
+                    WHERE anc.depth < @guard AND NOT (w."Id" = ANY(anc.visited))
+                )
+                SELECT "Id" AS "Value" FROM anc
+                """;
+
+            var ancestors = await db.Database
+                .SqlQueryRaw<GuidScalar>(
+                    ancestorSql,
+                    new NpgsqlParameter("parentId", pid),
+                    new NpgsqlParameter("guard", TrackerHierarchy.MaxDepth + 2))
+                .Select(r => r.Value)
+                .ToListAsync();
+
+            if (ancestors.Contains(id))
+            {
+                throw new TammaError(
+                    "WOULD_CREATE_CYCLE",
+                    $"Cannot reparent '{target.Key}' under '{parent.Key}': '{parent.Key}' is a "
+                    + $"descendant of '{target.Key}' (WOULD_CREATE_CYCLE).",
+                    new Dictionary<string, object?>
+                    {
+                        ["workItemId"] = id,
+                        ["parentId"] = pid,
+                    },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+            }
+
+            // Compute max subtree depth rooted at target (1 for a leaf).
+            const string subtreeHeightSql = """
+                WITH RECURSIVE sub AS (
+                    SELECT "Id", 1 AS depth, ARRAY["Id"] AS visited
+                    FROM work_items
+                    WHERE "Id" = @targetId
+                    UNION ALL
+                    SELECT w."Id", sub.depth + 1, sub.visited || w."Id"
+                    FROM work_items w
+                    JOIN sub ON w."ParentId" = sub."Id"
+                    WHERE sub.depth < @guard AND NOT (w."Id" = ANY(sub.visited))
+                )
+                SELECT COALESCE(MAX(depth), 1)::int AS "Value" FROM sub
+                """;
+
+            var subtreeHeight = await db.Database
+                .SqlQueryRaw<IntScalar>(
+                    subtreeHeightSql,
+                    new NpgsqlParameter("targetId", id),
+                    new NpgsqlParameter("guard", TrackerHierarchy.MaxDepth + 2))
+                .Select(r => r.Value)
+                .FirstAsync();
+
+            var parentDepth = ancestors.Count;
+            var resultingMaxDepth = parentDepth + subtreeHeight;
+            if (resultingMaxDepth > TrackerHierarchy.MaxDepth)
+            {
+                throw new TammaError(
+                    "MAX_DEPTH_EXCEEDED",
+                    $"Cannot reparent '{target.Key}' under '{parent.Key}': resulting hierarchy depth "
+                    + $"{resultingMaxDepth} exceeds maximum depth {TrackerHierarchy.MaxDepth} "
+                    + "(MAX_DEPTH_EXCEEDED).",
+                    new Dictionary<string, object?>
+                    {
+                        ["workItemId"] = id,
+                        ["parentId"] = pid,
+                        ["parentDepth"] = parentDepth,
+                        ["subtreeHeight"] = subtreeHeight,
+                        ["resultingDepth"] = resultingMaxDepth,
+                        ["maxDepth"] = TrackerHierarchy.MaxDepth,
+                    },
+                    retryable: false,
+                    severity: TammaErrorSeverity.Medium);
+            }
+        }
+
+        if (target.ParentId != parentId)
+        {
+            target.ParentId = parentId;
+            var maxSibling = await db.WorkItems
+                .Where(w => w.ProjectId == target.ProjectId
+                    && w.ParentId == parentId && w.Id != id)
+                .OrderByDescending(w => w.SiblingRank)
+                .Select(w => w.SiblingRank)
+                .FirstOrDefaultAsync();
+            target.SiblingRank = Rank.Append(maxSibling);
+        }
+
+        target.UpdatedAt = DateTime.UtcNow;
+        target.Version += 1;
+        PinExpectedVersion(db, target, expectedVersion);
+        await SaveGuardingVersionAsync(db, target.Id);
+        await tx.CommitAsync();
+        return target;
     }
 
     public async Task<WorkItemEntity?> RekeyAsync(Guid id, string newKey)
@@ -497,6 +1002,29 @@ public class WorkItemRepository(
         var tid = RequireTenantId();
         await using var db = await tenantDbFactory.CreateAsync(tid);
 
+        // Story 44-3 (Amendment A6) — reject cross-project relation edges.
+        // Self-relations and symmetric lower-id-first canonicalization already
+        // run above via WorkItemRelationKindExtensions.Canonicalize.
+        var endpoints = await db.WorkItems
+            .Where(w => w.Id == canonicalSource || w.Id == canonicalTarget)
+            .Select(w => new { w.Id, w.ProjectId })
+            .ToListAsync();
+        if (endpoints.Count == 2 && endpoints[0].ProjectId != endpoints[1].ProjectId)
+        {
+            throw new TammaError(
+                "TRACKER.CROSS_PROJECT_RELATION",
+                $"Cannot add '{wire}' relation between '{canonicalSource}' and '{canonicalTarget}': "
+                + "source and target belong to different projects.",
+                new Dictionary<string, object?>
+                {
+                    ["sourceId"] = canonicalSource,
+                    ["targetId"] = canonicalTarget,
+                    ["kind"] = wire,
+                },
+                retryable: false,
+                severity: TammaErrorSeverity.Medium);
+        }
+
         // Insert-first, no check-then-insert window: two concurrent adds of
         // the same canonical edge race the unique index, and the loser's
         // 23505 IS the "already exists" fact — caught below and answered with
@@ -632,4 +1160,100 @@ public class WorkItemRepository(
 
     private static string EscapeLike(string input) =>
         input.Replace(@"\", @"\\").Replace("%", @"\%").Replace("_", @"\_");
+
+    // ── Raw-SQL projection helpers for roll-ups, subtrees, and locking CTEs ──
+
+    private static WorkItemWithRollup MapRollupRow(WorkItemRollupSqlRow r) => new(
+        ToEntity(r),
+        r.ChildCount,
+        ParseStatusCounts(r.ChildCountByStatusJson));
+
+    private static WorkItemSubtreeNode MapSubtreeRow(WorkItemSubtreeSqlRow r) => new(
+        ToEntity(r),
+        r.Depth,
+        r.ChildCount,
+        ParseStatusCounts(r.ChildCountByStatusJson));
+
+    private static WorkItemEntity ToEntity(WorkItemRollupSqlRow r) => new()
+    {
+        Id = r.Id,
+        ProjectId = r.ProjectId,
+        Key = r.Key,
+        PreviousKeys = ParseStringArray(r.PreviousKeysJson),
+        Number = r.Number,
+        Kind = r.Kind,
+        Status = r.Status,
+        Priority = r.Priority,
+        IssueType = r.IssueType,
+        Title = r.Title,
+        Description = r.Description,
+        ParentId = r.ParentId,
+        IterationId = r.IterationId,
+        Rank = r.Rank,
+        SiblingRank = r.SiblingRank,
+        AssigneeUserId = r.AssigneeUserId,
+        CreatedByUserId = r.CreatedByUserId,
+        Estimate = r.Estimate,
+        ExternalRefJson = r.ExternalRefJson,
+        CreatedAt = DateTime.SpecifyKind(r.CreatedAt, DateTimeKind.Utc),
+        UpdatedAt = DateTime.SpecifyKind(r.UpdatedAt, DateTimeKind.Utc),
+        ClosedAt = r.ClosedAt is { } c ? DateTime.SpecifyKind(c, DateTimeKind.Utc) : null,
+        Version = r.Version,
+    };
+
+    private static List<string> ParseStringArray(string? json) =>
+        string.IsNullOrWhiteSpace(json)
+            ? []
+            : JsonSerializer.Deserialize<List<string>>(json) ?? [];
+
+    private static IReadOnlyDictionary<string, int> ParseStatusCounts(string? json) =>
+        string.IsNullOrWhiteSpace(json) || json == "{}"
+            ? EmptyStatusCounts
+            : JsonSerializer.Deserialize<Dictionary<string, int>>(json) ?? EmptyStatusCounts;
+
+    private static readonly Dictionary<string, int> EmptyStatusCounts = new();
+
+    private sealed class GuidScalar
+    {
+        public Guid Value { get; set; }
+    }
+
+    private sealed class IntScalar
+    {
+        public int Value { get; set; }
+    }
+
+    private class WorkItemRollupSqlRow
+    {
+        public Guid Id { get; set; }
+        public Guid ProjectId { get; set; }
+        public string Key { get; set; } = "";
+        public string? PreviousKeysJson { get; set; }
+        public int Number { get; set; }
+        public string Kind { get; set; } = "";
+        public string Status { get; set; } = "";
+        public string? Priority { get; set; }
+        public string? IssueType { get; set; }
+        public string Title { get; set; } = "";
+        public string? Description { get; set; }
+        public Guid? ParentId { get; set; }
+        public Guid? IterationId { get; set; }
+        public string Rank { get; set; } = "";
+        public string SiblingRank { get; set; } = "";
+        public Guid? AssigneeUserId { get; set; }
+        public Guid? CreatedByUserId { get; set; }
+        public decimal? Estimate { get; set; }
+        public string? ExternalRefJson { get; set; }
+        public DateTime CreatedAt { get; set; }
+        public DateTime UpdatedAt { get; set; }
+        public DateTime? ClosedAt { get; set; }
+        public int Version { get; set; }
+        public int ChildCount { get; set; }
+        public string? ChildCountByStatusJson { get; set; }
+    }
+
+    private sealed class WorkItemSubtreeSqlRow : WorkItemRollupSqlRow
+    {
+        public int Depth { get; set; }
+    }
 }
