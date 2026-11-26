@@ -18,8 +18,10 @@ public sealed class TrackerService(
     ITrackerPreferenceRepository preferences,
     ITaskAudienceResolver audienceResolver,
     ITammaModeProvider modeProvider,
-    ITenantContext tenantContext) : ITrackerService
+    ITenantContext tenantContext,
+    ITrackerEventsService? events = null) : ITrackerService
 {
+    private readonly ITrackerEventsService _events = events ?? NullTrackerEventsService.Instance;
     /// <summary>Separator inside the opaque keyset cursor (never a wire character).</summary>
     private const char CursorSeparator = '\u001F';
 
@@ -85,7 +87,7 @@ public sealed class TrackerService(
         var scale = request.EstimateScale ?? EstimateScale.NotUsed.ToWire();
         _ = ParseEstimateScale(scale);
 
-        return await projects.CreateAsync(new ProjectEntity
+        var created = await projects.CreateAsync(new ProjectEntity
         {
             Key = request.Key!,
             Name = request.Name!,
@@ -94,6 +96,8 @@ public sealed class TrackerService(
             EstimateScale = scale,
             CreatedByUserId = createdByUserId,
         });
+        await _events.EmitProjectCreatedAsync(created, createdByUserId);
+        return created;
     }
 
     /// <inheritdoc />
@@ -106,6 +110,7 @@ public sealed class TrackerService(
         if (existing is null)
             return null;
         RequireVersion(existing.Version, ifMatchVersion, "project", projectId);
+        var wasArchived = existing.ArchivedAt is not null;
 
         // ── The 43-0 regression guard, expressed as code (AC3) ──
         // Every assignment reads `existing.X` as its fallback, so a field the
@@ -144,7 +149,15 @@ public sealed class TrackerService(
         // The precondition rides INTO the repository (44-2 review 2026-07-29):
         // RequireVersion above checks OUR read, but the repository re-reads in a
         // fresh context, so the check alone is not atomic with the write.
-        return await projects.UpdateAsync(existing, ifMatchVersion);
+        var updated = await projects.UpdateAsync(existing, ifMatchVersion);
+        if (updated is not null)
+        {
+            if (!wasArchived && updated.ArchivedAt is not null)
+                await _events.EmitProjectArchivedAsync(updated);
+            else
+                await _events.EmitProjectUpdatedAsync(updated);
+        }
+        return updated;
     }
 
     /// <inheritdoc />
@@ -155,7 +168,10 @@ public sealed class TrackerService(
         if (existing is null)
             return false;
         RequireVersion(existing.Version, ifMatchVersion, "project", projectId);
-        return await projects.DeleteAsync(projectId, ifMatchVersion);
+        var deleted = await projects.DeleteAsync(projectId, ifMatchVersion);
+        if (deleted)
+            await _events.EmitProjectDeletedAsync(existing);
+        return deleted;
     }
 
     /// <inheritdoc />
@@ -289,7 +305,7 @@ public sealed class TrackerService(
         var project = await projects.GetAsync(projectId) ?? throw ProjectNotFound(projectId);
         RequireEstimateCoherence(project, request.Estimate);
 
-        return await workItems.CreateAsync(new WorkItemEntity
+        var created = await workItems.CreateAsync(new WorkItemEntity
         {
             ProjectId = projectId,
             Kind = request.Kind!,
@@ -307,6 +323,8 @@ public sealed class TrackerService(
             Estimate = request.Estimate,
             ExternalRefJson = request.ExternalRef?.GetRawText(),
         });
+        await _events.EmitWorkItemCreatedAsync(created, project.Key, createdByUserId);
+        return created;
     }
 
     /// <inheritdoc />
@@ -319,6 +337,18 @@ public sealed class TrackerService(
         if (existing is null)
             return null;
         RequireVersion(existing.Version, ifMatchVersion, "work item", id);
+        var prevExternalRef = existing.ExternalRefJson;
+        var isPureExternalLinkAttach = request.ExternalRef.IsSet
+            && prevExternalRef is null
+            && request.ExternalRef.Value is not null
+            && !request.Title.IsSet
+            && !request.Description.IsSet
+            && !request.Kind.IsSet
+            && !request.Priority.IsSet
+            && !request.IssueType.IsSet
+            && !request.IterationId.IsSet
+            && !request.AssigneeUserId.IsSet
+            && !request.Estimate.IsSet;
 
         // ── The 43-0 regression guard (AC3) — see PatchProjectAsync ──
         if (request.Title.TryGet(out var title))
@@ -358,7 +388,15 @@ public sealed class TrackerService(
 
         // See PatchProjectAsync — the precondition must be atomic with the
         // write, not merely checked against this method's own read.
-        return await workItems.UpdateAsync(existing, ifMatchVersion);
+        var updated = await workItems.UpdateAsync(existing, ifMatchVersion);
+        if (updated is not null)
+        {
+            if (isPureExternalLinkAttach)
+                await _events.EmitWorkItemLinkedAsync(updated, updated.ExternalRefJson, source: "manual");
+            else
+                await _events.EmitWorkItemUpdatedAsync(updated);
+        }
+        return updated;
     }
 
     /// <inheritdoc />
@@ -366,13 +404,33 @@ public sealed class TrackerService(
     {
         EnsureTenant();
         RequireField(statusWire, "status");
-        _ = ParseStatus(statusWire);
+        var parsed = ParseStatus(statusWire);
 
         var existing = await workItems.GetAsync(id);
         if (existing is null)
             return null;
         RequireVersion(existing.Version, ifMatchVersion, "work item", id);
-        return await workItems.SetStatusAsync(id, statusWire, ifMatchVersion);
+
+        var fromStatus = existing.Status;
+        var toStatus = parsed.ToWire();
+        var nextSnapshot = new WorkItemEntity
+        {
+            Id = existing.Id,
+            ProjectId = existing.ProjectId,
+            Key = existing.Key,
+            Kind = existing.Kind,
+            Status = toStatus,
+            Version = existing.Version + 1,
+        };
+
+        // AC6 / D6: STATUS_CHANGED emits INSIDE the write transaction; a failure rolls back the status write.
+        return await workItems.SetStatusAsync(
+            id,
+            statusWire,
+            ifMatchVersion,
+            beforeCommit: _events is NullTrackerEventsService
+                ? null
+                : db => _events.EmitWorkItemStatusChangedAsync(nextSnapshot, fromStatus, toStatus, transactionDb: db));
     }
 
     /// <inheritdoc />
@@ -384,10 +442,26 @@ public sealed class TrackerService(
             return null;
         RequireVersion(existing.Version, ifMatchVersion, "work item", id);
 
-        // Assignment rides UpdateAsync — the single write seam that bumps
-        // Version and leaves the frozen/owned-elsewhere columns untouched.
+        var fromAssignee = existing.AssigneeUserId;
         existing.AssigneeUserId = assigneeUserId;
-        return await workItems.UpdateAsync(existing, ifMatchVersion);
+        var nextSnapshot = new WorkItemEntity
+        {
+            Id = existing.Id,
+            ProjectId = existing.ProjectId,
+            Key = existing.Key,
+            Kind = existing.Kind,
+            Status = existing.Status,
+            AssigneeUserId = assigneeUserId,
+            Version = existing.Version + 1,
+        };
+
+        // AC6 / D6: ASSIGNED emits INSIDE the write transaction; a failure rolls back the assignment write.
+        return await workItems.UpdateAsync(
+            existing,
+            ifMatchVersion,
+            beforeCommit: _events is NullTrackerEventsService
+                ? null
+                : db => _events.EmitWorkItemAssignedAsync(nextSnapshot, fromAssignee, assigneeUserId, transactionDb: db));
     }
 
     /// <inheritdoc />
@@ -398,7 +472,14 @@ public sealed class TrackerService(
         if (existing is null)
             return false;
         RequireVersion(existing.Version, ifMatchVersion, "work item", id);
-        return await workItems.DeleteAsync(id, ifMatchVersion);
+
+        // AC6 / D6: DELETED emits INSIDE the delete transaction; a failure rolls back the delete.
+        return await workItems.DeleteAsync(
+            id,
+            ifMatchVersion,
+            beforeCommit: _events is NullTrackerEventsService
+                ? null
+                : db => _events.EmitWorkItemDeletedAsync(existing, transactionDb: db));
     }
 
     /// <inheritdoc />
@@ -406,6 +487,20 @@ public sealed class TrackerService(
     {
         EnsureTenant();
         return await workItems.ListAsync(new WorkItemQuery { ParentId = id, Limit = limit });
+    }
+
+    /// <inheritdoc />
+    public async Task<WorkItemTimelinePage?> GetWorkItemTimelineAsync(Guid id, long? cursor, int limit)
+    {
+        EnsureTenant();
+        var item = await workItems.GetAsync(id);
+        if (item is null)
+            return null;
+
+        var clamped = limit is > 0 and <= 200 ? limit : 50;
+        var (rows, hasMore) = await workItems.GetTimelineAsync(item.Key, cursor, clamped, item.PreviousKeys);
+        long? nextCursor = hasMore && rows.Count > 0 ? rows[^1].SequenceNumber : null;
+        return new WorkItemTimelinePage(item.Id, item.Key, rows, nextCursor, hasMore);
     }
 
     // ═══════════════════════════ Preferences ════════════════════════════════

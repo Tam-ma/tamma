@@ -188,39 +188,94 @@ public class WorkItemRepository(
     }
 
     public async Task<int> BulkSetIterationAsync(
-        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId)
+        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId,
+        Func<TenantDbContext, Task>? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(workItemIds);
-        if (workItemIds.Count == 0)
+        if (workItemIds.Count == 0 && beforeCommit is null)
             return 0;
 
         var tid = RequireTenantId();
         await using var db = await tenantDbFactory.CreateAsync(tid);
         await using var tx = await db.Database.BeginTransactionAsync();
 
-        const string sql = """
-            UPDATE work_items
-            SET "IterationId" = @iterationId,
-                "UpdatedAt" = now(),
-                "Version" = "Version" + 1
-            WHERE "ProjectId" = @projectId
-              AND "Id" = ANY(@ids)
-            """;
+        var affected = 0;
+        if (workItemIds.Count > 0)
+        {
+            const string sql = """
+                UPDATE work_items
+                SET "IterationId" = @iterationId,
+                    "UpdatedAt" = now(),
+                    "Version" = "Version" + 1
+                WHERE "ProjectId" = @projectId
+                  AND "Id" = ANY(@ids)
+                """;
 
-        var affected = await db.Database.ExecuteSqlRawAsync(
-            sql,
-            new NpgsqlParameter("iterationId", NpgsqlDbType.Uuid)
-            {
-                Value = iterationId.HasValue ? iterationId.Value : DBNull.Value,
-            },
-            new NpgsqlParameter("projectId", projectId),
-            new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
-            {
-                Value = workItemIds.ToArray(),
-            });
+            affected = await db.Database.ExecuteSqlRawAsync(
+                sql,
+                new NpgsqlParameter("iterationId", NpgsqlDbType.Uuid)
+                {
+                    Value = iterationId.HasValue ? iterationId.Value : DBNull.Value,
+                },
+                new NpgsqlParameter("projectId", projectId),
+                new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+                {
+                    Value = workItemIds.ToArray(),
+                });
+        }
+
+        if (beforeCommit is not null)
+            await beforeCommit(db);
 
         await tx.CommitAsync();
         return affected;
+    }
+
+    public async Task<(IReadOnlyList<DomainEvent> Events, bool HasMore)> GetTimelineAsync(
+        string issueId, long? cursor, int limit, IReadOnlyList<string>? previousKeys = null)
+    {
+        if (string.IsNullOrWhiteSpace(issueId))
+            return ([], false);
+
+        var tid = RequireTenantId();
+        var clamped = limit is > 0 and <= 200 ? limit : 50;
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+
+        // Story 44-5 AC7 / D7: read ALL event families matching Tags->>'issueId'
+        // (including foreign DOCUMENT.*, APPROVAL.*, ESCALATION.* rows) ordered
+        // chronologically by SequenceNumber ASC (never CreatedAt or Id).
+        IQueryable<DomainEvent> query;
+        if (previousKeys is { Count: > 0 })
+        {
+            var keys = new string[previousKeys.Count + 1];
+            keys[0] = issueId;
+            for (var i = 0; i < previousKeys.Count; i++)
+                keys[i + 1] = previousKeys[i];
+
+            query = db.DomainEvents
+                .FromSqlInterpolated(
+                    $"""SELECT * FROM domain_events WHERE "Tags"->>'issueId' = ANY({keys})""");
+        }
+        else
+        {
+            query = db.DomainEvents
+                .FromSqlInterpolated(
+                    $"""SELECT * FROM domain_events WHERE "Tags"->>'issueId' = {issueId}""");
+        }
+
+        query = query.AsNoTracking().Where(e => e.TenantId == tid);
+        if (cursor is { } seq)
+            query = query.Where(e => e.SequenceNumber > seq);
+
+        var rows = await query
+            .OrderBy(e => e.SequenceNumber)
+            .Take(clamped + 1)
+            .ToListAsync();
+
+        var hasMore = rows.Count > clamped;
+        if (hasMore)
+            rows.RemoveAt(rows.Count - 1);
+        return (rows, hasMore);
     }
 
     public async Task<WorkItemEntity?> GetByKeyAsync(string key)
@@ -614,38 +669,56 @@ public class WorkItemRepository(
         return item;
     }
 
-    public async Task<WorkItemEntity?> UpdateAsync(WorkItemEntity item, int? expectedVersion = null)
+    public async Task<WorkItemEntity?> UpdateAsync(
+        WorkItemEntity item, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(item);
         ValidateVocabulary(item);
 
         var tid = RequireTenantId();
         await using var db = await tenantDbFactory.CreateAsync(tid);
-        var existing = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == item.Id);
-        if (existing is null)
-            return null;
+        var tx = beforeCommit is not null ? await db.Database.BeginTransactionAsync() : null;
+        try
+        {
+            var existing = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == item.Id);
+            if (existing is null)
+                return null;
 
-        // Frozen/owned-elsewhere columns deliberately NOT copied: Key, Number,
-        // PreviousKeys (RekeyAsync), Status/ClosedAt (SetStatusAsync),
-        // Rank/SiblingRank (SetRanksAsync), ParentId (SetParentAsync),
-        // ProjectId (a move seam is 44-2's, and it does NOT re-mint the key).
-        existing.Kind = item.Kind;
-        existing.Priority = item.Priority;
-        existing.IssueType = item.IssueType;
-        existing.Title = item.Title;
-        existing.Description = item.Description;
-        existing.IterationId = item.IterationId;
-        existing.AssigneeUserId = item.AssigneeUserId;
-        existing.Estimate = item.Estimate;
-        existing.ExternalRefJson = item.ExternalRefJson;
-        existing.UpdatedAt = DateTime.UtcNow;
-        existing.Version += 1;
-        PinExpectedVersion(db, existing, expectedVersion);
-        await SaveGuardingVersionAsync(db, existing.Id);
-        return existing;
+            // Frozen/owned-elsewhere columns deliberately NOT copied: Key, Number,
+            // PreviousKeys (RekeyAsync), Status/ClosedAt (SetStatusAsync),
+            // Rank/SiblingRank (SetRanksAsync), ParentId (SetParentAsync),
+            // ProjectId (a move seam is 44-2's, and it does NOT re-mint the key).
+            existing.Kind = item.Kind;
+            existing.Priority = item.Priority;
+            existing.IssueType = item.IssueType;
+            existing.Title = item.Title;
+            existing.Description = item.Description;
+            existing.IterationId = item.IterationId;
+            existing.AssigneeUserId = item.AssigneeUserId;
+            existing.Estimate = item.Estimate;
+            existing.ExternalRefJson = item.ExternalRefJson;
+            existing.UpdatedAt = DateTime.UtcNow;
+            existing.Version += 1;
+            PinExpectedVersion(db, existing, expectedVersion);
+            await SaveGuardingVersionAsync(db, existing.Id);
+
+            if (beforeCommit is not null)
+                await beforeCommit(db);
+            if (tx is not null)
+                await tx.CommitAsync();
+            return existing;
+        }
+        finally
+        {
+            if (tx is not null)
+                await tx.DisposeAsync();
+        }
     }
 
-    public async Task<WorkItemEntity?> SetStatusAsync(Guid id, string statusWire, int? expectedVersion = null)
+    public async Task<WorkItemEntity?> SetStatusAsync(
+        Guid id, string statusWire, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null)
     {
         // Parse first — fail-loud on junk (TRACKER.UNKNOWN_STATUS), and the
         // terminal rule stays DERIVED from Category() (44-0 AC3), never a
@@ -654,17 +727,31 @@ public class WorkItemRepository(
 
         var tid = RequireTenantId();
         await using var db = await tenantDbFactory.CreateAsync(tid);
-        var existing = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
-        if (existing is null)
-            return null;
+        var tx = beforeCommit is not null ? await db.Database.BeginTransactionAsync() : null;
+        try
+        {
+            var existing = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
+            if (existing is null)
+                return null;
 
-        existing.Status = status.ToWire();
-        existing.ClosedAt = status.IsTerminal() ? DateTime.UtcNow : null;
-        existing.UpdatedAt = DateTime.UtcNow;
-        existing.Version += 1;
-        PinExpectedVersion(db, existing, expectedVersion);
-        await SaveGuardingVersionAsync(db, existing.Id);
-        return existing;
+            existing.Status = status.ToWire();
+            existing.ClosedAt = status.IsTerminal() ? DateTime.UtcNow : null;
+            existing.UpdatedAt = DateTime.UtcNow;
+            existing.Version += 1;
+            PinExpectedVersion(db, existing, expectedVersion);
+            await SaveGuardingVersionAsync(db, existing.Id);
+
+            if (beforeCommit is not null)
+                await beforeCommit(db);
+            if (tx is not null)
+                await tx.CommitAsync();
+            return existing;
+        }
+        finally
+        {
+            if (tx is not null)
+                await tx.DisposeAsync();
+        }
     }
 
     public async Task<WorkItemEntity?> SetRanksAsync(
@@ -710,10 +797,12 @@ public class WorkItemRepository(
         return existing;
     }
 
-    public async Task<int> BulkSetRanksAsync(Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates)
+    public async Task<int> BulkSetRanksAsync(
+        Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates,
+        Func<TenantDbContext, Task>? beforeCommit = null)
     {
         ArgumentNullException.ThrowIfNull(updates);
-        if (updates.Count == 0)
+        if (updates.Count == 0 && beforeCommit is null)
             return 0;
 
         var ids = new Guid[updates.Count];
@@ -729,22 +818,29 @@ public class WorkItemRepository(
         await using var db = await tenantDbFactory.CreateAsync(tid);
         await using var tx = await db.Database.BeginTransactionAsync();
 
-        // ONE bulk SQL UPDATE inside ONE transaction (AC7/AC8).
-        const string sql = """
-            UPDATE work_items AS w
-            SET "Rank" = v.rank,
-                "UpdatedAt" = now(),
-                "Version" = w."Version" + 1
-            FROM unnest(@ids, @ranks) AS v(id, rank)
-            WHERE w."Id" = v.id
-              AND w."ProjectId" = @projectId
-            """;
+        var affected = 0;
+        if (updates.Count > 0)
+        {
+            // ONE bulk SQL UPDATE inside ONE transaction (AC7/AC8).
+            const string sql = """
+                UPDATE work_items AS w
+                SET "Rank" = v.rank,
+                    "UpdatedAt" = now(),
+                    "Version" = w."Version" + 1
+                FROM unnest(@ids, @ranks) AS v(id, rank)
+                WHERE w."Id" = v.id
+                  AND w."ProjectId" = @projectId
+                """;
 
-        var affected = await db.Database.ExecuteSqlRawAsync(
-            sql,
-            new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids },
-            new NpgsqlParameter("ranks", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = ranks },
-            new NpgsqlParameter("projectId", projectId));
+            affected = await db.Database.ExecuteSqlRawAsync(
+                sql,
+                new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid) { Value = ids },
+                new NpgsqlParameter("ranks", NpgsqlDbType.Array | NpgsqlDbType.Text) { Value = ranks },
+                new NpgsqlParameter("projectId", projectId));
+        }
+
+        if (beforeCommit is not null)
+            await beforeCommit(db);
 
         await tx.CommitAsync();
         return affected;
@@ -1153,19 +1249,35 @@ public class WorkItemRepository(
         retryable: true,
         severity: TammaErrorSeverity.Medium);
 
-    public async Task<bool> DeleteAsync(Guid id, int? expectedVersion = null)
+    public async Task<bool> DeleteAsync(
+        Guid id, int? expectedVersion = null,
+        Func<TenantDbContext, Task>? beforeCommit = null)
     {
         var tid = RequireTenantId();
         await using var db = await tenantDbFactory.CreateAsync(tid);
-        var row = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
-        if (row is null)
-            return false;
-        db.WorkItems.Remove(row);
-        PinExpectedVersion(db, row, expectedVersion);
-        // Children RESTRICT the parent FK — 44-2 maps SqlState 23503 to the
-        // documented 409; relation edges CASCADE away with the item.
-        await SaveGuardingVersionAsync(db, id);
-        return true;
+        var tx = beforeCommit is not null ? await db.Database.BeginTransactionAsync() : null;
+        try
+        {
+            var row = await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
+            if (row is null)
+                return false;
+            db.WorkItems.Remove(row);
+            PinExpectedVersion(db, row, expectedVersion);
+            // Children RESTRICT the parent FK — 44-2 maps SqlState 23503 to the
+            // documented 409; relation edges CASCADE away with the item.
+            await SaveGuardingVersionAsync(db, id);
+
+            if (beforeCommit is not null)
+                await beforeCommit(db);
+            if (tx is not null)
+                await tx.CommitAsync();
+            return true;
+        }
+        finally
+        {
+            if (tx is not null)
+                await tx.DisposeAsync();
+        }
     }
 
     // ── Relations (44-0 AC14; canonical form — plan D8) ──

@@ -418,6 +418,8 @@ builder.Services.AddScoped<Tamma.Api.Services.Tracker.IterationService>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.BoardProjectionService>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.ISprintPlanReader, Tamma.Api.Services.Tracker.DocumentSprintPlanReader>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.SprintPlanApplyService>();
+// Story 44-5 — tracker DCB event emitter (PROJECT.* / WORKITEM.* / ITERATION.*).
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.ITrackerEventsService, Tamma.Api.Services.Tracker.TrackerEventsService>();
 // Story 39-8 — the escalation disposition surface (appends ESCALATION.RESOLVED, FAIL-LOUD).
 builder.Services.AddScoped<Tamma.Api.Services.Documents.EscalationDispositionService>();
 // Story 39-8 / 39-18 (D7) — the shared document-decision submission path. BOTH the
@@ -3259,6 +3261,9 @@ tracker.MapPost("/work-items/{id:guid}/status", TrackerEndpoints.SetWorkItemStat
     .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite");
 // Story 44-3 AC1/AC3/AC5/AC11 — subtree read + governed reparent & neighbour-addressed move.
 tracker.MapGet("/work-items/{id:guid}/subtree", TrackerEndpoints.GetSubtree)
+    .RequireAuthorization("TrackerView");
+// Story 44-5 AC7 — chronological DCB timeline for a work item's issueId (unfiltered families, SequenceNumber cursor).
+tracker.MapGet("/work-items/{id:guid}/timeline", TrackerEndpoints.GetTimeline)
     .RequireAuthorization("TrackerView");
 tracker.MapPost("/work-items/{id:guid}/parent", TrackerEndpoints.SetParent)
     .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite")

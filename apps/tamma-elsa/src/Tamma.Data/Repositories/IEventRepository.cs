@@ -5,6 +5,16 @@ namespace Tamma.Data.Repositories;
 public interface IEventRepository
 {
     Task<DomainEvent> AppendAsync(DomainEvent evt);
+
+    /// <summary>
+    /// Story 44-5 AC6 — append <paramref name="evt"/> inside an already-open
+    /// tenant <see cref="TenantDbContext"/> transaction so an event-store failure
+    /// rolls back the originating domain write atomically. Defaults to
+    /// <see cref="AppendAsync(DomainEvent)"/> for lightweight/failure-injection
+    /// doubles that intercept appends directly.
+    /// </summary>
+    Task<DomainEvent> AppendInTransactionAsync(TenantDbContext db, DomainEvent evt)
+        => AppendAsync(evt);
     Task<DomainEvent?> GetByIdAsync(Guid id);
     Task<List<DomainEvent>> QueryAsync(Guid? tenantId, string? type, int? issueNumber, int limit);
     Task<DomainEvent?> GetLastByTypeAsync(Guid tenantId, string type);

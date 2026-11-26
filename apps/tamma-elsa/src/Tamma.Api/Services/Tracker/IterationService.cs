@@ -17,8 +17,10 @@ public sealed class IterationService(
     IProjectRepository projects,
     IIterationRepository iterations,
     IWorkItemRepository workItems,
-    ITenantContext tenantContext)
+    ITenantContext tenantContext,
+    ITrackerEventsService? events = null)
 {
+    private readonly ITrackerEventsService _events = events ?? NullTrackerEventsService.Instance;
     private void EnsureTenant()
     {
         if (tenantContext.TenantId is Guid id && id != Guid.Empty)
@@ -76,7 +78,7 @@ public sealed class IterationService(
                 severity: TammaErrorSeverity.Low);
         }
 
-        return await iterations.CreateAsync(new IterationEntity
+        var created = await iterations.CreateAsync(new IterationEntity
         {
             ProjectId = projectId,
             Name = request.Name.Trim(),
@@ -85,6 +87,13 @@ public sealed class IterationService(
             Status = status,
             CapacityPoints = request.CapacityPoints,
         });
+
+        if (_events is not NullTrackerEventsService)
+        {
+            var project = await projects.GetAsync(projectId);
+            await _events.EmitIterationCreatedAsync(created, project?.Key ?? string.Empty);
+        }
+        return created;
     }
 
     public async Task<IterationTransitionResult?> PatchAsync(
@@ -112,13 +121,77 @@ public sealed class IterationService(
             CarryOverTargetIterationId = request.CarryOverTargetIterationId,
         };
 
-        return await iterations.PatchAndTransitionAsync(id, patch, ifMatchVersion);
+        var carryOverMode = string.IsNullOrWhiteSpace(request.CarryOver)
+            ? IterationRepository.CarryOverToBacklog
+            : request.CarryOver;
+
+        string? projectKey = null;
+        if (_events is not NullTrackerEventsService)
+        {
+            var existing = await iterations.GetAsync(id);
+            if (existing is not null)
+                projectKey = (await projects.GetAsync(existing.ProjectId))?.Key;
+        }
+
+        // Story 44-5 AC6 / D6: ITERATION.CLOSED.SUCCESS emits INSIDE the close +
+        // carry-over transaction so an audit failure rolls back the close atomically.
+        var result = await iterations.PatchAndTransitionAsync(
+            id,
+            patch,
+            ifMatchVersion,
+            beforeCommit: _events is NullTrackerEventsService
+                ? null
+                : async (db, res) =>
+                {
+                    var transitionedToClosed =
+                        string.Equals(res.Iteration.Status, IterationRepository.StatusClosed, StringComparison.Ordinal)
+                        && !string.Equals(res.PreviousStatus, IterationRepository.StatusClosed, StringComparison.Ordinal);
+                    if (transitionedToClosed)
+                    {
+                        await _events.EmitIterationClosedAsync(
+                            res.Iteration,
+                            projectKey ?? string.Empty,
+                            carryOverMode,
+                            res.MovedCount,
+                            res.LeftCount,
+                            transactionDb: db);
+                    }
+                });
+
+        if (result is not null && _events is not NullTrackerEventsService)
+        {
+            var transitionedToClosed =
+                string.Equals(result.Iteration.Status, IterationRepository.StatusClosed, StringComparison.Ordinal)
+                && !string.Equals(result.PreviousStatus, IterationRepository.StatusClosed, StringComparison.Ordinal);
+            var transitionedToActive =
+                string.Equals(result.Iteration.Status, IterationRepository.StatusActive, StringComparison.Ordinal)
+                && string.Equals(result.PreviousStatus, IterationRepository.StatusPlanned, StringComparison.Ordinal);
+
+            if (transitionedToActive)
+                await _events.EmitIterationStartedAsync(result.Iteration, projectKey ?? string.Empty, result.PreviousStatus);
+            else if (!transitionedToClosed)
+                await _events.EmitIterationUpdatedAsync(result.Iteration, projectKey ?? string.Empty);
+        }
+
+        return result;
     }
 
-    public Task<bool> DeleteAsync(Guid id, int? ifMatchVersion)
+    public async Task<bool> DeleteAsync(Guid id, int? ifMatchVersion)
     {
         EnsureTenant();
-        return iterations.DeleteAsync(id, ifMatchVersion);
+        IterationEntity? existing = null;
+        string? projectKey = null;
+        if (_events is not NullTrackerEventsService)
+        {
+            existing = await iterations.GetAsync(id);
+            if (existing is not null)
+                projectKey = (await projects.GetAsync(existing.ProjectId))?.Key;
+        }
+
+        var deleted = await iterations.DeleteAsync(id, ifMatchVersion);
+        if (deleted && existing is not null && _events is not NullTrackerEventsService)
+            await _events.EmitIterationDeletedAsync(existing, projectKey ?? string.Empty);
+        return deleted;
     }
 
     /// <summary>
@@ -180,6 +253,17 @@ public sealed class IterationService(
         }
 
         await workItems.BulkSetIterationAsync(iteration.ProjectId, distinctIds, iteration.Id);
+        if (_events is not NullTrackerEventsService)
+        {
+            var projectKey = (await projects.GetAsync(iteration.ProjectId))?.Key;
+            foreach (var itemId in distinctIds)
+            {
+                var item = byId[itemId];
+                item.IterationId = iteration.Id;
+                item.Version += 1;
+                await _events.EmitWorkItemCommittedAsync(item, iteration.Id, projectKey);
+            }
+        }
         return new CommitIterationItemsResponse(iterationId, distinctIds.Count, distinctIds);
     }
 
@@ -216,6 +300,13 @@ public sealed class IterationService(
             return true;
 
         await workItems.BulkSetIterationAsync(iteration.ProjectId, [workItemId], null);
+        if (_events is not NullTrackerEventsService)
+        {
+            var projectKey = (await projects.GetAsync(iteration.ProjectId))?.Key;
+            item.IterationId = null;
+            item.Version += 1;
+            await _events.EmitWorkItemUncommittedAsync(item, iterationId, projectKey);
+        }
         return true;
     }
 

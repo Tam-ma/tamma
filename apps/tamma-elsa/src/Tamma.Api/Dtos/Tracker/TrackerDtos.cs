@@ -433,6 +433,24 @@ public sealed record BoardResponse(
     [property: JsonPropertyName("foldedColumnCount")] int FoldedColumnCount,
     [property: JsonPropertyName("columns")] IReadOnlyList<BoardColumnResponse> Columns);
 
+/// <summary>GET /api/work-items/{id}/timeline item (Story 44-5 AC7 / D7).</summary>
+public sealed record WorkItemTimelineEventResponse(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("sequenceNumber")] long SequenceNumber,
+    [property: JsonPropertyName("type")] string Type,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("tags")] JsonElement Tags,
+    [property: JsonPropertyName("metadata")] JsonElement Metadata,
+    [property: JsonPropertyName("data")] JsonElement Data);
+
+/// <summary>GET /api/work-items/{id}/timeline envelope (Story 44-5 AC7 / D7).</summary>
+public sealed record WorkItemTimelineResponse(
+    [property: JsonPropertyName("workItemId")] Guid WorkItemId,
+    [property: JsonPropertyName("issueId")] string IssueId,
+    [property: JsonPropertyName("events")] IReadOnlyList<WorkItemTimelineEventResponse> Events,
+    [property: JsonPropertyName("nextCursor")] long? NextCursor,
+    [property: JsonPropertyName("hasMore")] bool HasMore);
+
 /// <summary>POST /api/iterations/{id}/apply-plan body (Story 44-4 AC9).</summary>
 public sealed record ApplySprintPlanRequest(
     [property: JsonPropertyName("documentId")] Guid? DocumentId);

@@ -55,6 +55,8 @@ public class ApplyPlanTests
     private IterationRepository _iterations = null!;
     private WorkItemRepository _workItems = null!;
     private DocumentInstanceRepository _documents = null!;
+    private EventRepository _eventRepo = null!;
+    private TrackerEventsService _trackerEvents = null!;
 
     [OneTimeSetUp]
     public async Task OneTimeSetUp()
@@ -79,6 +81,8 @@ public class ApplyPlanTests
         _iterations = new IterationRepository(_factory, _tenantContext);
         _workItems = new WorkItemRepository(_factory, _tenantContext);
         _documents = new DocumentInstanceRepository(_factory, _tenantContext);
+        _eventRepo = new EventRepository(_factory, _tenantContext);
+        _trackerEvents = new TrackerEventsService(_eventRepo, _tenantContext);
     }
 
     [OneTimeTearDown]
@@ -107,7 +111,9 @@ public class ApplyPlanTests
         _iterations,
         _workItems,
         new DocumentSprintPlanReader(_documents),
-        _tenantContext);
+        _tenantContext,
+        _trackerEvents,
+        _projects);
 
     private Task<ProjectEntity> NewProjectAsync(string key = "TAM") =>
         _projects.CreateAsync(new ProjectEntity { Key = key, Name = key, EstimateScale = "fibonacci" });
@@ -323,10 +329,13 @@ public class ApplyPlanTests
     }
 
     [Test]
-    public async Task Apply_writes_no_domain_event()
+    public async Task Apply_emits_only_iteration_plan_applied_and_no_document_or_task_event()
     {
-        // AC10a / A2: temporary zero-emission pin — domain_events row count delta MUST be 0
-        // across a successful apply-plan (Story 44-5 owns emission and replaces this pin).
+        // Story 44-4 AC10 / A2 handoff -> Story 44-5:
+        // Replaces the temporary 44-4 zero-emission pin with the real behavioural
+        // assertion: a successful apply-plan emits ITERATION.PLAN_APPLIED.SUCCESS
+        // and NOTHING beginning with ordinal prefix "DOCUMENT." or "TASK."
+        // (matching by ordinal prefix, never Contains, so unrelated AGENT.TASK.* is unaffected).
         var project = await NewProjectAsync();
         var iter = await NewIterationAsync(project.Id, "Iter 1");
         var item = await NewItemAsync(project.Id, "item 1");
@@ -343,20 +352,14 @@ public class ApplyPlanTests
             """;
         var doc = await SeedSprintPlanDocAsync(body, DocumentInstanceStatus.Accepted);
 
-        async Task<int> CountDomainEventsAsync()
-        {
-            await using var conn = new NpgsqlConnection(CsFor(_schema));
-            await conn.OpenAsync();
-            await using var cmd = new NpgsqlCommand($"SELECT COUNT(*) FROM {_schema}.domain_events", conn);
-            return Convert.ToInt32(await cmd.ExecuteScalarAsync());
-        }
-
-        var before = await CountDomainEventsAsync();
         await ApplyService().ApplyAsync(iter.Id, doc.Id, CancellationToken.None);
-        var after = await CountDomainEventsAsync();
 
-        (after - before).Should().Be(0,
-            "AC10a: Story 44-4 emits no domain_events; Story 44-5 owns tracker emission and replaces this pin");
+        var emitted = await _eventRepo.QueryAsync(_tenantId, type: null, issueNumber: null, limit: 100);
+        emitted.Select(e => e.Type).Should().Equal([IterationEvents.PlanApplied]);
+        emitted.Should().NotContain(e => e.Type.StartsWith("DOCUMENT.", StringComparison.Ordinal),
+            "44-4 D9: apply-plan is a tracker mutation, never a document-lifecycle write");
+        emitted.Should().NotContain(e => e.Type.StartsWith("TASK.", StringComparison.Ordinal),
+            "44-4 D9 / 41-6 AC3 correction: sprint commitment never raises a Task-View event");
     }
 
     [Test]

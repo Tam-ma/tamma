@@ -58,6 +58,16 @@ public sealed record WorkItemPage(
     IReadOnlyDictionary<Guid, WorkItemChildRollup>? Rollups = null);
 
 /// <summary>
+/// Story 44-5 AC7 — keyset-paged chronological DCB event stream for one work item.
+/// </summary>
+public sealed record WorkItemTimelinePage(
+    Guid WorkItemId,
+    string IssueId,
+    IReadOnlyList<DomainEvent> Events,
+    long? NextCursor,
+    bool HasMore);
+
+/// <summary>
 /// Story 44-2 — the tracker's application service: vocabulary validation at the
 /// wire boundary (fail-loud typed <c>TammaError</c>, never a DB CHECK
 /// surprise), the tri-state PATCH application (AC3), estimate/scale coherence
@@ -135,6 +145,14 @@ public interface ITrackerService
 
     /// <summary>Children of a work item — the 409 body of a blocked delete (plan D11).</summary>
     Task<IReadOnlyList<WorkItemEntity>> ChildrenAsync(Guid id, int limit);
+
+    /// <summary>
+    /// Story 44-5 AC7 / D7 — chronological DCB timeline for one work item's
+    /// <c>issueId</c> (including foreign <c>DOCUMENT.*</c>, <c>APPROVAL.*</c>,
+    /// and <c>ESCALATION.*</c> families), keyset-paged on <c>SequenceNumber</c>.
+    /// Returns <c>null</c> when the work item does not exist.
+    /// </summary>
+    Task<WorkItemTimelinePage?> GetWorkItemTimelineAsync(Guid id, long? cursor, int limit);
 
     // ─────── Preferences — the ONE paired, never-joined surface (AC5/AC8) ────
 

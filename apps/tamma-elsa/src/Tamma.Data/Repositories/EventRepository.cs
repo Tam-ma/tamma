@@ -113,6 +113,38 @@ public class EventRepository(
         return evt;
     }
 
+    /// <inheritdoc />
+    public async Task<DomainEvent> AppendInTransactionAsync(TenantDbContext db, DomainEvent evt)
+    {
+        ArgumentNullException.ThrowIfNull(db);
+        ArgumentNullException.ThrowIfNull(evt);
+
+        evt.CreatedAt = DateTime.UtcNow;
+        var tid = evt.TenantId ?? tenantContext.TenantId
+            ?? throw new InvalidOperationException(
+                "EventRepository.AppendInTransactionAsync requires a tenant id.");
+        evt.TenantId = tid;
+
+        if (evt.Id != Guid.Empty)
+        {
+            var exists = await db.DomainEvents.AsNoTracking()
+                .IgnoreQueryFilters()
+                .AnyAsync(e => e.Id == evt.Id);
+            if (exists) return evt;
+        }
+
+        db.DomainEvents.Add(evt);
+        try
+        {
+            await db.SaveChangesAsync();
+        }
+        catch (DbUpdateException ex) when (evt.Id != Guid.Empty && IsUniqueViolation(ex))
+        {
+            db.Entry(evt).State = EntityState.Detached;
+        }
+        return evt;
+    }
+
     private static bool IsUniqueViolation(DbUpdateException ex) =>
         ex.InnerException is PostgresException pg &&
         pg.SqlState == PostgresErrorCodes.UniqueViolation;

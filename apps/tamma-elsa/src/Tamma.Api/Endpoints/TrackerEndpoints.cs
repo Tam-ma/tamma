@@ -543,6 +543,50 @@ public static class TrackerEndpoints
     }
 
     /// <summary>
+    /// Story 44-5 AC7 / D7 — return the chronological DCB event stream for one
+    /// work item's <c>issueId</c> (including foreign <c>DOCUMENT.*</c>,
+    /// <c>APPROVAL.*</c>, and <c>ESCALATION.*</c> families), cursor-paged on
+    /// <see cref="DomainEvent.SequenceNumber"/>.
+    /// </summary>
+    public static async Task<IResult> GetTimeline(
+        Guid id,
+        long? cursor,
+        int? limit,
+        ITrackerService tracker)
+    {
+        try
+        {
+            var page = await tracker.GetWorkItemTimelineAsync(id, cursor, limit ?? 50);
+            if (page is null)
+                return NotFound("work item", id);
+
+            return Results.Ok(new WorkItemTimelineResponse(
+                page.WorkItemId,
+                page.IssueId,
+                page.Events.Select(e => new WorkItemTimelineEventResponse(
+                    e.Id,
+                    e.SequenceNumber,
+                    e.Type,
+                    e.CreatedAt,
+                    ParseJsonObject(e.Tags),
+                    ParseJsonObject(e.Metadata),
+                    ParseJsonObject(e.Data))).ToList(),
+                page.NextCursor,
+                page.HasMore));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    private static JsonElement ParseJsonObject(string? json)
+    {
+        using var doc = JsonDocument.Parse(string.IsNullOrWhiteSpace(json) ? "{}" : json);
+        return doc.RootElement.Clone();
+    }
+
+    /// <summary>
     /// Story 44-3 AC7/AC8 — apply an accepted <c>BacklogOrdering</c> document to
     /// a project's backlog order in one idempotent transaction.
     /// </summary>

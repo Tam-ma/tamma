@@ -1453,6 +1453,7 @@ public class TrackerEndpointsTests
         public Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion) => inner.SetWorkItemStatusAsync(id, statusWire, ifMatchVersion);
         public Task<WorkItemEntity?> AssignWorkItemAsync(Guid id, Guid? assigneeUserId, int? ifMatchVersion) => inner.AssignWorkItemAsync(id, assigneeUserId, ifMatchVersion);
         public Task<bool> DeleteWorkItemAsync(Guid id, int? ifMatchVersion) => inner.DeleteWorkItemAsync(id, ifMatchVersion);
+        public Task<WorkItemTimelinePage?> GetWorkItemTimelineAsync(Guid id, long? cursor, int limit) => inner.GetWorkItemTimelineAsync(id, cursor, limit);
         public Task<ResolvedTrackerPreferences> GetPreferencesAsync(Guid? userId) => inner.GetPreferencesAsync(userId);
         public Task<ResolvedTrackerPreferences> GetPreferencesForTenantAsync(Guid tenantId) => inner.GetPreferencesForTenantAsync(tenantId);
         public Task<ResolvedTrackerPreferences> UpsertPreferencesAsync(Guid? userId, UpsertTrackerPreferencesRequest request, Guid? actingUserId, int? ifMatchVersion = null) => inner.UpsertPreferencesAsync(userId, request, actingUserId, ifMatchVersion);

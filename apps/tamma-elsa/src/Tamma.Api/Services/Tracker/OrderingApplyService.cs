@@ -19,8 +19,11 @@ public sealed class OrderingApplyService(
     IProjectRepository projects,
     IWorkItemRepository workItems,
     IBacklogOrderingReader orderingReader,
-    ITenantContext tenantContext)
+    ITenantContext tenantContext,
+    ITrackerEventsService? events = null)
 {
+    private readonly ITrackerEventsService _events = events ?? NullTrackerEventsService.Instance;
+
     public const string OutcomeApplied = ApplyOutcomeCodes.Applied;
     public const string OutcomeNotFound = ApplyOutcomeCodes.NotFound;
     public const string OutcomeWrongProject = ApplyOutcomeCodes.WrongProject;
@@ -51,7 +54,17 @@ public sealed class OrderingApplyService(
         }
 
         // AC7 / D6: enforces DocumentType == "backlog-ordering" and Status == "accepted" (409).
-        var view = await orderingReader.ReadAcceptedAsync(tid, documentId, ct);
+        BacklogOrderingView view;
+        try
+        {
+            view = await orderingReader.ReadAcceptedAsync(tid, documentId, ct);
+        }
+        catch (TammaError te)
+        {
+            if (_events is not NullTrackerEventsService)
+                await _events.EmitOrderingApplyFailedAsync(project, documentId, te.Code, te.Message);
+            throw;
+        }
 
         // AC7 / D6b#3: ALWAYS order by BacklogItem.Rank (1-based int), NEVER array position.
         var sortedEntries = view.Entries
@@ -127,9 +140,6 @@ public sealed class OrderingApplyService(
                 delta.Add((item.Id, desired));
         }
 
-        if (delta.Count > 0)
-            await workItems.BulkSetRanksAsync(projectId, delta);
-
         var appliedCount = 0;
         var notFoundCount = 0;
         var wrongProjectCount = 0;
@@ -156,6 +166,18 @@ public sealed class OrderingApplyService(
                     break;
             }
         }
+
+        // Story 44-5 AC6 / D6: WORKITEM.ORDERING_APPLIED.SUCCESS emits INSIDE the
+        // bulk-rank write transaction so an audit failure rolls back the rank updates.
+        Func<TenantDbContext, Task>? beforeCommit = _events is NullTrackerEventsService
+            ? null
+            : db => _events.EmitOrderingAppliedAsync(
+                project, view.DocumentId, view.Revision,
+                appliedCount, notFoundCount, wrongProjectCount,
+                transactionDb: db);
+
+        if (delta.Count > 0 || beforeCommit is not null)
+            await workItems.BulkSetRanksAsync(projectId, delta, beforeCommit);
 
         return new ApplyOrderingResponse(
             view.DocumentId,
