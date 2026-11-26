@@ -7,21 +7,13 @@ else. The buildable plans are:
 - **[`implementation-plan-42-8a.md`](./implementation-plan-42-8a.md)** — Feature-Flag / Config-Toggle Tool
 - **[`implementation-plan-42-8b.md`](./implementation-plan-42-8b.md)** — Deploy-Control Tool
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** The split index's own text — the "share no
-implementation" table and the sequencing note — survives **unchanged**; the reconciliation validated it
-rather than disturbing it. Three consequences ripple through from the halves:
-
-| Area | Reconciled |
-|---|---|
-| The index's comparison row **"Class discriminator — environment (prod vs non-prod) resolved from the binding / target (prod vs staging) + verb"** | 42-2 is **deleted**, so there is no binding. Both halves now resolve their declared set from **deployment configuration** (42-8A D3, 42-8B D3), and the *classification* half is gone entirely — Epic 43's catalog owns it. The **containment** half (the model picks a key from a closed declared set; undeclared is refused) survives in both. |
-| The index's implicit assumption that both halves carry gating code | **Neither does.** Gating sections are stripped from both; Epic 43's Seam B governs them with zero bespoke code in either half. |
-| Nothing in the index anticipated it | **42-8B's Scope 4 / AC7 is DELETED** — the requirement that the always-escalate class bind independently of the dial and of the tool grant. Epic 43 §5 absorbs `AlwaysEscalate` as an `AlwaysHuman` floor composed with `max()`. See 42-8B's plan, D6/U1. |
-
-The index's central argument is **strengthened**, not weakened: the two halves now share even less. Post-
-reconciliation their only common ground is the Wave-1 envelope (42-1 / 42-4 / 42-5) that every family
-inherits anyway, plus — for 42-8B alone — the `WaitForToolOperationActivity` shared with **42-7**.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas across the split index
+(`42-8-feature-flag-deploy-control-tools.md`) and both half stories (`42-8A` and `42-8B`, including
+deletion of 42-8B Scope 4 / AC7, stripping gating sections, and carrying the `ConfigJson` open
+question) have been applied directly to the story files; the story files and these plans now agree with
+zero residual deltas.
 
 ## Scope & Deliverable
 

@@ -428,10 +428,24 @@ Shipping the mechanism switched off behind a "≥30 days of `WOULD_BLOCK` teleme
 
 **Seam A never blocks, in every version.** A `RequiresHuman` returned at the llm-call endpoint reaches a `DispatchWorkflow` whose **calling workflow has no human route in 44 of 45 cases** — escalation into a void, a workflow that suspends with nobody able to resume it. And blocking there *and* at Seam E would double-gate deploy: the deployment pipeline dispatches `llm-call` for the deploy stage *and* has a prod-approval decision. Agent-action enforcement lives **only at Seam E**, where a real human wait exists. This is pinned by a test, not by a comment.
 
-**Seam B: one call site, and its position is load-bearing three ways.** In `InlineToolLoopRunner.cs`:
-- **After** the `if (_toolCallValidator != null)` block **closes** (`:260` opens, closes at `:281`) — the validator **rewrites `tc.ArgumentsJson` at `:271`**, so gating before it would gate un-sanitized arguments.
-- **Before** `executableToolCalls` is computed (`:330`) and therefore before the `EnableParallelTools` fork (`:335`). `EnableParallelTools` defaults **`false`** (`LlmCallModels.cs:500`), so a gate on the parallel branch alone would govern **nothing** in the default configuration.
-- **NOT nested inside `if (_toolCallValidator != null)`.** Every `InlineToolLoopRunner` constructor dependency is optional-nullable (`:45-55`: `logger`, `httpClientFactory`, `configuration`, `sanitizer`, `toolRegistry = null`, `toolCallValidator = null`, `contextCompactor = null`, `eventEmitter = null`, `parallelExecutor = null`, `credentialResolver = null`). Nesting the gate inside that block would make the gate **absent exactly whenever the validator is absent**. `IAutonomyGate` is therefore a **required** constructor parameter.
+**Seam B: one call site, and its position is load-bearing three ways.** *(Siting analysis and
+effective-ceiling insight transplanted from superseded Epic 42 Story 42-3, with credit — preserved per
+Story 43-10 AC10.)*
+
+- **Why Seam B is NOT a resolve-time advertisement filter (42-3's effective-ceiling insight):** an
+  earlier Epic 42 draft proposed filtering `ManagedAgent.ToResolvedTools` against a tool's worst-case
+  risk/permission class (e.g., excluding any tool capable of a `Destructive` operation). Because every
+  Wave-3 write executor (`cloud_resource_write`, `feature_flag_write`, `deploy_control`, `http_request`)
+  has a destructive ceiling across its verbs, filtering on the raw max class would withhold the tool
+  from the model entirely — the model would never emit a call, the invocation-time gate would never
+  fire, and every Wave-3 write capability would be silently unreachable. Seam B therefore evaluates at
+  **invocation time** (never hiding tools by raw max class; see also Out of Scope →
+  `ManagedAgent.ToResolvedTools` filtering), where the concrete call and its arguments actually exist.
+- **Why Seam B sits at one shared call site in `InlineToolLoopRunner.cs` (42-3's two-stage siting
+  analysis):**
+  - **After** the `if (_toolCallValidator != null)` block **closes** (`:260` opens, closes at `:281`) — the validator **rewrites `tc.ArgumentsJson` at `:271`**, so gating before it would gate un-sanitized arguments.
+  - **Before** `executableToolCalls` is computed (`:330`) and therefore before the `EnableParallelTools` fork (`:335`). `EnableParallelTools` defaults **`false`** (`LlmCallModels.cs:500`), so a gate on the parallel branch alone would govern **nothing** in the default configuration.
+  - **NOT nested inside `if (_toolCallValidator != null)`.** Every `InlineToolLoopRunner` constructor dependency is optional-nullable (`:45-55`: `logger`, `httpClientFactory`, `configuration`, `sanitizer`, `toolRegistry = null`, `toolCallValidator = null`, `contextCompactor = null`, `eventEmitter = null`, `parallelExecutor = null`, `credentialResolver = null`). Nesting the gate inside that block would make the gate **absent exactly whenever the validator is absent**. `IAutonomyGate` is therefore a **required** constructor parameter.
 
 A denial becomes a `rejectedToolCalls[tc.Id]` entry, which the machinery at `:299-325` **already** turns into a tool-result message fed back to the LLM. **Zero new plumbing, no exception, no new failure code.** The outcome is named **`Denied`, not `RequiresHuman`** — there is no human on this path, and calling it escalation would be a lie.
 

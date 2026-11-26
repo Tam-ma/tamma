@@ -28,9 +28,10 @@ would ship the epic with a documented hole from day one — a live, ungoverned M
   bypassing `IToolExecutor`, `ToolExecutorRegistry`, `ToolCallValidator`, `ParallelToolExecutor` and
   any audit. It currently dead-ends (see below), so reconciling it is a **deletion**; reconciling it
   after someone wires an MCP client into the sidecar bundle is a **migration**.
-- **Part B — the governed MCP catalog. P1 / Wave 2.** The dynamic-tool path that makes the catalog
-  extensible without shipping a class per tool. Depends on the full Wave-1 envelope (42-1–42-5) and
-  proves a non-native tool obeys it.
+- **Part B — the governed MCP catalog. P1 / Wave 2 (⛔ BLOCKED on the MCP catalog-binding fork — see
+  Part B §2).** The dynamic-tool path that makes the catalog extensible without shipping a class per
+  tool. Depends on the Wave-1 envelope (42-1, 42-4, 42-5) and Epic 43's Action Catalog + Seam B, and
+  proves a non-native tool obeys them.
 
 ## The gap (READ FIRST)
 
@@ -148,9 +149,9 @@ Per the resolution above it is **deleted outright**, when Part B lands.
 `McpInvokeRequest` DTO, and the two tests that pin them
 (`Tamma.Api.Tests/KnowledgeBase/IntelligenceHttpClientTests.cs` L251, L259) — that is the complete
 call graph. *Decision — retire, not re-gate:* re-gating means
-threading the registry, `ToolCallValidator`, the 42-3 gate and 42-5 audit through a KB-admin proxy
-route to reach a sidecar that holds no client. Part B provides the governed path; a second entry point
-earns nothing. **Also** remove or repoint the dashboard's MCP tool panel (`mcpApi.listTools` /
+threading the registry, `ToolCallValidator`, Epic 43's Seam B gate, and 42-5 audit through a KB-admin
+proxy route to reach a sidecar that holds no client. Part B provides the governed path; a second entry
+point earns nothing. **Also** remove or repoint the dashboard's MCP tool panel (`mcpApi.listTools` /
 `mcpApi.invokeTool` and their `useMCPServers` call sites) — those calls 404 today, so this is cleanup,
 not a behaviour change.
 
@@ -201,32 +202,55 @@ Only the 42-1 contract types the adapter implements (`IToolExecutor`, `ToolDescr
    `InlineToolLoopRunner` L267 runs every LLM-returned call through that validator before execution, and
    there is no colon-tolerant second path.* Double underscore is legal and collision-safe.
 
-   **The 64-char budget is a hard registration-time constraint**, enforced twice: the validator regex
-   and `tool_bindings.ToolName`'s `HasMaxLength(64)` (42-2 §1c) — an unbindable tool is an ungovernable
-   tool. `"mcp__" + server + "__" + tool` must fit 64, i.e. server + tool ≤ 57 chars. Reject an
+   **The 64-char budget is a hard registration-time constraint**, enforced by `ToolCallValidator`'s
+   regex and by this story's registration-time check (which is now load-bearing: 42-2 was superseded by
+   Epic 43 and deleted, and Epic 43's `ActionKey` carries no separate 64-char DB column cap).
+   `"mcp__" + server + "__" + tool` must fit 64, i.e. server + tool ≤ 57 chars. Reject an
    overflowing name **at registration** with a typed, loud error; never truncate (truncation collides).
    Registry lookup is `OrdinalIgnoreCase` (`ToolExecutorRegistry.cs` L19), so normalize the composed
    name to lower-case and reject a case-insensitive collision at registration too.
 
-2. **Governance is mandatory, deny-by-default.** An MCP tool arrives with **no** permission class or
-   autonomy floor. Its `ToolDescriptor.Category = Mcp` and it inherits 42-1's fail-safe default
-   (`Destructive`, floor 100, deny-by-default) **until an operator/tenant_admin classifies it** via the
-   42-2 binding store (`Enabled`, `AllowedRoles`, `AutonomyFloor`, `SecretBindingName`). A freshly
-   registered MCP tool is **inert until explicitly granted** — never auto-trusted. (Epic Open Question 1
-   asks whether MCP tools may instead default to `ReadOnly`; this story assumes the deny default until
-   that is answered.)
+2. **Governance: catalog-binding prerequisite — AND the unresolved design fork (⛔ BLOCKS PART B).**
+   *(Reconciled against Epic 43: 42-1 no longer carries a fail-safe governance default and 42-2 / 42-3
+   were superseded and deleted; governance is owned by Epic 43's Action Catalog and Seam B.)*
+
+   - **Prerequisite (answers Epic 42 Open Question 1 as *deny at registration*):** an MCP tool entering
+     the registry **must resolve to an Epic 43 catalog entry**; an unclassified MCP tool is **rejected
+     at registration** with a loud, typed error and never enters `ToolExecutorRegistry`. Deny-by-default
+     is therefore stricter than entering-but-inert: an unclassified tool cannot register at all.
+   - **⛔ Unresolved design fork — this prerequisite may be unimplementable as specified.** Epic 43's
+     own README states, under *Drift prevention → Holes the mechanisms honestly cannot close*:
+     > *"MCP is one coarse member with no drift signal. Adding a server, or a tool on an existing server,
+     > changes nothing in the catalog."*
+     
+     A per-MCP-tool catalog binding requires per-tool catalog **members**, which Epic 43's catalog does
+     not have and which no CI drift harness can verify (an MCP server's tool list lives in another
+     process). Accordingly, "resolve to a catalog entry" forces an unstated fork between two incompatible
+     designs:
+     1. **Coarse-member binding:** every `mcp__<server>__<tool>` resolves to the single coarse
+        `effect:mcp.tool.invoke` member (which Story 43-5 currently maps `mcp__*` onto and ships at
+        `AlwaysHuman`). That binding governs nothing finer than a blanket on/off switch over all MCP
+        servers and tools — making the per-tool "prerequisite" ceremonial.
+     2. **Dynamically-minted catalog members:** registering an MCP server mints new catalog entries at
+        runtime. That makes Epic 43's catalog **open** and breaks the closed-vocabulary premise the
+        entire epic rests on (including Story 43-2's count pins and keyset-equality sweeps).
+
+     **Part B is explicitly BLOCKED until this fork is resolved** (recorded in `docs/stories/epic-42/README.md`
+     Open Design Questions; entangled with Epic 42 Open Question 2 on tenant-scoped MCP servers and Epic
+     43 Open Question 1 — the same product question from two directions).
 
 3. **Secret binding + audit, unchanged.** An MCP tool that needs a credential binds through 42-4
-   (`SecretBindingName` → `SecretRef`); its calls emit the 42-5 `TOOL.*` DCB family with the same
-   redaction. The MCP server's own auth (if any) is a bound secret like any other. Nothing about MCP
-   bypasses the envelope — that is the whole point of Part A.
+   (`SecretRequirement` → `SecretRef`); its calls emit the 42-5 `TOOL.*` invocation trio with the same
+   redaction, while governance decisions emit Epic 43's `ACTION.GATE.*`. The MCP server's own auth (if
+   any) is a bound secret like any other. Nothing about MCP bypasses the envelope — that is the whole
+   point of Part A.
 
 4. **Registration surface + tenancy.** Config-driven server registration
    (`Mcp:Servers:<name>:{ Endpoint, Transport, AuthSecretName }`) plus a management endpoint. **Tenancy
    (epic Open Question 2):** in SaaS, decide whether a `tenant_admin` may register a tenant-scoped MCP
    server or whether the MCP allowlist is platform-owned. This story implements the **platform-owned**
    path first — and it *must*, because 42-1 ships `Register`/`Unregister` as **platform/deployment scope
-   only** and rejects a principal-bound registration outright (42-1 §3, AC7) until the per-principal
+   only** and rejects a principal-bound registration outright (42-1 §3, AC4) until the per-principal
    registry *view* lands. That view is 42-6's to build if per-tenant MCP is chosen; it is also what
    finally gives the 39-5 D6 principal-bound-tool pattern a delivery path into `InlineToolLoopRunner`.
 
@@ -246,7 +270,7 @@ A2. `IIntelligenceHttpClient` exposes no MCP tool member: a reflection test asse
 A3. The six surviving `/api/kb/mcp/*` admin routes still respond as before (regression test), and the
     dashboard has no remaining `mcpApi.invokeTool` / `mcpApi.listTools` call site.
 
-**Part B**
+**Part B** *(blocked on the MCP catalog-binding fork in §2)*
 
 B1. A configured MCP server's tools are discovered and registered as `McpToolExecutor`s visible via
     `GetAll`/`GetExecutor` under `mcp__<server>__<tool>` (integration test against a stub MCP server).
@@ -259,27 +283,33 @@ B3. A server+tool pair whose composed name exceeds 64 chars, or that collides ca
     (test asserts both the rejection and the absence).
 B4. An MCP tool executes end-to-end through both `InlineToolLoopRunner` branches and maps
     success/protocol-error/timeout to `ToolExecutionResult` **without throwing** (three cases).
-B5. A newly registered MCP tool is **deny-by-default** — absent from the agent's resolved set until
-    classified via a 42-2 binding; granting a binding makes it eligible (test drives both states).
+B5. **Catalog-binding prerequisite (deny at registration) — blocked on the §2 fork.** An MCP tool that
+    does not resolve to a catalog entry under the chosen fork resolution is **rejected at registration**
+    with a typed error and never appears in `GetAll`; a tool that resolves to its catalog entry enters
+    the registry and is governed by Epic 43's assignment ladder (test drives both states).
 B6. An MCP tool with a bound secret authenticates via 42-4 and emits redacted 42-5 `TOOL.*` events; the
     test asserts the secret value appears in no emitted event, no `ToolExecutionResult.Output`, and no
     log line.
 B7. Removing a server `Unregister`s its tools: `GetExecutor` returns null and `GetAll` omits them, with
     no dangling executor left resolvable (test).
-B8. A `Destructive`-classified MCP tool is routed to 42-3's stage-2 invocation-time authorization
-    exactly like a native destructive tool — no `ExecuteAsync` before an `Authorize` decision (test).
+B8. **Seam B parity.** An MCP tool executes through Epic 43's **Seam B** (`InlineToolLoopRunner`
+    autonomy gate) identically to a native `IToolExecutor`: when its resolved catalog entry requires a
+    level above the current dial (or `AlwaysHuman`), Seam B rejects the call into `rejectedToolCalls`
+    with **zero** `ExecuteAsync` invocations and emits `ACTION.GATE.DENIED` (asserted on both execution
+    branches).
 
 ## Events
 
-Reuses 42-5's `TOOL.*` family for invocation. Adds `TOOL.MCP_SERVER_REGISTERED` /
-`TOOL.MCP_SERVER_REMOVED` (server name + tool count, **no auth secret**) for the catalog-change audit.
-Part A emits nothing — it deletes a surface.
+Reuses 42-5's `TOOL.*` family for invocation; governance decisions emit Epic 43's `ACTION.GATE.*`.
+Adds `TOOL.MCP_SERVER_REGISTERED` / `TOOL.MCP_SERVER_REMOVED` (server name + tool count, **no auth
+secret**) for the catalog-change audit. Part A emits nothing — it deletes a surface.
 
 ## Single-user vs SaaS
 
-- **single-user:** the sole user registers MCP servers; tools classified against the user's
-  `tool_bindings` rows (`user_id`-keyed). A bound MCP credential is a **platform-scoped** `SecretRef`
-  (42-4 — there is no user scope; ownership is `SecretMetadata.OwnerUserId`, metadata not scope).
+- **single-user:** the sole user registers MCP servers; tool governance resolves against the user's
+  Epic 43 `action_assignments` rows (Story 43-5). A bound MCP credential is a **platform-scoped**
+  `SecretRef` (42-4 — there is no user scope; ownership is `SecretMetadata.OwnerUserId`, metadata not
+  scope).
 - **SaaS:** platform-owned MCP allowlist in this story (forced by 42-1's platform-only `Register`);
   per-tenant MCP registration needs the per-principal registry view and is the documented follow-on
   (Open Question 2). Either way an MCP tool's secret is tenant-scoped and its calls are tenant-tagged
@@ -289,9 +319,16 @@ Part A emits nothing — it deletes a surface.
 
 - **Part A: none.** It touches only `Program.cs` route mapping, `KbEndpoints`, `IIntelligenceHttpClient`
   and the dashboard KB panel. It can land before 42-1.
-- **Part B:** **42-1** (dynamic `Register`/`Unregister`, `ToolCategory.Mcp`, deny-by-default descriptor,
-  and the platform-only registration constraint), **42-2** (bindings), **42-3** (two-stage gating),
-  **42-4** (secret binding), **42-5** (audit) — the full envelope MCP tools inherit.
+- **Part B:**
+  - **⛔ BLOCKED on resolving the MCP catalog-binding fork (§2)** — coarse `effect:mcp.tool.invoke`
+    binding vs dynamically-minted catalog members (entangled with Epic 42 Open Question 2 and Epic 43
+    Open Question 1). Do not start Part B implementation until this product/architecture fork is
+    decided.
+  - **Epic 43 (Action Catalog + Storage + Seam B)** — Stories 43-2, 43-3, 43-5, and 43-9 supply the
+    catalog, assignment ladder, and Seam B gate MCP tools inherit. *(42-2 and 42-3 were superseded by
+    Epic 43 and deleted.)*
+  - **42-1** (dynamic `Register`/`Unregister`, `ToolDescriptor(RequiredSecret, Suspends)`, and the
+    platform-only registration constraint), **42-4** (secret binding), **42-5** (invocation audit).
 - **The MCP client was a §0 decision, not an external given — and §0 is now decided.** *Corrected: an
   earlier draft listed "External: an MCP client library / SDK for the chosen transport" as if the choice
   were made; it then was not, and as of 2026-07-30 it is.* The options were port `packages/mcp-client/`

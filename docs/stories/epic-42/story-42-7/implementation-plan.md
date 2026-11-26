@@ -1,23 +1,12 @@
 # Implementation Plan — Story 42-7: Cloud / VPS Resource Operations Tool
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** The verdict for 42-7 (with 42-8A / 42-8B / 42-9)
-is **"Gating sections stripped. They declare capability and secrets; the catalog governs them."** The
-deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| §2's per-call `PermissionClass` column and the `ToolInvocationFacts Describe(string argumentsJson)` seam | **STRIPPED.** `Describe` was 42-3's seam; 42-3 is deleted and nothing consumes `ToolInvocationFacts`. Epic 43's **Seam B** gates one call site in the shared tool-loop path, keyed on an `ActionKey` derived from the tool name — not on per-call facts. `ToolPermissionClass` no longer exists (42-1 is rewritten; `ToolDescriptor` is now `(RequiredSecret, Suspends)`). |
-| §2's **read/write executor split** (`cloud_resource_read` cannot reach a mutating provider method) | **KEPT — it is a capability boundary, not a gate.** Two registered executors, with the read half physically unable to mutate, is the part of §2 that survives and is arguably the more valuable half: it holds no matter how the catalog is configured. |
-| AC1's `ReadOnly`/floor 70 and `Destructive`/floor 100 descriptor values | **STRIPPED** — no class, no floor. AC1 becomes: two executors registered, each declaring `SecretRequirement(ApiKey, "cloud/<provider>-token", Required)`; `cloud_resource_read` `Suspends = false`, `cloud_resource_write` `Suspends = true`. |
-| AC3 (`Describe` table-driven test), AC4 (`ToolAuthorizationRequired` + `ToolAuthorizationRequest`), AC5 (target-bound single-use authorization), AC9 (the 42-3 decision id in the `TOOL.*` row) | **STRIPPED.** All four are 42-3 machinery. AC9's *lineage* intent survives in reduced form: the `TOOL.*` row carries `provider`/`operation`/`resourceId`/`operationHandle` (42-5's tags), and any authorizing-actor id is Epic 43's to add in its own event family. |
-| The "Stage-1 filter vs. max-class descriptor" risk | **Gone.** It was a risk about 42-3's stage-1 filter. Epic 43 records the same insight (transplanted into its Seam B analysis, with credit) and resolves it there. |
-| §3's secret binding, §4's handle-not-suspend design, §5's audit, §1's provider abstraction | **All unchanged.** These are the capability, and they are the story. |
-
-**Net:** 42-7 becomes a *capability* story — provider abstraction, one reference driver, the read/write
-split, secret binding, the engine-side wait, and audit. Governance is declared by an Epic 43 catalog entry
-and enforced at Seam B, with **zero bespoke code here**.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict (stripping gating sections, `Describe`, and 42-3 references while preserving the read/write
+capability split, provider abstraction, secret binding, engine-side wait, and `TOOL.*` audit) have been
+applied directly to `42-7-cloud-vps-resource-tool.md`; the story file and this plan now agree with zero
+residual deltas.
 
 ## Scope & Deliverable
 

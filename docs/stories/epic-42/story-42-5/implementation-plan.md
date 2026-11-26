@@ -1,23 +1,12 @@
 # Implementation Plan — Story 42-5: Tool-Use DCB Audit
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** 42-5's verdict is **"Narrowed — keeps the
-invocation trio; loses the governance events (Epic 43 owns one event family) and its dependency on
-`InlineToolLoopResult.ToolCalls`, which is documented as always empty."** The deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| Scope §1's payload: `TOOL.INVOKED` carries `toolName, permissionClass, autonomyAtCall, toolCallId, argsRedacted` | **`permissionClass` and `autonomyAtCall` are dropped.** `PermissionClass` no longer exists — 42-1 is rewritten and `ToolDescriptor` is now `(RequiredSecret, Suspends)`. `autonomyAtCall` is a governance datum belonging to Epic 43's single event family; reading the dial here would be a second consumer of a value Epic 43 Story 1 is still turning into one constant. Tags become `toolName` + `toolCallId` (D3). |
-| Scope §1's parenthetical routing `TOOL.RESOLVED`/`DENIED`/`ESCALATED`/`AUTHORIZED` to 42-3 and `TOOL.BINDING_*` to 42-2 | **42-2 and 42-3 are DELETED.** Those events do not exist and are not this story's to reference. Epic 43 owns **one** governance event family, emitted at its own seams. This story owns the **invocation trio and nothing else**. |
-| **Scope §5** — "it must also **populate `InlineToolLoopResult.ToolCalls`** … so 32-6's `EmitTrailToolCallsAsync` stops being structurally dead" | **DELETED.** The reconciliation removes this story's dependency on that field. Verified as documented-always-empty at `IInlineToolLoopRunner.cs:133-134` (*"Empty in the verbatim extraction (the loop tracks a count only); populated by a follow-on"*) and `:112-114`. Reviving `AGENT.TOOL_CALL.*` is a second durable tool-call family alongside `TOOL.*` — exactly the duplication the reconciliation exists to remove. The **documentation** half of §5 survives as D6. |
-| **AC8** — "`ToolCalls` is populated for both branches, and a run that executes N tools produces N `AGENT.TOOL_CALL.*` rows" | **DELETED** with Scope §5. |
-| Dependencies: "**42-1** — `PermissionClass` for the tag, `RequiredSecret` for the field-suppression set" | `PermissionClass` is gone. `RequiredSecret` is still useful for field suppression but **not required** — pattern redaction covers a tool with no descriptor. **42-1 is downgraded from a blocker to a soft enhancement** (D7), so this story can land in parallel with it. |
-| Dependencies: "**Wave 0.5 cleanup** — the two independently-sourced allowlists … 42-3 owns reconciling them" | 42-3 is deleted. The two allowlists (`InlineToolLoopRunner.cs:262-263` vs `:342`/`:419`) still both produce rejections, and **nobody owns reconciling them**. Epic 43's Seam B lands on this same path and its README notes the existing fail-open allowlists stay. Recorded as **G1**; this story audits whichever rejection fires and does not reconcile them. |
-
-**Unchanged and still in scope:** the trio itself, the both-branches hook requirement, the direct
-`IEventRepository` append in `Tamma.Api`, the `issueId` threading fix, the redaction rule, and the
-never-fail-the-run posture.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict (dropping `permissionClass`/`autonomyAtCall`, pointing governance events at `ACTION.GATE.*`,
+deleting Scope §5's `ToolCalls` population + AC8, and downgrading 42-1 to a soft enhancement) have been
+applied directly to `42-5-tool-use-dcb-audit.md`; the story file and this plan now agree with zero
+residual deltas.
 
 ## Scope & Deliverable
 

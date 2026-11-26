@@ -1,25 +1,13 @@
 # Implementation Plan — Story 42-9: Authenticated HTTP / External-API Tool
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** The verdict for 42-9 (with 42-7 / 42-8A / 42-8B) is
-**"Gating sections stripped. They declare capability and secrets; the catalog governs them."** 42-9 is the
-family **most** disturbed by the reconciliation, because the deleted 42-2 was not merely its policy source —
-it was its *destination* source. The deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| §2's per-call `PermissionClass` table and `ToolInvocationFacts Describe(string argumentsJson)` | **STRIPPED.** 42-3 is deleted; nothing consumes `ToolInvocationFacts`. `ToolPermissionClass` no longer exists (42-1 rewritten; `ToolDescriptor` is `(RequiredSecret, Suspends)`). Epic 43's **Seam B** gates on an `ActionKey` derived from the tool name. |
-| **§1 / §2 / Dependencies — "the 42-2 binding's `ConfigJson` carries base URI, host-suffix allowlist, method allowlist, auth mode, header-name allowlist, request/response caps and the `destructive` marker. Without it this tool has no destination and no class."** | **42-2 is DELETED and Epic 43's `action_assignments` stores policy only** — a threshold plus three nullable columns, no config blob. So the story's own warning has come true: **as written, this tool has no destination.** Resolved by **D2**: endpoint bindings move to deployment configuration (`IOptions`), platform-scoped and startup-validated. **This is the largest single reconciliation delta in Epic 42** and it changes what the story can promise in SaaS — see **G1**. |
-| AC1's `Destructive` / floor 100 descriptor | **STRIPPED.** AC1 becomes: `HttpRequestTool` registered, `Suspends = false`, declaring `SecretRequirement(ApiKey, "http/<endpoint-key>", Required)`. |
-| AC2 (`Describe` table), AC3 (`ToolAuthorizationRequired` + `ToolAuthorizationRequest`), AC6's "42-3 decision id" | **STRIPPED.** |
-| **S11.3** — "a binding may set `destructive: true` purely to force human review of its *content*: the `ToolAuthorizationRequest` then carries the redacted body, and a test asserts an operator sees it before the send" | **STRIPPED** — there is no `ToolAuthorizationRequest`. Epic 43's Seam B outcome is named `Denied`, **not** `RequiresHuman`, precisely because *"there is no human on that path and calling it escalation would be a lie."* So the content-review affordance S11 relied on **does not exist**, and S11's residual widens. See **T2** — this is an honesty correction, not a scope cut. |
-| The "Stage-1 filter vs. max-class descriptor" risk (called "the hardest dependency here") | **Gone.** Epic 43 records the same insight in its Seam B analysis, with credit. |
-
-**Unchanged and still the bulk of the work:** the entire **S1–S10 SSRF / egress containment matrix**, the
-`JiraBaseUrlGuard` extraction with its two deliberate divergences, response caps and timeouts, and the
-by-value credential scrubbing. Those were always ~80% of this story and the reconciliation did not touch
-them.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict — including stripping gating sections, `Describe`, and S11.3's human-content-review clause
+(noting why S11's residual widens), keeping the full S1–S10 SSRF/egress containment matrix and by-value
+scrubbing, and carrying the `ConfigJson` open question — have been applied directly to
+`42-9-authenticated-http-external-api-tool.md`; the story file and this plan now agree with zero
+residual deltas.
 
 ## Scope & Deliverable
 

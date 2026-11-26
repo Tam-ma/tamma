@@ -1,21 +1,11 @@
 # Implementation Plan — Story 42-4: Tool Credential / Secret Binding
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** 42-4's verdict is **"Unchanged"** — its own scope
-survives intact. But **two of its four named dependencies were deleted**, so parts of the story text now
-point at nothing. The deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| §1 / Dependencies: "42-2's binding may override the logical `Name` (`secret_binding_name`)" | **42-2 is DELETED.** There is no `tool_bindings` table and no per-principal secret-name override. The logical name comes from the descriptor's `SecretRequirement.Name` **only**. Epic 43's `action_assignments` stores policy (`MinAutonomy`, `Enforce`, `Enabled`, `AllowedRoles`) — **it has no `secret_binding_name` and no `ConfigJson`** — so nothing replaces it. Recorded as **G1** below, because it is a real capability gap, not a simplification. |
-| §1: "A `Required` secret that does not resolve is a loud, typed 'capability unconfigured' failure at resolve time (**42-3 surfaces it**)" | **42-3 is DELETED.** There is no resolve-time pre-screen. The failure now surfaces at **invocation time**, inside `ExecuteAsync`, as `ToolExecutionResult { Success = false }` — which is the correct place anyway (§3's "fetched immediately before the external call"). D3 rewrites the mechanism; the guarantee (never an unauthenticated call) is unchanged. |
-| AC6: "the tool is **not offered to the agent** and the step routes human-assigned" | **No mechanism exists to un-offer a tool.** That was 42-3 stage 1. Epic 43's Seam B is an invocation-time gate keyed on an `ActionKey`, not a resolve-time filter, and it does not consult secret availability. **AC6 is rewritten** (D6) to what is actually testable: a fail-closed `ToolExecutionResult`, one `TOOL.FAILED` row, no vendor call, no crash. The "route human-assigned" half is filed to Epic 43. |
-| §4 / AC5: "appends a DCB `TOOL.SECRET_ACCESSED` event" | **Kept.** The reconciliation moved the *governance* events (`TOOL.RESOLVED`/`DENIED`/`ESCALATED`/`AUTHORIZED`) to Epic 43's single event family; `TOOL.SECRET_ACCESSED` is a secret-access record, not a governance decision, and is explicitly retained as 42-4's in the verdict for 42-5. |
-
-**Unchanged and still in scope:** everything else — `IToolSecretProvider` in `Tamma.Api`, per-mode
-`SecretRef` construction, never-hold + tag projection, the by-value-at-`ExecuteAsync`/pattern-after-it
-redaction split, and the `ISecretAccessAuditor` no-op dependency.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict (including the `ConfigJson` open question and AC6's invocation-time fail-closed wording) have
+been applied directly to `42-4-tool-credential-secret-binding.md`; the story file and this plan now
+agree with zero residual deltas.
 
 ## Scope & Deliverable
 

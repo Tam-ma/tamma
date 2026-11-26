@@ -1,26 +1,10 @@
 # Implementation Plan — Story 42-1: Tool Contract & Registry Evolution
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25** (`docs/stories/epic-42/README.md`, the boxed
-verdict table at the head of its Stories section; `docs/stories/epic-43/README.md`;
-`.dev/decisions/epic-43-action-catalog-design.md`). 42-1's verdict is **"Rewritten"**. The story file below
-this plan is pre-reconciliation text. The deltas, each traceable to a verdict line:
-
-| Story file says | Reconciled |
-|---|---|
-| `ToolDescriptor(Category, PermissionClass, AutonomyFloor, RequiredSecret, Suspends)` | **`ToolDescriptor(RequiredSecret, Suspends)`.** `Category`, `PermissionClass` and `AutonomyFloor` are **dropped** — Epic 43's catalog owns all three (`ActionNamespace.Tool` keyed by `ToolAction` wire; one `MinAutonomy` integer per action per principal). |
-| `enum ToolCategory`, `enum ToolPermissionClass` | **Not introduced.** They are Epic 43 vocabulary. |
-| §1's **default interface member** returning the fail-safe `(Native, Destructive, 100, null, false)`, plus its three caveats (DIM invisible through a concrete reference; `Mock<IToolExecutor>` returns `null`; `Type.GetInterfaceMap` needed to distinguish declared-from-inherited) | **All dropped.** With `PermissionClass`/`AutonomyFloor` gone there is no governance tier left to fail safe *to* — the remaining fields are a nullable secret requirement and a `false` flag, so "deny-by-default" has no meaning. `Descriptor` becomes a **plain abstract interface member** (D2), which is compiler-enforced and deletes the entire DIM caveat surface along with story AC2, AC4 and most of AC8. |
-| §2's annotation table (per-tool `PermissionClass` + `AutonomyFloor`) | Reduced to the two surviving fields. All seven tools declare `RequiredSecret = null`, `Suspends = false` — the six built-ins touch only the local repo/git/shell, and `get_acceptance_rules` reads in-process. The table becomes trivial; **that is the point** — the interesting per-tool governance moved to the catalog. |
-| §4 — thread `Descriptor` onto `ResolvedTool` "so 42-3 can read `PermissionClass`/`AutonomyFloor`" | **42-3 is deleted**, so that consumer does not exist. Narrowed to D6: no descriptor is threaded onto `ResolvedTool`. The genuine defect §4 uncovered — `ToResolvedTools` advertises **name-only** tools — is handed to **Epic 43 Story 4** ("Tool-vocabulary reconciliation + startup validator"), which already owns the advertised-tool-set surface and correctly classifies fixing it as *a privilege expansion, not a cleanup*. |
-| §5 / AC10 — delete or fix `ResolveToolsActivity` | **Handed to Epic 43 Story 0**, which states it "deletes a dead tool-resolution activity with zero callers (a third dead tool vocabulary)". Kept here only as a precondition to verify, not as work to do. |
-| AC5 — `AutonomyFloor` validated to `[70,100]` at registration | **Dropped.** Epic 43 D3 is explicit that no story may hardcode the dial bound a second time, and names Story 42-1's `AutonomyFloor` as one of the two specs that would have. |
-| Dependencies "Unblocks: 42-2 … 42-3 …" | 42-2 and 42-3 are **deleted**. Surviving dependents: 42-4 (`RequiredSecret`), 42-5, 42-6 Part B (`Register`/`Unregister`), 42-7/8A/8B/9 (`Suspends`). |
-
-**Unchanged and still in scope:** §0's `SecretPurpose` relocation, `SecretRequirement`, `Suspends` with its
-load-bearing "an executor cannot suspend a workflow" wording, and §3's dynamic `Register`/`Unregister` seam
-with its platform-only constraint (AC7).
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict have been applied directly to `42-1-tool-contract-registry-evolution.md`; the story file and
+this plan now agree with zero residual deltas.
 
 ## Scope & Deliverable
 

@@ -12,24 +12,28 @@ Then check the knowledge base: `.dev/spikes/`, `.dev/bugs/`, `.dev/findings/`, `
 
 ## User Story
 
-As the **platform**, I want every tool to **declare its governance** — category, permission class,
-autonomy floor, required secret, and whether it suspends — and I want the registry to accept **dynamic
-registration**, so that a tool carries the metadata needed to gate, secure, and audit it, and the
-catalog can grow per deployment and via MCP without a code change per tool.
+As the **platform**, I want every tool to **declare its capability metadata** — required secret and
+whether completion is owned by an engine-side wait (`Suspends`) — and I want the registry to accept
+**dynamic registration**, so that external-touching tools can bind credentials and long operations
+safely, and the catalog can grow per deployment and via MCP without a code change per tool. Governance
+(risk classification, autonomy thresholds, per-principal overrides, and enforcement) lives in **Epic 43
+(The Action Catalog)**, not on `ToolDescriptor`.
 
 ## Priority
 
-P0 / Wave 0 — **the contract every other Epic 42 story builds on.** No gating (42-3), secret binding
-(42-4), audit (42-5), MCP path (42-6), or tool family (42-7/8/9) can exist until a tool can *declare*
-what it is and the registry can hold tools added at runtime.
+P0 / Wave 0 — **the contract every other Epic 42 story builds on.** Secret binding (42-4), MCP dynamic
+registration (42-6 Part B), and the tool families (42-7/8A/8B/9) build on a tool declaring its
+`SecretRequirement` and `Suspends` flag and on the registry holding tools added at runtime. (42-5 audit
+can land in parallel — `RequiredSecret` field suppression is a soft enhancement.)
 
 ## The gap (READ FIRST)
 
 `IToolExecutor` (`Tamma.Activities/LlmCall/Tools/IToolExecutor.cs`, namespace
 `Tamma.Activities.LlmCall.Tools`) is `{ ToolName, Description, InputSchema, ExecuteAsync }` and **must
-never throw** (all failure is `ToolExecutionResult { Success = false }`). It carries **no governance
-metadata** — nothing says who may call the tool, at what autonomy, what credential it needs, or how
-destructive it is.
+never throw** (all failure is `ToolExecutionResult { Success = false }`). It carries **no capability
+metadata** — nothing says what credential the tool needs or whether completion is owned by an
+engine-side wait. (Per-action risk, autonomy thresholds, and enforcement are owned by Epic 43's Action
+Catalog rather than by `IToolExecutor`.)
 
 `ToolExecutorRegistry` (`ToolExecutorRegistry.cs` L14–39) is populated **once** in its constructor from
 `IEnumerable<IToolExecutor>` injected by DI. `IToolExecutorRegistry` (L7–29) exposes only read paths —
@@ -82,15 +86,11 @@ Anything the `IToolExecutor` surface names must therefore live in `Tamma.Core`, 
 
 1. **`ToolDescriptor` on the executor surface.** Introduce `ToolDescriptor` in
    `namespace Tamma.Activities.LlmCall.Tools` (alongside `IToolExecutor`) and surface it via a new
-   `ToolDescriptor Descriptor { get; }` member declared as a C# **default interface member** returning
-   the fail-safe default.
+   **plain abstract** `ToolDescriptor Descriptor { get; }` member on `IToolExecutor`.
 
    ```csharp
    // namespace Tamma.Activities.LlmCall.Tools
    using Tamma.Core.Enums;            // SecretPurpose, after Scope §0
-
-   public enum ToolCategory { Native, Mcp, ProviderAbstracted }
-   public enum ToolPermissionClass { ReadOnly, Mutating, Command, Destructive }
 
    public sealed record SecretRequirement(
        SecretPurpose Purpose,   // Epic 29 taxonomy, relocated to Tamma.Core by §0
@@ -98,9 +98,6 @@ Anything the `IToolExecutor` surface names must therefore live in `Tamma.Core`, 
        bool Required);          // hard-fail vs. best-effort
 
    public sealed record ToolDescriptor(
-       ToolCategory Category,
-       ToolPermissionClass PermissionClass,  // the family MAXIMUM over its operations
-       int AutonomyFloor,                    // 70–100
        SecretRequirement? RequiredSecret,
        bool Suspends);                       // completion is owned by an engine-side wait
    ```
@@ -115,54 +112,42 @@ Anything the `IToolExecutor` surface names must therefore live in `Tamma.Core`, 
    carries the suspension. Put this on the property's XML doc — an implementer who reads `Suspends`
    as an executor capability will write an AC that cannot be satisfied.
 
-   The **fail-safe default** (returned by the default interface member) is
-   `new ToolDescriptor(Native, Destructive, 100, null, false)` — **deny-by-default**: an un-annotated
-   tool is treated as the most dangerous, never silently granted. `AutonomyFloor` is validated to
-   `[70,100]` at registration, matching `AcceptanceRules.AutonomyLevel`'s existing range check
-   (`AcceptanceRules.cs` L85–86).
+   **`Descriptor` is a plain abstract interface member, not a default interface member (DIM).** An
+   earlier pre-reconciliation draft used a DIM solely to return a deny-by-default governance value
+   composed of `Category`, `PermissionClass`, and `AutonomyFloor`. With those three fields absorbed by
+   Epic 43, the remaining fields (`SecretRequirement?` and `bool Suspends`) have no fail-safe default
+   to fall back to — a tool either needs a specific secret or none, and either suspends or not. Making
+   `Descriptor` a plain abstract member is strictly stronger: every `IToolExecutor` implementer must
+   declare one or fail to compile, eliminating the entire DIM caveat surface (concrete-reference
+   invisibility, `Mock<IToolExecutor>` returning `null`, and `Type.GetInterfaceMap` reflection checks).
 
-   **`PermissionClass` is the family MAXIMUM over the tool's operations — define it that way here.**
-   A tool that exposes several verbs (42-7's `cloud_resource_write`, 42-8A's `feature_flag_write`,
-   42-8B's `deploy_control`, 42-9's `http_request`) declares the most dangerous class any one of them
-   can reach. The *per-call* class comes from 42-3's `ToolInvocationFacts Describe(argumentsJson)`
-   seam. This matters beyond documentation: a consumer that treats the descriptor class as the
-   per-call class and excludes `Destructive` tools from the eligible set would make every Wave-3 write
-   tool unreachable — 42-3 Scope 1 / AC1b pin the correct reading (stage 1 keys on the
-   binding-resolved effective ceiling; `Destructive` is a stage-2 discriminator). Say so on the type's
-   XML doc so the semantics travel with the code, not just with this story.
+   **Superseded by Epic 43 (dropped fields and where each now lives):**
+   - `AutonomyFloor` → **`ActionDescriptor.DefaultMinAutonomy` + `action_assignments.min_autonomy`**
+     (Epic 43 Stories 43-3 / 43-5 / 43-11), validated in one place by `AutonomyDial.IsValidThreshold`
+     (Epic 43 Story 43-1; Epic 43 D3 forbids hardcoding the dial range a second time).
+   - `PermissionClass` (`ToolPermissionClass` is **not introduced**) → **`Tamma.Core/Actions/ActionRisk`**
+     (Epic 43 Story 43-2), member-for-member across the entire action catalog rather than tools alone.
+   - `Category` (`ToolCategory` is **not introduced**) → **the registry's registration path**
+     (DI-seeded built-ins vs dynamic `Register` in `ToolExecutorRegistry`).
 
-   **Why a default interface member (verified sound, with three caveats).** Every implementer is a
-   plain class implementing the interface directly — `FileReadTool` L15, `FileWriteTool` L16,
-   `SearchCodeTool` L15, `GitOperationsTool` L13, `ShellExecuteTool` L14, `RunTestsTool` L13,
-   `GetAcceptanceRulesTool` L27, plus five test fakes in `ParallelToolExecutorTests.cs`. No
-   explicit-interface implementation, no abstract base, no struct/record implementer, and
-   `LangVersion=latest` on `net8.0` supports DIMs — so nothing breaks. The caveats the implementation
-   must handle: (a) a DIM is **not** invocable through a concrete-typed reference, so every read (and
-   every test assertion) must go through an `IToolExecutor`-typed variable; (b) `Mock<IToolExecutor>`
-   proxies implement the DIM and return `default` — i.e. a **null** descriptor, not the deny-by-default
-   one — so the fail-safe cannot be asserted against a mock (see Risks); (c) distinguishing "declared a
-   descriptor" from "inherited the DIM" needs `Type.GetInterfaceMap` reflection, which the drift test
-   in §2 must actually do.
+2. **Annotate the built-ins.** Each of the six DI-registered tools **and** `GetAcceptanceRulesTool`
+   declares an explicit `ToolDescriptor` via the abstract `Descriptor` property:
 
-2. **Annotate the built-ins.** Each of the six DI-registered tools declares a real descriptor:
+   | Tool | RequiredSecret | Suspends |
+   |---|---|---|
+   | `SearchCodeTool` (`search_code`) | `null` | `false` |
+   | `FileReadTool` (`file_read`) | `null` | `false` |
+   | `FileWriteTool` (`file_write`) | `null` | `false` |
+   | `GitOperationsTool` (`git_operations`) | `null` (platform creds resolved elsewhere today) | `false` |
+   | `RunTestsTool` (`run_tests`) | `null` | `false` |
+   | `ShellExecuteTool` (`shell_execute`) | `null` (stays `ActionGate`-gated) | `false` |
+   | `GetAcceptanceRulesTool` (`get_acceptance_rules`) | `null` | `false` |
 
-   | Tool | PermissionClass | AutonomyFloor | RequiredSecret |
-   |---|---|---|---|
-   | `SearchCodeTool` (`search_code`) | `ReadOnly` | 70 | none |
-   | `FileReadTool` (`file_read`) | `ReadOnly` | 70 | none |
-   | `FileWriteTool` (`file_write`) | `Mutating` | 70 | none |
-   | `GitOperationsTool` (`git_operations`) | `Mutating` | 75 | none (platform creds resolved elsewhere today) |
-   | `RunTestsTool` (`run_tests`) | `Mutating` | 70 | none |
-   | `ShellExecuteTool` (`shell_execute`) | `Command` | 85 | none (stays `ActionGate`-gated) |
-
-   **Plus the seventh.** `GetAcceptanceRulesTool` (`get_acceptance_rules`) also declares one —
-   `ReadOnly`, floor 70, no secret. It is a read of the effective acceptance rules; leaving it to
-   inherit `Destructive`/floor 100 would arm a latent trap for the 39-17 host that eventually mounts it.
-   Annotating it is a two-line change and costs nothing. It stays **out of the DI-registered startup
-   drift test** (AC4) because by D6 design it is never DI-registered — an implementer must not widen
-   that test to "all `IToolExecutor` types."
-
-   These floors are defaults, overridable per principal by the 42-2 binding store.
+   The table is intentionally trivial: the six built-ins touch only the local repo/git/shell and
+   `get_acceptance_rules` reads in-process, while per-tool governance (`ActionRisk` and
+   `DefaultMinAutonomy` / `action_assignments.min_autonomy`) lives in Epic 43's Action Catalog.
+   `GetAcceptanceRulesTool` keeps its D6 invariant (principal-bound at construction, **not**
+   DI-registered).
 
 3. **Dynamic registration seam — platform-scoped in this story.** Extend `IToolExecutorRegistry` with
    `Register(IToolExecutor)` / `Unregister(string toolName)` and make `ToolExecutorRegistry`'s backing
@@ -180,90 +165,70 @@ Anything the `IToolExecutor` surface names must therefore live in `Tamma.Core`, 
    only sanctioned way to mount a principal-bound tool. The 42-6 view is what finally gives that pattern
    a delivery path into `InlineToolLoopRunner`.
 
-4. **Descriptor reaches the tool set the LLM actually sees.**
-
-   **Corrected — `ResolveToolsActivity` is not that place.** Earlier drafts said "`ResolveToolsActivity`
-   / `ResolvedTool` already builds the tools array the LLM sees." What that activity actually does:
-   `Tamma.Activities/LlmCall/ResolveToolsActivity.cs` is a `CodeActivity<List<ResolvedTool>>` injecting
-   only `ILogger` + `IConfiguration` (L26–27, ctor L42–48). Per requested name it reads
-   `LlmTools:{provider}:{tool}` (L115) then `LlmTools:{tool}` (L122) from configuration, else falls back
-   to a hard-coded three-case switch — `search_code`, `read_file`, `run_tests` (L161–225). It **never
-   touches `IToolExecutorRegistry` or `IToolExecutor`** (they are not even in its usings), one of its
-   three built-ins (`read_file`) matches no registered tool name (`FileReadTool.ToolName` is
-   `file_read`), and the activity is **referenced nowhere** in `src/`, `tests/`, or `workflows/` — the
-   only other mention in the tree is a doc comment. It is dead code.
-
-   The live path is: `ManagedAgent.ToResolvedTools` (`ManagedAgent.cs` L923–936) builds
-   `new ResolvedTool { Name = n }` from bare names and passes it to `InlineToolLoopRunner.RunAsync`
-   (call site L328); the runner derives the validator allowlist from that list (`InlineToolLoopRunner.cs`
-   L262) and resolves executors via `_toolRegistry.GetExecutor` (L431, sequential) or via
-   `ParallelToolExecutor` (parallel branch, gated at L335 — note `ToolLoopConfig.EnableParallelTools`
-   defaults to **false** at `LlmCallModels.cs` L534, so **sequential is the default path**).
-
-   This story therefore threads the descriptor onto `ResolvedTool` where that list is *really* built —
-   `ToResolvedTools` populates `Description`/`InputSchema`/`Descriptor` from the registry instead of a
-   bare name — so 42-3 can read `PermissionClass`/`AutonomyFloor` at that point. This story only
-   *plumbs* it; 42-3 acts on it. No behavior change to the six built-ins' availability.
-
-5. **Dispose of the dead activity (prerequisite, not optional).** Either delete `ResolveToolsActivity`
-   or fix its `"read_file"` built-in to `"file_read"`. Leaving an unreferenced resolver whose built-in
-   names disagree with the registry guarantees a future implementer wires the wrong surface (42-3's
-   earlier draft did exactly that). Deletion is preferred; if it is kept, it must resolve names through
-   `IToolExecutorRegistry` rather than its own switch.
+4. **Scope hand-offs (what this story does NOT touch).**
+   - **`ResolvedTool` / `ManagedAgent.ToResolvedTools`:** Earlier drafts threaded `Descriptor` onto
+     `ResolvedTool` for 42-3 (now deleted and superseded by Epic 43 Seam B). No descriptor is threaded
+     onto `ResolvedTool` here. The genuine defect found in `ToResolvedTools` (`ManagedAgent.cs`
+     L923–937 — advertising name-only tools) belongs to **Epic 43 Story 43-4** (tool-vocabulary
+     reconciliation and startup validator), which classifies fixing it as a privilege expansion rather
+     than a cleanup. No behavior change to the six built-ins' availability on either the sequential
+     (`ToolLoopConfig.EnableParallelTools` defaults to `false` at `LlmCallModels.cs:500`) or parallel
+     branch.
+   - **`ResolveToolsActivity` (dead code):** Deleting the unreferenced `ResolveToolsActivity` (whose
+     hard-coded `"read_file"` fallback disagreed with `FileReadTool.ToolName == "file_read"`) was
+     handed to and completed by **Epic 43 Story 43-0**. This story treats its absence as a verified
+     precondition, not as work to redo.
 
 ## Acceptance Criteria
 
-1. `SecretPurpose` compiles at `Tamma.Core.Enums.SecretPurpose` with the same **7** members in the same
-   order (a test pins `Enum.GetValues<SecretPurpose>().Length == 7` and the member names); `Tamma.Api`
-   builds with no `Tamma.Api.Services.Secrets.SecretPurpose` left in the tree; `Tamma.Activities.csproj`
-   still references **only** `Tamma.Core` + `Tamma.Data` (no `Tamma.Api` reference is added).
-2. `IToolExecutor.Descriptor` exists as a default interface member returning
-   `ToolDescriptor(Native, Destructive, 100, null, false)`; a regression test declares a bare
-   `IToolExecutor` implementing only the four original members, assigns it to an **`IToolExecutor`-typed
-   variable**, and asserts the descriptor read through that variable is `Destructive`/floor `100`.
-   (The test must use a real class, **not** `Mock<IToolExecutor>` — see AC8.)
-3. All six DI-registered built-ins **and** `GetAcceptanceRulesTool` declare explicit descriptors matching
-   the §2 table; a test asserts each tool's `PermissionClass`/`AutonomyFloor`.
-4. A startup drift test enumerates the DI-registered `IToolExecutor` set and asserts each type
-   **overrides** `Descriptor` (via `Type.GetInterfaceMap`, not by comparing values — a tool that
-   coincidentally declares `Destructive`/100 must still count as declared), failing the boot loudly,
-   matching `PromptFileLoader`'s "refuse to start on a missing cell" posture. The test is scoped to the
-   DI-registered set; a test asserts it does **not** trip on `GetAcceptanceRulesTool`.
-5. `AutonomyFloor` outside `[70,100]` is rejected at registration with a loud error (not clamped).
-6. `IToolExecutorRegistry.Register`/`Unregister` exist; a test registers a tool at runtime, resolves it
+1. `SecretPurpose` compiles at `Tamma.Core.Enums.SecretPurpose` (or lives physically in `Tamma.Core`
+   with no circular reference, per plan D1) with the same **7** members in the same order (a test pins
+   `Enum.GetValues<SecretPurpose>().Length == 7` and the member names); no duplicate enum exists in
+   `Tamma.Api`; `Tamma.Activities.csproj` still references **only** `Tamma.Core` + `Tamma.Data` (no
+   `Tamma.Api` reference is added).
+2. `IToolExecutor.Descriptor` is a **plain abstract** `ToolDescriptor Descriptor { get; }` member where
+   `ToolDescriptor` is `(SecretRequirement? RequiredSecret, bool Suspends)` (neither `ToolCategory` nor
+   `ToolPermissionClass` is introduced). All six DI-registered built-ins **and**
+   `GetAcceptanceRulesTool` declare explicit descriptors matching the §2 table (`RequiredSecret == null`,
+   `Suspends == false`), and `GetAcceptanceRulesTool` remains non-DI-registered per D6.
+3. `IToolExecutorRegistry.Register`/`Unregister` exist; a test registers a tool at runtime, resolves it
    via `GetExecutor`/`GetAll`, unregisters it, and asserts it is gone — with no restart. Concurrent
    `Register`/`GetAll` calls are race-free; a stress test asserts no lost/duplicated entries. A dynamic
    `Register` of a name already present rejects by default (test) and succeeds via
    `Unregister`+`Register` (test).
-7. `Register` **rejects a principal-scoped registration** in this story: a test passes a tool carrying a
-   principal binding (or calls the principal-scoped overload) and asserts a loud, typed failure naming
-   42-6's per-principal view as the sanctioned path. No API exists in this story to register a tool for
-   one user/tenant only.
-8. **The mock hazard is pinned, not merely noted.** A test asserts a `Mock<IToolExecutor>` with no
-   `Descriptor` setup returns **null**
-   (Castle proxies implement the DIM and return `default`), so the three existing fixtures
-   (`ToolExecutorRegistryTests.cs` L23, `InlineToolLoopRunnerTests.cs` L191,
-   `AgenticToolLoopIntegrationTests.cs` L316) must either set the descriptor up or be excluded from
-   deny-by-default assertions. Any registry/runner code that reads a descriptor treats `null` as the
-   fail-safe default, and a test pins that.
-9. `ResolvedTool` carries the descriptor and `ManagedAgent.ToResolvedTools` populates it from the
-   registry; a test asserts a resolved built-in exposes its `PermissionClass`. **No change** to which of
-   the six tools an unrestricted caller sees (back-compat: an empty allowlist still yields all six, on
-   both the sequential and the parallel branch).
-10. `ResolveToolsActivity` is deleted, **or** its built-in name `"read_file"` is corrected to
-    `"file_read"` and it resolves through `IToolExecutorRegistry`; a test asserts no resolver in the tree
-    emits a tool name that `IToolExecutorRegistry.GetExecutor` cannot resolve.
+4. *(Formerly AC7, referenced in §3.)* `Register` **rejects a principal-scoped registration** in this
+   story: a test passes a tool carrying a principal binding (or calls the principal-scoped overload) and
+   asserts a loud, typed failure naming 42-6's per-principal view as the sanctioned path. No API exists
+   in this story to register a tool for one user/tenant only.
+5. **No behavior regression on built-ins.** An unrestricted caller still sees all six DI-registered
+   built-ins on both the sequential (default) and parallel execution branches.
+6. **Precondition check.** `ResolveToolsActivity` remains absent (deleted by Epic 43 Story 43-0) and
+   no tool-resolution helper in the tree emits a built-in name that `IToolExecutorRegistry.GetExecutor`
+   cannot resolve.
+
+*Deleted pre-reconciliation ACs and what replaces each guarantee (Epic 43 Story 43-10 D3):*
+- *Former AC2 (DIM fail-safe regression test)* → **the C# compiler** (`Descriptor` is a plain abstract
+  member; an un-annotated `IToolExecutor` does not compile).
+- *Former AC4 (`Type.GetInterfaceMap` startup drift test)* → **the C# compiler** for declaration
+  presence, plus **Epic 43 Story 43-4's startup validator** (`ActionCatalogStartupValidator`), which
+  enforces catalog binding at boot.
+- *Former AC5 (`AutonomyFloor` `[70,100]` range validation)* → **`AutonomyDial.IsValidThreshold`** in
+  one place (Epic 43 Story 43-1; Epic 43 D3 forbids hardcoding the dial range a second time).
+- *Former AC8 (`Mock<IToolExecutor>` DIM returns-null hazard)* → **nonexistent** — a mock of an
+  interface with an abstract member has no inherited DIM implementation to silently return `default`
+  from.
 
 ## Events
 
-None new in this story (the `TOOL.*` DCB family is 42-5). Registry `Register`/`Unregister` log at
-INFO with the tool name and category (never secrets).
+None new in this story (the `TOOL.*` DCB family is 42-5; governance decisions are Epic 43's
+`ACTION.GATE.*`). Registry `Register`/`Unregister` log at INFO with the tool name (never secrets).
 
 ## Single-user vs SaaS
 
 No principal-scoped behavior here — the descriptor is a **static property of the tool**, identical in
-both modes, and §3 explicitly forbids principal-scoped registration until 42-6. Per-principal
-*overrides* of a tool's floor/enablement are 42-2; per-mode *resolution* is 42-3. This story is
+both modes, and §3 explicitly forbids principal-scoped registration until 42-6. Per-principal policy
+overrides and per-mode governance resolution live in **Epic 43 Story 43-5** (`action_assignments` +
+`IGovernancePrincipalResolver`; 42-2 and 42-3 were superseded and deleted). This story is
 mode-agnostic by construction.
 
 ## Dependencies
@@ -272,32 +237,30 @@ mode-agnostic by construction.
   `Tamma.Api/Services/Secrets/SecretPurpose.cs`, namespace `Tamma.Api.Services.Secrets`, and is
   unreachable from `Tamma.Activities` (which references only `Tamma.Core` + `Tamma.Data`); adding a
   `Tamma.Activities → Tamma.Api` reference is circular because `Tamma.Api.csproj` L78 already references
-  `Tamma.Activities`. Scope §0 relocates it to `Tamma.Core.Enums`. *(Corrected: earlier drafts said only
+  `Tamma.Activities`. Scope §0 relocates it to `Tamma.Core`. *(Corrected: earlier drafts said only
   "exists", which read as "usable here". It is not.)* The same reachability note applies to 42-4, which
   names `SecretRequirement`/`SecretRef` throughout.
 - **Story 39-5 D6** (`GetAcceptanceRulesTool` + factory) — exists; this story annotates the tool and
   preserves the not-DI-registered invariant.
-- **Unblocks:** 42-2 (store keys off descriptor names), 42-3 (reads `PermissionClass`/`AutonomyFloor`),
-  42-4 (reads `RequiredSecret`), 42-5 (tags events with `PermissionClass`), 42-6 (registers via the new
-  seam + owns the per-principal view), 42-7/8/9 (each declares a descriptor).
+- **Epic 43 Stories 43-0 and 43-4** — 43-0 deleted `ResolveToolsActivity`; 43-4 owns catalog binding
+  validation and tool-vocabulary reconciliation.
+- **Unblocks:** 42-4 (`RequiredSecret`), 42-5 (soft enhancement — `RequiredSecret` field suppression),
+  42-6 Part B (`Register`/`Unregister` + per-principal view), 42-7/8A/8B/9 (`ToolDescriptor` and
+  `Suspends`). *(42-2 and 42-3 are superseded by Epic 43 and deleted.)*
 
 ## Risks
 
-- **A null descriptor is not the deny-by-default descriptor.** Mocked executors and any future
-  proxy-based implementer return `null` from the DIM, silently bypassing the fail-safe. Mitigation:
-  every consumer coalesces `null` to the deny-by-default descriptor at the read site, and the
-  deny-by-default guarantee is asserted against **real** implementers (AC2/AC8), never mocks.
-- **Drift test scope creep.** Widening AC4's drift test from "DI-registered tools" to "all
-  `IToolExecutor` implementations" would fail the build on `GetAcceptanceRulesTool` and on the test
-  fakes. AC4 pins the narrow scope with a negative test.
 - **Registry mutability across principals.** The singleton makes any principal-scoped registration a
-  cross-tenant leak. Converted from prose to a testable constraint in AC7: Wave 0 ships
+  cross-tenant leak. Converted from prose to a testable constraint in AC4 (formerly AC7): Wave 0 ships
   platform/deployment scope only; principal scope waits for 42-6's per-principal view.
-- **Descriptors on the parallel branch.** `EnableParallelTools` defaults to `false`, so a change tested
-  only on one branch can pass while the default path is unchanged. AC9 requires both branches.
+- **Parallel vs sequential branch coverage.** `EnableParallelTools` defaults to `false`
+  (`LlmCallModels.cs:500`), so a change tested only on one branch can pass while the default path is
+  unchanged. AC5 requires both branches.
+- **Confusing `Suspends = true` with an executor-side suspend.** An executor runs inside a blocking
+  HTTP call and cannot suspend a workflow; keep the load-bearing XML doc wording from §1 intact so
+  42-7 and 42-8B implementers never attempt an engine bookmark inside `ExecuteAsync`.
 
 ## Estimated Effort
 
-Medium — contract + registry change on the hottest path, plus the `SecretPurpose` relocation (mechanical
-but wide: ~16 `Tamma.Api` files + tests) and the dead-activity cleanup. Heavy on tests, light on new
-surface. ~4–5 days.
+Small–Medium — contract + dynamic registry seam + `SecretPurpose` relocation (no DIM caveats, no
+`ResolvedTool` plumbing, no `ResolveToolsActivity` work). ~2–3 days.

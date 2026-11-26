@@ -57,29 +57,33 @@ Only the 42-1 contract types (`IToolExecutor`, `ToolDescriptor`, `SecretRequirem
    or a runtime-config key, plus one reference driver and a generic seam, mirroring the Git/AI provider
    pattern. The LLM sees one read tool and one write tool; the provider is chosen by config/binding.
 
-2. **Operation granularity — DECIDED: split the family AND report per call.**
+2. **Operation granularity — DECIDED: split the family into read and write executors.**
    *Corrected: an earlier draft said "recommend a read/write split as in 42-7" and left the choice to
-   the implementer via an AC that accepted either. Both halves are now mandatory and separately
-   testable.*
+   the implementer via an AC that accepted either. The split is mandatory and separately testable.*
+   *(Per-call `PermissionClass` and `ToolInvocationFacts Describe(...)` were stripped under Epic 43
+   reconciliation — 42-3 is deleted and Epic 43's Seam B governs tools by catalog `ActionKey` with zero
+   bespoke gating code here.)*
 
-   | Operation | Executor | Per-call `PermissionClass` |
+   | Operation | Executor | Capability boundary |
    |---|---|---|
-   | `get` / `list` | `feature_flag_read` | `ReadOnly` |
-   | `set` on a **non-prod** environment | `feature_flag_write` | `Mutating` |
-   | `set` on a **prod** environment, or any flag the binding marks `kill_switch` | `feature_flag_write` | `Destructive` |
+   | `get` / `list` | `feature_flag_read` | Read-only — exposes only `get`/`list` in `InputSchema`; physically cannot reach `SetAsync` |
+   | `set` | `feature_flag_write` | Mutating — governed by Epic 43's Action Catalog at Seam B |
 
-   - `feature_flag_read` declares `ReadOnly` / floor 70 and exposes only `get`/`list` in its
-     `InputSchema`; it cannot reach `SetAsync`.
-   - `feature_flag_write` implements 42-3's per-call seam
-     `ToolInvocationFacts Describe(string argumentsJson)` → `{ PermissionClass, Operation, Target }`
-     with `Target` = `<environment>:<flagKey>`, so an actor authorizes *this flag in this environment*,
-     not "may flip flags".
+   - `feature_flag_read` exposes only `get`/`list` in its `InputSchema` and rejects any `set` attempt
+     before touching `IFeatureFlagProvider`. This structural boundary holds regardless of how any
+     catalog policy row is configured.
+   - Governance (risk tier, autonomy threshold, and enforcement) lives in Epic 43's Action Catalog
+     (`ActionNamespace.Tool`) and is enforced at Seam B.
 
-3. **Environment is resolved, never asserted by the model.** The prod/non-prod discriminator comes from
-   the **42-2 binding** (`ConfigJson`: the environment map + the `kill_switch` flag list), keyed by an
-   `environmentKey` the model selects from a closed, binding-declared set. An `environmentKey` the
-   binding does not declare, or a flag key absent from the binding's map, is **treated as prod** →
-   `Destructive` (fail-safe), never as non-prod, and never free-text-matched.
+3. **Environment is server-resolved, never asserted by the model.** The model selects an
+   `environmentKey` from a **closed, server-declared set**; an undeclared or missing `environmentKey` is
+   **refused** (`Success = false`, zero provider calls), and any free-text `environment` field supplied
+   by the model is ignored. The pre-reconciliation security rule ("prod-vs-non-prod class resolved from
+   the binding, never asserted by the model") **survives**, re-expressed as a **server-sourced
+   `AutonomyQuery.Target`** (`<resolvedEnvironment>:<flagKey>`, audit input only — never a policy key,
+   per Epic 43 Story 43-9 AC1). *(Story 42-2 was superseded by Epic 43 and deleted; see "Configuration:
+   open question" below for where the environment map, `kill_switch` list, and `sensitive` key list now
+   live.)*
 
 4. **Secret binding.** `SecretRequirement(SecretPurpose.ApiKey, "flags/<provider>", Required)` —
    `SecretPurpose` being the `Tamma.Core`-sited enum 42-1 §0 relocates. Resolved by 42-4 to
@@ -96,57 +100,65 @@ Only the 42-1 contract types (`IToolExecutor`, `ToolDescriptor`, `SecretRequirem
 
 6. **Audit.** Every op emits 42-5 `TOOL.*` tagged `provider` / `flagKey` / `environment` / `operation`
    and, for a `set`, the **previous and new value** (both redacted through the same envelope) so a
-   rollout is reconstructible. Never the credential.
+   rollout is reconstructible. Never the credential. Governance decisions are audited separately by
+   Epic 43's `ACTION.GATE.*` family.
+
+## Configuration: open question
+
+- **What configuration this story needs:** the declared **environment map** (mapping closed
+  `environmentKey` values to prod/non-prod environments), plus the `kill_switch` and `sensitive` flag
+  key lists.
+- **Why it has no store today:** Story 42-2 (`tool_bindings` / `ConfigJson`) was superseded by Epic 43
+  and deleted. Epic 43's `action_assignments` absorbs policy only (thresholds and flags) — deliberately,
+  because it is a governance table and not a settings store.
+- **Interim resolution:** deployment configuration via `IOptions` (platform-scoped, validated fail-loud
+  at startup), which is sufficient for single-user mode and for a single-tenant deployment.
+- **Unresolved product gap (SaaS):** **per-tenant tool configuration in SaaS is genuinely lost and
+  unresolved.** `IOptions` is process-wide, so two tenants cannot configure different flag environments
+  or `sensitive` key lists. Restoring per-tenant configuration requires an explicit product decision
+  before this story is implemented: either introduce a narrow `tool_configuration` table (config only,
+  no policy — explicitly *not* a second governance store) or accept that tool configuration is
+  deployment-scoped in v1. `IOptions` is an interim workaround, **not** a closed answer.
 
 ## Acceptance Criteria
 
-1. Two executors are registered; descriptors read through an **`IToolExecutor`-typed** reference
-   (42-1's DIM caveat): `feature_flag_read` = `ReadOnly` / floor 70 / `Suspends=false`;
-   `feature_flag_write` = `Destructive` (family max) / floor 100 / `Suspends=false`. Both declare
+1. Two executors are registered declaring 42-1's abstract `ToolDescriptor`: `feature_flag_read`
+   (`Suspends = false`) and `feature_flag_write` (`Suspends = false`), both with
    `SecretRequirement(ApiKey, "flags/<provider>", Required)`.
 2. `feature_flag_read` cannot mutate: its `InputSchema` enumerates only `get`/`list`, and an argument
    object naming `set` returns `Success = false` with **zero** calls on a spy `IFeatureFlagProvider`.
-3. `feature_flag_write.Describe(argumentsJson)` is table-driven-tested: a `set` on a
-   binding-declared non-prod environment → `Mutating`; on a binding-declared prod environment →
-   `Destructive`; on a flag listed as `kill_switch` in **any** environment → `Destructive`; and each of
-   {unknown `environmentKey`, missing `environmentKey`, flag key absent from the binding map, malformed
-   JSON} → `Destructive` with `Target` set where derivable and `null` otherwise. `Target` equals
-   `<environment>:<flagKey>`.
-4. The model cannot downgrade the class: a test supplies `"environment": "production"` **and** an
-   `environmentKey` the binding maps to staging, and asserts the class is derived from the binding's
-   mapping alone (the free-text field is not read).
-5. A prod `set` produces **no** `IFeatureFlagProvider.SetAsync` call and terminates the run with
-   `AgentRunFailureCodes.ToolAuthorizationRequired`, the `ToolAuthorizationRequest` carrying
-   `Operation = "set"` and `Target = "<prod-env>:<flagKey>"`. Asserted on **both** execution branches —
-   `EnableParallelTools = false` (the default) and `true`.
-6. Authorization is target-bound and single-use: after an `Authorize` for
-   `(session, feature_flag_write, set, prod:checkout_v2)`, exactly one matching flip executes; a second
-   identical flip re-gates and a flip of `prod:checkout_v3` re-gates.
-7. Provider abstraction holds: a stub `IFeatureFlagProvider` drives `get → set → get` with the
+3. **Containment and server-sourced target.** `feature_flag_write` accepts only an `environmentKey`
+   declared in the closed server configuration; a missing, unknown, or undeclared `environmentKey`
+   returns `Success = false` with **zero** provider calls. A test supplies a free-text
+   `"environment": "staging"` alongside an `environmentKey` mapped to production and asserts the
+   resolved environment and server-sourced `AutonomyQuery.Target` (`<resolvedEnvironment>:<flagKey>`)
+   derive from the server mapping alone (the free-text field is never read).
+4. Provider abstraction holds: a stub `IFeatureFlagProvider` drives `get → set → get` with the
    reference driver **not registered**, and the executors name no concrete vendor type.
-8. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)`, single-user resolves
+5. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)`, single-user resolves
    `SecretRef.ForPlatform(name)`; constructing a `Tenant`-scoped ref with a null tenant id throws; a
    grep-for-value test asserts the credential appears in no `ToolExecutionResult.Output`, no `TOOL.*`
    payload, and no captured log line.
-9. A driver that throws yields `Success = false` + `TOOL.FAILED`; the test asserts `ExecuteAsync`
+6. A driver that throws yields `Success = false` + `TOOL.FAILED`; the test asserts `ExecuteAsync`
    **returns** rather than propagating (never-throw contract).
-10. A `set`'s `TOOL.*` row carries the authorizing actor id and 42-3 decision id when it was gated, and
-    the previous/new value pair in every case.
+7. A `set`'s `TOOL.*` row carries `provider` / `flagKey` / `environment` / `operation` and the
+   previous/new value pair in every case (with wholesale replacement for values over the length cap or
+   matching the configured `sensitive` key list).
 
 ## Events
 
-Reuses 42-5 `TOOL.INVOKED/SUCCEEDED/FAILED` with `flagKey` / `environment` / `operation` tags. No new
-family, and no engine-side emission — everything here runs in `Tamma.Api`, which appends directly to
-`IEventRepository`.
+Reuses 42-5 `TOOL.INVOKED/SUCCEEDED/FAILED` with `flagKey` / `environment` / `operation` tags
+(governance decisions emit Epic 43's `ACTION.GATE.*`). No new family, and no engine-side emission —
+everything here runs in `Tamma.Api`, which appends directly to `IEventRepository`.
 
 ## Single-user vs SaaS
 
 - **single-user:** the sole user's flag credential as a **platform-scoped** secret
-  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; prod authorizations route to the
-  single orchestrator/user.
-- **SaaS:** tenant-scoped credential and tenant-scoped binding (a tenant flips only the flags its
-  `tenant_admin` bound); prod authorizations route to the tenant orchestrator/role, and the
-  authorization bookmark is tenant-folded.
+  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; gating resolves against the user's
+  Epic 43 `action_assignments` rows.
+- **SaaS:** tenant-scoped credential (`SecretRef.ForTenant(runTenantId, …)`); gating resolves against
+  the tenant's Epic 43 `action_assignments` rows and platform ceiling. *(Per-tenant environment maps
+  are currently lost with 42-2's `ConfigJson` — see "Configuration: open question" above.)*
 
 ## Epic 41 consumers
 
@@ -155,12 +167,13 @@ family, and no engine-side emission — everything here runs in `Tamma.Api`, whi
 
 ## Dependencies
 
-- **42-1** — `ToolDescriptor`; the `Tamma.Core`-sited `SecretPurpose` (§0). DIM caveats apply:
-  read descriptors through an `IToolExecutor`-typed reference; a mocked executor returns **null**.
-- **42-2** — the binding's `ConfigJson` carries the environment map and the `kill_switch` list; without
-  it §3's fail-safe degrades to "everything is prod", which is safe but unusable.
-- **42-3** — `Describe` + stage-2 argument-bound authorization on both branches, the
-  `ToolAuthorizationRequired` code, and the engine-side gate.
+- **Product decision (blocking before implementation):** resolve the `ConfigJson` open question above
+  (narrow `tool_configuration` table vs deployment-scoped `IOptions` in v1).
+- **42-1** — `ToolDescriptor(RequiredSecret, Suspends)`; the `Tamma.Core`-sited `SecretPurpose` (§0).
+- **Epic 43 (Action Catalog + Seam B)** — owns risk classification, autonomy thresholds, per-principal
+  assignments, and enforcement for `feature_flag_read` / `feature_flag_write`. *(42-2 and 42-3 were
+  superseded by Epic 43 and deleted; 42-3's siting analysis and effective-ceiling insight were
+  transplanted into Epic 43 Story 43-9.)*
 - **42-4** — credential binding. *Corrected: an earlier draft called this "hard-blocked on the Epic 29
   reveal path". It is not — four runtime plaintext readers already ship and 42-4 generalizes them. The
   residual dependency is a non-null `ISecretAccessAuditor`; only `NullSecretAccessAuditor` is
@@ -172,23 +185,17 @@ family, and no engine-side emission — everything here runs in `Tamma.Api`, whi
 
 ## Risks
 
-- **Stage-1 filter vs. max-class descriptor — settled in 42-3, and a hard prerequisite here.**
-  `feature_flag_write`'s max **is** `Destructive`, so a stage-1 filter reading the raw descriptor max
-  would never hand it to the agent and stage 2 would never fire. 42-3 Scope 1 now keys stage 1 on the
-  **binding-resolved effective ceiling**, with `Destructive` as a stage-2 discriminator and a
-  max-class tool with a non-empty ceiling still offered (42-3 AC1b). Treat that as a prerequisite:
-  if it is reverted, this family is unreachable.
-- **Environment mislabelling.** A flag whose binding maps it to the wrong environment escapes the gate.
-  Mitigation: unknown/absent → prod (§3, AC3), and the binding is `tenant_admin`-owned and audited by
-  42-2, not model-supplied.
+- **Environment mislabelling.** A flag whose configuration maps it to the wrong environment escapes
+  operator intent. Mitigation: undeclared/missing keys are refused before any provider call (§3, AC3),
+  and the environment map is server-configured, never model-supplied.
 - **Flag values can carry secrets.** A config-toggle provider stores arbitrary strings; the
-  previous/new value pair in AC10 can therefore contain a credential. It must ride the 42-4/42-5
+  previous/new value pair in AC7 can therefore contain a credential. It must ride the 42-4/42-5
   redaction envelope, and note honestly that `ToolOutputHelper.RedactSecrets` is **pattern-based**
   (`sk-`, `AKIA`, `gh?_`, `glpat-`, `xox?-`, JWT, PEM, `Password=`) — an arbitrary value is not matched.
-  Values above a configured length, or on a binding-declared `sensitive` key list, must be replaced
+  Values above a configured length, or on the configured `sensitive` key list, must be replaced
   wholesale rather than pattern-scrubbed.
 
 ## Estimated Effort
 
-Medium. ~4–5 days — one provider abstraction + reference driver, the read/write split, `Describe`, the
-binding-driven environment resolution, and the gating/redaction test matrix. No engine-side work.
+Medium. ~4 days — one provider abstraction + reference driver, the read/write split, closed
+environment-map containment, and the redaction/audit test matrix. No engine-side work.
