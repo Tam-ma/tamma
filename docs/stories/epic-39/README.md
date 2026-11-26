@@ -166,7 +166,7 @@ lineage, which is also what re-entry reads to resume from the latest state.
 
 | Story | Title | Priority | Status | Est. Effort |
 |-------|-------|----------|--------|-------------|
-| 39-1 | Workflow I/O & Lifecycle Audit (consumes/produces map, gap analysis) | P0 | drafted | 3-4 days |
+| 39-1 | [Workflow I/O & Lifecycle Audit (consumes/produces map, gap analysis)](../../../.dev/findings/epic-39-workflow-io-lifecycle-audit.md) | P0 | done | 3-4 days |
 | 39-2 | Document Core — Envelope, Type Registry, Lineage, Drift Tests | P0 | drafted | 4-5 days |
 | 39-3 | Document Types Batch 1 — Decomposition, Findings, AmbiguityAssessment, Clarification | P0 | drafted | 4-5 days |
 | 39-4 | Document Types Batch 2 — Plan, Design, Review (unified), TriageDecision, Diagnosis, TestSpec | P0 | drafted | 5-6 days |
