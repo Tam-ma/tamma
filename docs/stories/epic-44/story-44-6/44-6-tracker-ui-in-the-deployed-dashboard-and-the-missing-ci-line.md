@@ -1,6 +1,6 @@
 # Story 44-6: Tracker UI in `packages/dashboard` — List, Board, Detail — and the Missing CI Test Line
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
