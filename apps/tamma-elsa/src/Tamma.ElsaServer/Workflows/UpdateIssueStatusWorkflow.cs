@@ -54,8 +54,13 @@ public class UpdateIssueStatusWorkflow : WorkflowBase
         var prUrlVar = builder.WithVariable<string>("PrUrl", "").Persisted();
         var addLabelsVar = builder.WithVariable<string[]>("AddLabels", Array.Empty<string>()).Persisted();
         var removeLabelsVar = builder.WithVariable<string[]>("RemoveLabels", Array.Empty<string>()).Persisted();
+        // Story 44-7 AC8 / Step 12 — native tracker branch inputs (optional; absent = platform-issue path).
+        var workItemSourceVar = builder.WithVariable<string>("WorkItemSource", "").Persisted();
+        var workItemKeyVar = builder.WithVariable<string>("WorkItemKey", "").Persisted();
+        var targetStatusVar = builder.WithVariable<string>("TargetStatus", "").Persisted();
 
         var updatedVar = builder.WithVariable<bool>("Updated", false).Persisted();
+        var noOpVar = builder.WithVariable<bool>("NoOp", false).Persisted();
         var errorCodeVar = builder.WithVariable<string>("ErrorCode", "").Persisted();
         var errorVar = builder.WithVariable<string>("Error", "").Persisted();
         var startedAtTicksVar = builder.WithVariable<long>("StartedAtTicks", 0).Persisted();
@@ -77,11 +82,39 @@ public class UpdateIssueStatusWorkflow : WorkflowBase
                 prUrlVar.Set(ctx, ctx.GetInput<string>("prUrl") ?? "");
                 addLabelsVar.Set(ctx, ctx.GetInput<string[]>("addLabels") ?? Array.Empty<string>());
                 removeLabelsVar.Set(ctx, ctx.GetInput<string[]>("removeLabels") ?? Array.Empty<string>());
+                workItemSourceVar.Set(ctx, ctx.GetInput<string>("workItemSource") ?? "");
+                workItemKeyVar.Set(ctx, ctx.GetInput<string>("workItemKey") ?? "");
+                targetStatusVar.Set(ctx, ctx.GetInput<string>("targetStatus") ?? "");
                 startedAtTicksVar.Set(ctx, DateTime.UtcNow.Ticks);
                 return (object)repo;
             })
         };
         readInputs.SetDisplayText("Read Inputs");
+
+        // ================================================================
+        // 1b. Route by WorkItem.Source (Story 44-7 AC8 / Step 12)
+        // ================================================================
+        var routeBySource = new FlowDecision(ctx =>
+            string.Equals(workItemSourceVar.Get(ctx), "tracker", StringComparison.Ordinal))
+        {
+            Id = "IsTrackerWorkItem",
+            Name = "Is Tracker Work Item?",
+        };
+        routeBySource.SetDisplayText("Is Tracker Work Item?");
+
+        var updateWorkItem = new UpdateWorkItemStatusActivity
+        {
+            Id = "UpdateWorkItem", Name = "Update Work Item",
+            WorkItemKey = new Input<string>(ctx => workItemKeyVar.Get(ctx)),
+            TargetStatus = new Input<string>(ctx => targetStatusVar.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantIdVar.Get(ctx)),
+            Actor = new Input<string>(_ => "loop"),
+            Updated = new Output<bool>(updatedVar),
+            NoOp = new Output<bool>(noOpVar),
+            ErrorCode = new Output<string?>(errorCodeVar),
+            Error = new Output<string?>(errorVar),
+        };
+        updateWorkItem.SetDisplayText("Update Work Item");
 
         // ================================================================
         // 2. Update the issue (outcome-bearing — Updated / Failed)
@@ -175,21 +208,25 @@ public class UpdateIssueStatusWorkflow : WorkflowBase
             Start = readInputs,
             Activities =
             {
-                readInputs, updateIssue,
+                readInputs, routeBySource, updateIssue, updateWorkItem,
                 emitSuccess, successOutputs,
                 failureOutputs, emitFailed, finish,
             },
             Connections =
             {
-                Connect(readInputs, updateIssue),
+                Connect(readInputs, routeBySource),
+                ConnectOutcome(routeBySource, "False", updateIssue),
+                ConnectOutcome(routeBySource, "True", updateWorkItem),
 
-                // Updated → success path
+                // Updated → success path (both platform-issue and native tracker branches)
                 ConnectOutcome(updateIssue, "Updated", emitSuccess),
+                ConnectOutcome(updateWorkItem, "Updated", emitSuccess),
                 Connect(emitSuccess, successOutputs),
                 Connect(successOutputs, finish),
 
                 // Failed → explicit failure path (NO fall-through to success)
                 ConnectOutcome(updateIssue, "Failed", failureOutputs),
+                ConnectOutcome(updateWorkItem, "Failed", failureOutputs),
                 Connect(failureOutputs, emitFailed),
                 Connect(emitFailed, finish),
             }

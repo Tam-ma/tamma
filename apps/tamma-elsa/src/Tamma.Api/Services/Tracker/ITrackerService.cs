@@ -137,7 +137,7 @@ public interface ITrackerService
 
     Task<WorkItemEntity?> PatchWorkItemAsync(Guid id, PatchWorkItemRequest request, int? ifMatchVersion);
 
-    Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion);
+    Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion, string? actor = null);
 
     Task<WorkItemEntity?> AssignWorkItemAsync(Guid id, Guid? assigneeUserId, int? ifMatchVersion);
 

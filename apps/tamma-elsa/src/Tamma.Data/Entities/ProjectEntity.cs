@@ -57,6 +57,12 @@ public class ProjectEntity
     public DateTime CreatedAt { get; set; }
     public DateTime UpdatedAt { get; set; }
 
+    /// <summary>
+    /// Story 44-7 AC7/AC8 (D6/D7) — autonomous-loop intake &amp; status write-back
+    /// gate (<c>off | assist | auto</c>, default <c>off</c>).
+    /// </summary>
+    public string AutomationMode { get; set; } = "off";
+
     /// <summary>Optimistic-concurrency counter, bumped on every write (44-2's ETag).</summary>
     public int Version { get; set; } = 1;
 }

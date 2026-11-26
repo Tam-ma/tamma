@@ -1450,7 +1450,7 @@ public class TrackerEndpointsTests
         public Task<WorkItemPage> ListWorkItemsAsync(WorkItemListQuery query, Guid? viewerUserId) => inner.ListWorkItemsAsync(query, viewerUserId);
         public Task<WorkItemEntity> CreateWorkItemAsync(CreateWorkItemRequest request, Guid? createdByUserId) => inner.CreateWorkItemAsync(request, createdByUserId);
         public Task<WorkItemEntity?> PatchWorkItemAsync(Guid id, PatchWorkItemRequest request, int? ifMatchVersion) => inner.PatchWorkItemAsync(id, request, ifMatchVersion);
-        public Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion) => inner.SetWorkItemStatusAsync(id, statusWire, ifMatchVersion);
+        public Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion, string? actor = null) => inner.SetWorkItemStatusAsync(id, statusWire, ifMatchVersion, actor);
         public Task<WorkItemEntity?> AssignWorkItemAsync(Guid id, Guid? assigneeUserId, int? ifMatchVersion) => inner.AssignWorkItemAsync(id, assigneeUserId, ifMatchVersion);
         public Task<bool> DeleteWorkItemAsync(Guid id, int? ifMatchVersion) => inner.DeleteWorkItemAsync(id, ifMatchVersion);
         public Task<WorkItemTimelinePage?> GetWorkItemTimelineAsync(Guid id, long? cursor, int limit) => inner.GetWorkItemTimelineAsync(id, cursor, limit);

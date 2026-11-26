@@ -85,6 +85,7 @@ public class ProjectRepository(
         existing.Description = project.Description;
         existing.RepositoryId = project.RepositoryId;
         existing.EstimateScale = project.EstimateScale;
+        existing.AutomationMode = project.AutomationMode;
         existing.ArchivedAt = project.ArchivedAt;
         existing.UpdatedAt = DateTime.UtcNow;
         existing.Version += 1;
@@ -165,5 +166,6 @@ public class ProjectRepository(
         // Parse (not TryParse) — an unknown scale is a fail-loud TammaError
         // with code TRACKER.UNKNOWN_ESTIMATE_SCALE, never a DB CHECK surprise.
         _ = EstimateScaleExtensions.Parse(project.EstimateScale);
+        _ = ProjectAutomationModeExtensions.Parse(project.AutomationMode);
     }
 }

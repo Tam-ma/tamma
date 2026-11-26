@@ -62,9 +62,15 @@ public class UpdateIssueStatusWorkflowTests
     // ================================================================
 
     [Test]
-    public void Flow_ReadInputs_Then_UpdateIssue()
+    public void Flow_ReadInputs_Then_SourceBranch_RoutesPlatformAndTracker()
     {
-        HasEdge("ReadInputs", null, "UpdateIssue").Should().BeTrue();
+        HasEdge("ReadInputs", null, "IsTrackerWorkItem").Should().BeTrue();
+        HasEdge("IsTrackerWorkItem", "False", "UpdateIssue").Should().BeTrue(
+            "platform issues route to the existing UpdateIssueStatusActivity");
+        HasEdge("IsTrackerWorkItem", "True", "UpdateWorkItem").Should().BeTrue(
+            "Story 44-7 AC8: native tracker items route to UpdateWorkItemStatusActivity");
+        HasEdge("UpdateWorkItem", "Updated", "EmitSuccess").Should().BeTrue();
+        HasEdge("UpdateWorkItem", "Failed", "FailureOutputs").Should().BeTrue();
     }
 
     // ================================================================

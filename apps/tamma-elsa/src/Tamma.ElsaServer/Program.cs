@@ -375,6 +375,21 @@ builder.Services
     .AddHttpClient("tamma-engine")
     .AddHttpMessageHandler<Tamma.Activities.LlmCall.TammaEngineAuthHandler>();
 
+// Story 44-7 AC3 / D4 — fail-loud keyed work-intake source registry
+// (platform-issue + native tracker). Validated at startup so an unknown
+// Intake:Sources configuration name fails fast rather than at first tick.
+builder.Services.AddSingleton<Tamma.Activities.ADL.IWorkIntakeSource, Tamma.Activities.ADL.PlatformIssueIntakeSource>();
+builder.Services.AddSingleton<Tamma.Activities.ADL.IWorkIntakeSource, Tamma.Activities.ADL.TrackerIntakeSource>();
+builder.Services.AddSingleton<Tamma.Activities.ADL.WorkIntakeSourceRegistry>(sp =>
+{
+    var registry = new Tamma.Activities.ADL.WorkIntakeSourceRegistry(
+        sp.GetServices<Tamma.Activities.ADL.IWorkIntakeSource>());
+    var configured = Tamma.Activities.ADL.WorkIntakeSourceRegistry.ReadConfiguredSourceNames(
+        sp.GetService<IConfiguration>());
+    _ = registry.ResolveConfigured(configured);
+    return registry;
+});
+
 // Wave C.4 §4 — per-process health monitor for TammaApiClient. Singleton
 // so the rolling 5-min window is shared across every call site. Fires
 // PLATFORM.API.UNHEALTHY via IAlertEventEmitter when sustained failures

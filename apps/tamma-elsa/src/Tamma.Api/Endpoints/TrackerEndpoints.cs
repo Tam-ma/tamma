@@ -338,7 +338,7 @@ public static class TrackerEndpoints
             return precondition!;
         try
         {
-            var item = await tracker.SetWorkItemStatusAsync(id, request?.Status!, ifMatch);
+            var item = await tracker.SetWorkItemStatusAsync(id, request?.Status!, ifMatch, request?.Actor);
             if (item is null)
                 return NotFound("work item", id);
             SetETag(http, item.Version);
@@ -941,7 +941,7 @@ public static class TrackerEndpoints
 
     private static ProjectResponse Map(ProjectEntity p) => new(
         p.Id, p.Key, p.Name, p.Description, p.RepositoryId, p.EstimateScale, p.NextNumber,
-        p.ArchivedAt, p.CreatedByUserId, p.CreatedAt, p.UpdatedAt, p.Version);
+        p.ArchivedAt, p.CreatedByUserId, p.CreatedAt, p.UpdatedAt, p.Version, p.AutomationMode);
 
     private static IterationResponse MapIteration(
         IterationEntity i, int? carryOverMovedCount = null, int? carryOverLeftCount = null) => new(

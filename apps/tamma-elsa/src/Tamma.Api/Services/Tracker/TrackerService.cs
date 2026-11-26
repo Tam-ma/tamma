@@ -86,6 +86,8 @@ public sealed class TrackerService(
         // prior value to reset, so this is not the 43-0 defaulting class.
         var scale = request.EstimateScale ?? EstimateScale.NotUsed.ToWire();
         _ = ParseEstimateScale(scale);
+        var automationMode = request.AutomationMode ?? ProjectAutomationMode.Off.ToWire();
+        _ = ProjectAutomationModeExtensions.Parse(automationMode);
 
         var created = await projects.CreateAsync(new ProjectEntity
         {
@@ -94,6 +96,7 @@ public sealed class TrackerService(
             Description = request.Description,
             RepositoryId = request.RepositoryId,
             EstimateScale = scale,
+            AutomationMode = automationMode,
             CreatedByUserId = createdByUserId,
         });
         await _events.EmitProjectCreatedAsync(created, createdByUserId);
@@ -139,6 +142,12 @@ public sealed class TrackerService(
             if (!scale.AllowsEstimate(1m))
                 await RequireNoEstimatedItemsAsync(existing, estimateScale!);
             existing.EstimateScale = estimateScale!;
+        }
+        if (request.AutomationMode.TryGet(out var automationMode))
+        {
+            RequireField(automationMode, "automationMode");
+            _ = ProjectAutomationModeExtensions.Parse(automationMode!);
+            existing.AutomationMode = automationMode!;
         }
         if (request.Archived.TryGet(out var archived))
         {
@@ -400,7 +409,8 @@ public sealed class TrackerService(
     }
 
     /// <inheritdoc />
-    public async Task<WorkItemEntity?> SetWorkItemStatusAsync(Guid id, string statusWire, int? ifMatchVersion)
+    public async Task<WorkItemEntity?> SetWorkItemStatusAsync(
+        Guid id, string statusWire, int? ifMatchVersion, string? actor = null)
     {
         EnsureTenant();
         RequireField(statusWire, "status");
@@ -413,6 +423,12 @@ public sealed class TrackerService(
 
         var fromStatus = existing.Status;
         var toStatus = parsed.ToWire();
+
+        // Story 44-7 AC8 / D7: idempotent by target state — setting a status
+        // already held is a no-op (zero UPDATEs, zero duplicate events).
+        if (string.Equals(fromStatus, toStatus, StringComparison.Ordinal))
+            return existing;
+
         var nextSnapshot = new WorkItemEntity
         {
             Id = existing.Id,
@@ -430,7 +446,8 @@ public sealed class TrackerService(
             ifMatchVersion,
             beforeCommit: _events is NullTrackerEventsService
                 ? null
-                : db => _events.EmitWorkItemStatusChangedAsync(nextSnapshot, fromStatus, toStatus, transactionDb: db));
+                : db => _events.EmitWorkItemStatusChangedAsync(
+                    nextSnapshot, fromStatus, toStatus, transactionDb: db, actor: actor));
     }
 
     /// <inheritdoc />
