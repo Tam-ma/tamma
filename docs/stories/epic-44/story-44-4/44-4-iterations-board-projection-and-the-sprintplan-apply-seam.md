@@ -1,6 +1,6 @@
 # Story 44-4: Iterations, the Board Read Projection, and the `SprintPlan` Apply Seam
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

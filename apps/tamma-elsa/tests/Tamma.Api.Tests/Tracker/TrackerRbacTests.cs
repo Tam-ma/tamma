@@ -149,6 +149,20 @@ public class TrackerRbacTests
         (await member.GetAsync($"/api/work-items/{Guid.NewGuid()}/subtree"))
             .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
 
+        // Story 44-4 AC1/AC3: board read, iteration reads, and item commit/uncommit ride TrackerView.
+        (await member.GetAsync($"/api/projects/{Guid.NewGuid()}/board"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await member.GetAsync($"/api/projects/{Guid.NewGuid()}/iterations"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await member.GetAsync($"/api/iterations/{Guid.NewGuid()}/summary"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+        (await member.PostAsJsonAsync(
+            $"/api/iterations/{Guid.NewGuid()}/items", new { workItemIds = Array.Empty<Guid>() }))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden,
+                "committing work to a sprint is a member action (44-4 AC3 / D3)");
+        (await member.DeleteAsync($"/api/iterations/{Guid.NewGuid()}/items/{Guid.NewGuid()}"))
+            .StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
+
         var read = await member.GetAsync("/api/work-items");
         read.StatusCode.Should().NotBe(HttpStatusCode.Forbidden, "reads ride tracker:view too");
     }
@@ -202,6 +216,19 @@ public class TrackerRbacTests
             $"/api/projects/{Guid.NewGuid()}/apply-ordering", new { documentId = Guid.NewGuid() }))
             .StatusCode.Should().Be(HttpStatusCode.Forbidden,
                 "applying a BacklogOrdering rewrites the entire project's order — admin+ (TrackerManage)");
+
+        // Story 44-4: iteration CRUD and apply-plan are calendar structure → TrackerManage (admin+).
+        (await member.PostAsJsonAsync(
+            $"/api/projects/{Guid.NewGuid()}/iterations", new { name = "Sprint 1" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await member.PatchAsJsonAsync(
+            $"/api/iterations/{Guid.NewGuid()}", new { name = "Renamed" }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await member.DeleteAsync($"/api/iterations/{Guid.NewGuid()}"))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        (await member.PostAsJsonAsync(
+            $"/api/iterations/{Guid.NewGuid()}/apply-plan", new { documentId = Guid.NewGuid() }))
+            .StatusCode.Should().Be(HttpStatusCode.Forbidden);
     }
 
     [TestCase("admin")]
@@ -345,14 +372,14 @@ public class TrackerRbacTests
             .OrderBy(s => s, StringComparer.Ordinal)
             .ToArray();
 
-        mutating.Should().HaveCount(13, "44-2's ten mutating tracker routes + 44-3's three (parent, move, apply-ordering)");
+        mutating.Should().HaveCount(19, "44-2's ten + 44-3's three + 44-4's six mutating tracker routes");
         catalogued.Should().BeEquivalentTo(mutating);
 
         // …and every one carries its zone level (Story 43-11, 2026-08-03).
         // WAS OnlyContain(== AutonomyDial.Min): that encoded the pre-zone world
         // where every action defaulted to Min and "nothing gates them today" was
         // literally true. Under the zone model the tracker WRITES sit at 20
-        // (write-own-records) and the two DELETES at 95 (irreversible destroy of
+        // (write-own-records) and the irreversible DELETES at 95 (irreversible destroy of
         // user work — deletes live at 95-100). For the only live caller today, the
         // human dashboard, nothing changes (a human is never gated, 43-13); the 95
         // bites only when an LLM path performs a delete, which is the intended
@@ -364,7 +391,8 @@ public class TrackerRbacTests
 
         byKey["tracker.work-item.delete"].Should().Be(95);
         byKey["tracker.project.delete"].Should().Be(95);
-        byKey.Where(kv => kv.Key is not ("tracker.work-item.delete" or "tracker.project.delete"))
+        byKey["tracker.iteration.delete"].Should().Be(95);
+        byKey.Where(kv => kv.Key is not ("tracker.work-item.delete" or "tracker.project.delete" or "tracker.iteration.delete"))
             .Should().OnlyContain(kv => kv.Value == 20,
                 "every non-delete tracker write is level 20 (write-own-records zone)");
     }
@@ -382,7 +410,7 @@ public class TrackerRbacTests
 
         var endpoints = sources.SelectMany(s => s.Endpoints).Distinct().OfType<RouteEndpoint>().ToList();
 
-        foreach (var (method, pattern, effect, _) in TrackerGovernanceBindingTests.NewStory443Routes)
+        foreach (var (method, pattern, effect, _, _, _) in TrackerGovernanceBindingTests.NewStory443And444Routes)
         {
             var expectedKey = new ActionKey(ActionNamespace.Effect, effect.ToWire());
             var matching = endpoints
@@ -435,6 +463,7 @@ public class TrackerRbacTests
     private RouteRow[] TrackerRoutes() => AllRoutes()
         .Where(r => r.Pattern.StartsWith("/api/projects", StringComparison.Ordinal)
             || r.Pattern.StartsWith("/api/work-items", StringComparison.Ordinal)
+            || r.Pattern.StartsWith("/api/iterations", StringComparison.Ordinal)
             || r.Pattern.StartsWith("/api/tracker/preferences", StringComparison.Ordinal))
         .ToArray();
 

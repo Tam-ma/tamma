@@ -620,6 +620,23 @@ public static partial class ActionCatalog
             "POST /api/work-items/{id:guid}/move — TrackerEndpoints.MoveWorkItem", min: 20),
         Effect(ExternalEffect.TrackerBacklogApplyOrdering, ActionGroup.IssueTracking, ActionRisk.Mutating, "Apply backlog ordering", "Apply an accepted backlog-ordering document to a project's work-item ranks in one idempotent transaction.",
             "POST /api/projects/{projectId:guid}/apply-ordering — TrackerEndpoints.ApplyOrdering", min: 20),
+        // Story 44-4 (AC11/AC12) — iterations, commitment, and the SprintPlan apply seam.
+        // Non-delete mutations sit at level 20 (write-own-records zone, matching every
+        // other non-delete native tracker write); iteration delete is Destructive and
+        // irreversible at level 95 (matching project/work-item delete under Story 43-11).
+        // All six are born `.Governs`-bound in Program.cs with verbatim `:guid` SiteKeys.
+        Effect(ExternalEffect.TrackerIterationCreate, ActionGroup.IssueTracking, ActionRisk.Mutating, "Create iteration", "Create a time-boxed iteration inside a native tracker project.",
+            "POST /api/projects/{projectId:guid}/iterations — TrackerEndpoints.CreateIteration", min: 20),
+        Effect(ExternalEffect.TrackerIterationUpdate, ActionGroup.IssueTracking, ActionRisk.Mutating, "Update iteration", "Patch a native tracker iteration's metadata or transition its lifecycle (planned → active → closed with carry-over).",
+            "PATCH /api/iterations/{id:guid} — TrackerEndpoints.PatchIteration", min: 20),
+        Effect(ExternalEffect.TrackerIterationDelete, ActionGroup.IssueTracking, ActionRisk.Destructive, "Delete iteration", "Delete a native tracker iteration permanently (committed work items survive with IterationId set to null, but the sprint record cannot be restored).",
+            "DELETE /api/iterations/{id:guid} — TrackerEndpoints.DeleteIteration", reversible: false, min: 95),
+        Effect(ExternalEffect.TrackerIterationCommit, ActionGroup.IssueTracking, ActionRisk.Mutating, "Commit items to iteration", "Bulk-commit work items from the same project into an iteration.",
+            "POST /api/iterations/{id:guid}/items — TrackerEndpoints.CommitIterationItems", min: 20),
+        Effect(ExternalEffect.TrackerIterationUncommit, ActionGroup.IssueTracking, ActionRisk.Mutating, "Uncommit item from iteration", "Remove a work item from an iteration, returning it to the project backlog.",
+            "DELETE /api/iterations/{id:guid}/items/{workItemId:guid} — TrackerEndpoints.UncommitIterationItem", min: 20),
+        Effect(ExternalEffect.TrackerIterationApplyPlan, ActionGroup.IssueTracking, ActionRisk.Mutating, "Apply sprint plan", "Apply an accepted sprint-plan document's committed items to a native tracker iteration in one idempotent transaction.",
+            "POST /api/iterations/{id:guid}/apply-plan — TrackerEndpoints.ApplySprintPlan", min: 20),
 
         // Story 43-8 (AC1 step 2, carve-out §A1 #1 closed 2026-07-30) — the four
         // MentorshipController [HttpPost] actions, the repo's only attribute-routed

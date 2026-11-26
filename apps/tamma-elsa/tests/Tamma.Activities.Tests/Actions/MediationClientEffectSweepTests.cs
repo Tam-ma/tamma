@@ -216,6 +216,19 @@ public class MediationClientEffectSweepTests
                 "native tracker route (Story 44-3); neighbour-addressed rank move reached from the UI, not the mediation client"),
             [ExternalEffect.TrackerBacklogApplyOrdering] = new(SiteKind.RouteOnly, null,
                 "native tracker route (Story 44-3); applying an accepted BacklogOrdering document is reached from the UI, not the mediation client"),
+            // ── Story 44-4 — iterations, commitment, and SprintPlan apply seam ──
+            [ExternalEffect.TrackerIterationCreate] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); iteration CRUD reached from the UI, not the mediation client"),
+            [ExternalEffect.TrackerIterationUpdate] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); iteration metadata & lifecycle transitions reached from the UI"),
+            [ExternalEffect.TrackerIterationDelete] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); iteration delete reached from the UI"),
+            [ExternalEffect.TrackerIterationCommit] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); work-item iteration commitment reached from the UI"),
+            [ExternalEffect.TrackerIterationUncommit] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); removing a work item from an iteration reached from the UI"),
+            [ExternalEffect.TrackerIterationApplyPlan] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-4); applying an accepted SprintPlan document is reached from the UI"),
 
             // ── Story 31-13 — PR operations (step 8: now client-backed) ──
             // The 7 PR verbs are performed by the engine's mediation client — each is

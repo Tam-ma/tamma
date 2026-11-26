@@ -117,6 +117,11 @@ public class ActionCatalogLevelTests
         ["effect:tracker.work-item.set-status"] = 20,
         ["effect:tracker.work-item.update"] = 20,
         ["effect:tracker.backlog.apply-ordering"] = 20,
+        ["effect:tracker.iteration.create"] = 20,
+        ["effect:tracker.iteration.update"] = 20,
+        ["effect:tracker.iteration.commit"] = 20,
+        ["effect:tracker.iteration.uncommit"] = 20,
+        ["effect:tracker.iteration.apply-plan"] = 20,
         // ── Level 25 — write code on a branch (24) ──
         ["agent-action:address-review-comments"] = 25,
         ["agent-action:author-ui-spec"] = 25,
@@ -249,6 +254,7 @@ public class ActionCatalogLevelTests
         ["effect:git.branch.delete"] = 95,
         ["effect:tracker.project.delete"] = 95,
         ["effect:tracker.work-item.delete"] = 95,
+        ["effect:tracker.iteration.delete"] = 95,
     };
 
     [TestCase(true, ShellExecutionProfile.SandboxedLevel)]
@@ -294,7 +300,7 @@ public class ActionCatalogLevelTests
         missing.Should().BeEmpty("keys in the table with no catalog dial row");
         extra.Should().BeEmpty("catalog dial rows absent from the table");
         mismatched.Should().BeEmpty("a level moved without updating BOTH the descriptor and this table");
-        actual.Should().HaveCount(180, "180 = 233 catalog rows − 53 machinery (Story 44-3 AC10: +3 native tracker dial effects at level 20: tracker.work-item.reparent, tracker.work-item.move, tracker.backlog.apply-ordering; was 177 = 230 − 53)");
+        actual.Should().HaveCount(186, "186 = 239 catalog rows − 53 machinery (Story 44-4 AC11: +6 native tracker iteration effects — 5 at level 20 + iteration.delete at 95; was 180 = 233 − 53)");
     }
 
     [Test]
@@ -401,6 +407,7 @@ public class ActionCatalogLevelTests
             ["effect:git.branch.delete"] = (MoveDecision.Accept, "destroys something outside the deployment — 95"),
             ["effect:tracker.project.delete"] = (MoveDecision.Accept, "irreversible destroy of user work — 95"),
             ["effect:tracker.work-item.delete"] = (MoveDecision.Accept, "irreversible destroy of user work — 95"),
+            ["effect:tracker.iteration.delete"] = (MoveDecision.Accept, "irreversible destroy of an iteration record and detachment of its sprint commitments — 95"),
             ["document-type:sprint-plan"] = (MoveDecision.Rebase, "product owner 2026-08-03: sprint-plan acceptance is 95 — never orchestrator-approved below a near-max dial"),
         };
 

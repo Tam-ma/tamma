@@ -312,6 +312,13 @@ public class ActionPerformerCoverageSweepTests
             (ExternalEffect.TrackerWorkItemReparent, typeof(TrackerEndpoints), nameof(TrackerEndpoints.SetParent)),
             (ExternalEffect.TrackerWorkItemMove, typeof(TrackerEndpoints), nameof(TrackerEndpoints.MoveWorkItem)),
             (ExternalEffect.TrackerBacklogApplyOrdering, typeof(TrackerEndpoints), nameof(TrackerEndpoints.ApplyOrdering)),
+            // Story 44-4 AC11 — iterations, commitment, and SprintPlan apply seam.
+            (ExternalEffect.TrackerIterationCreate, typeof(TrackerEndpoints), nameof(TrackerEndpoints.CreateIteration)),
+            (ExternalEffect.TrackerIterationUpdate, typeof(TrackerEndpoints), nameof(TrackerEndpoints.PatchIteration)),
+            (ExternalEffect.TrackerIterationDelete, typeof(TrackerEndpoints), nameof(TrackerEndpoints.DeleteIteration)),
+            (ExternalEffect.TrackerIterationCommit, typeof(TrackerEndpoints), nameof(TrackerEndpoints.CommitIterationItems)),
+            (ExternalEffect.TrackerIterationUncommit, typeof(TrackerEndpoints), nameof(TrackerEndpoints.UncommitIterationItem)),
+            (ExternalEffect.TrackerIterationApplyPlan, typeof(TrackerEndpoints), nameof(TrackerEndpoints.ApplySprintPlan)),
         };
         foreach (var (effect, handlerType, methodName) in humanRoutePerformers)
         {

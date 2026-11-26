@@ -572,6 +572,219 @@ public static class TrackerEndpoints
         }
     }
 
+    // ══════ Story 44-4 — Iterations, Board Projection & SprintPlan Apply ═════
+
+    public static async Task<IResult> ListIterations(
+        Guid projectId,
+        IterationService iterations)
+    {
+        try
+        {
+            var list = await iterations.ListByProjectAsync(projectId);
+            return Results.Ok(list.Select(i => MapIteration(i)).ToList());
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> GetIteration(
+        Guid id,
+        IterationService iterations,
+        HttpContext http)
+    {
+        try
+        {
+            var iteration = await iterations.GetAsync(id);
+            if (iteration is null)
+                return NotFound("iteration", id);
+            SetETag(http, iteration.Version);
+            return Results.Ok(MapIteration(iteration));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> CreateIteration(
+        Guid projectId,
+        CreateIterationRequest request,
+        IterationService iterations,
+        HttpContext http)
+    {
+        try
+        {
+            var created = await iterations.CreateAsync(projectId, request);
+            SetETag(http, created.Version);
+            return Results.Created($"/api/iterations/{created.Id}", MapIteration(created));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> PatchIteration(
+        Guid id,
+        PatchIterationRequest request,
+        IterationService iterations,
+        HttpContext http)
+    {
+        if (!TryReadIfMatch(http, out var ifMatch, out var precondition))
+            return precondition!;
+
+        try
+        {
+            var result = await iterations.PatchAsync(id, request, ifMatch);
+            if (result is null)
+                return NotFound("iteration", id);
+            SetETag(http, result.Iteration.Version);
+            var isClose = string.Equals(result.Iteration.Status, IterationRepository.StatusClosed, StringComparison.Ordinal)
+                && request.Status.IsSet;
+            return Results.Ok(MapIteration(
+                result.Iteration,
+                isClose ? result.MovedCount : null,
+                isClose ? result.LeftCount : null));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> DeleteIteration(
+        Guid id,
+        IterationService iterations,
+        HttpContext http)
+    {
+        if (!TryReadIfMatch(http, out var ifMatch, out var precondition))
+            return precondition!;
+
+        try
+        {
+            var deleted = await iterations.DeleteAsync(id, ifMatch);
+            return deleted ? Results.NoContent() : NotFound("iteration", id);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> CommitIterationItems(
+        Guid id,
+        CommitIterationItemsRequest? request,
+        IterationService iterations)
+    {
+        if (request?.WorkItemIds is null)
+        {
+            return Results.BadRequest(new
+            {
+                error = "Body field 'workItemIds' is required.",
+                code = "TRACKER.MISSING_FIELD",
+            });
+        }
+
+        try
+        {
+            var response = await iterations.CommitItemsAsync(id, request.WorkItemIds);
+            return Results.Ok(response);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> UncommitIterationItem(
+        Guid id,
+        Guid workItemId,
+        IterationService iterations)
+    {
+        try
+        {
+            var ok = await iterations.UncommitItemAsync(id, workItemId);
+            return ok ? Results.NoContent() : NotFound("work item", workItemId);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> GetIterationSummary(
+        Guid id,
+        IterationService iterations)
+    {
+        try
+        {
+            var summary = await iterations.GetSummaryAsync(id);
+            return summary is null ? NotFound("iteration", id) : Results.Ok(summary);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> GetBoard(
+        Guid projectId,
+        string? groupBy,
+        Guid? iterationId,
+        Guid? assigneeId,
+        string? kind,
+        int? limit,
+        string? column,
+        string? cursor,
+        BoardProjectionService board)
+    {
+        try
+        {
+            var response = await board.GetBoardAsync(
+                projectId,
+                groupBy,
+                iterationId,
+                assigneeId,
+                SplitCsv(kind),
+                limit,
+                column,
+                cursor);
+            return Results.Ok(response);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    public static async Task<IResult> ApplySprintPlan(
+        Guid id,
+        ApplySprintPlanRequest? request,
+        SprintPlanApplyService sprintPlanApply,
+        CancellationToken ct)
+    {
+        if (request is null || request.DocumentId is not Guid documentId || documentId == Guid.Empty)
+        {
+            return Results.BadRequest(new
+            {
+                error = "Body field 'documentId' is required.",
+                code = "TRACKER.MISSING_FIELD",
+            });
+        }
+
+        try
+        {
+            var result = await sprintPlanApply.ApplyAsync(id, documentId, ct);
+            return Results.Ok(result);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
     // ═══════════════════════════ Preferences ════════════════════════════════
     // The ONE place a mode branch appears (plan D4): the preference row is
     // per-principal configuration, keyed on user_id in single-user and
@@ -685,6 +898,11 @@ public static class TrackerEndpoints
     private static ProjectResponse Map(ProjectEntity p) => new(
         p.Id, p.Key, p.Name, p.Description, p.RepositoryId, p.EstimateScale, p.NextNumber,
         p.ArchivedAt, p.CreatedByUserId, p.CreatedAt, p.UpdatedAt, p.Version);
+
+    private static IterationResponse MapIteration(
+        IterationEntity i, int? carryOverMovedCount = null, int? carryOverLeftCount = null) => new(
+        i.Id, i.ProjectId, i.Name, i.StartsOn, i.EndsOn, i.Status, i.CapacityPoints,
+        i.CreatedAt, i.UpdatedAt, i.Version, carryOverMovedCount, carryOverLeftCount);
 
     private static readonly IReadOnlyDictionary<string, int> EmptyStatusCounts =
         new Dictionary<string, int>();
@@ -823,13 +1041,21 @@ public static class TrackerEndpoints
             "TRACKER.CONCURRENCY_CONFLICT" => Results.Conflict(body),
             "TRACKER.KEY_CONFLICT" => Results.Conflict(body),
             "TRACKER.CROSS_PROJECT_REKEY" => Results.Conflict(body),
-            // Story 44-3 AC7 / D7: well-formed & authorized, but the document is
-            // not in a state the system will act on → 409.
+            // Story 44-3 AC7 / D7 & Story 44-4 AC9 / D7: well-formed & authorized,
+            // but the document or iteration is not in a state the system will act on → 409.
             "DOCUMENT_NOT_BACKLOG_ORDERING" => Results.Conflict(body),
+            "DOCUMENT_NOT_SPRINT_PLAN" => Results.Conflict(body),
             "DOCUMENT_NOT_ACCEPTED" => Results.Conflict(body),
+            "ITERATION_ALREADY_ACTIVE" => Results.Conflict(body),
+            "ITERATION_INVALID_TRANSITION" => Results.Conflict(body),
+            "ITERATION_CLOSED" => Results.Conflict(body),
+            "ITERATION_INVALID_CARRYOVER_TARGET" => Results.Conflict(body),
+            "TRACKER.ITERATION_NAME_CONFLICT" => Results.Conflict(body),
             "TRACKER.PROJECT_NOT_FOUND" => Results.NotFound(body),
+            "TRACKER.ITERATION_NOT_FOUND" => Results.NotFound(body),
             "TRACKER.DOCUMENT_NOT_FOUND" => Results.NotFound(body),
             "TRACKER.PARENT_NOT_FOUND" => Results.NotFound(body),
+            "TRACKER.NOT_FOUND" => Results.NotFound(body),
             "TRACKER.PRINCIPAL_UNRESOLVED" => Results.Conflict(body),
             // Authenticated and well-formed, but there is no tenant to answer
             // for — 409, never an unhandled 500 out of a repository.

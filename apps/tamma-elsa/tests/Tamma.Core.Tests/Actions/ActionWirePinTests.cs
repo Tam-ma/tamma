@@ -95,7 +95,10 @@ public class ActionWirePinTests
             "governance.action-level.set", "governance.action-level.delete",
             // Story 44-3 AC10: hierarchy, ranking, and BacklogOrdering apply seam.
             "tracker.work-item.reparent", "tracker.work-item.move",
-            "tracker.backlog.apply-ordering");
+            "tracker.backlog.apply-ordering",
+            // Story 44-4 AC11: iterations, commitment, and SprintPlan apply seam.
+            "tracker.iteration.create", "tracker.iteration.update", "tracker.iteration.delete",
+            "tracker.iteration.commit", "tracker.iteration.uncommit", "tracker.iteration.apply-plan");
     }
 
     [Test]

@@ -2656,7 +2656,7 @@ internal static class TammaModelConfiguration
             entity.Property(e => e.CapacityPoints).HasColumnType("numeric");
             entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
             entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
-            entity.Property(e => e.Version).HasDefaultValue(1);
+            entity.Property(e => e.Version).HasDefaultValue(1).IsConcurrencyToken();
 
             entity.HasOne<ProjectEntity>()
                 .WithMany()
@@ -2665,6 +2665,12 @@ internal static class TammaModelConfiguration
 
             entity.HasIndex(e => new { e.ProjectId, e.Name }).IsUnique()
                 .HasDatabaseName("UX_iterations_project_name");
+            // Story 44-4 AC2 / D1 — at most ONE active iteration per project,
+            // enforced as a database fact via partial unique index.
+            entity.HasIndex(e => e.ProjectId)
+                .IsUnique()
+                .HasFilter("\"Status\" = 'active'")
+                .HasDatabaseName("ix_iterations_one_active");
         });
 
         // ── TrackerPreference ──
