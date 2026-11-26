@@ -289,6 +289,18 @@ public class ActionGroupMembershipTests
             // Story 43-18 — platform-scope shipped-level override writes, machinery.
             "effect:governance.action-level.set",
             "effect:governance.action-level.delete",
+            // Story 39-20 — tenant-admin team & repo-access writes, machinery.
+            "effect:access.team.create",
+            "effect:access.team.update",
+            "effect:access.team.delete",
+            "effect:access.team.member.add",
+            "effect:access.team.member.role.update",
+            "effect:access.team.member.remove",
+            "effect:access.repo.register",
+            "effect:access.repo.visibility.update",
+            "effect:access.repo.grant.upsert",
+            "effect:access.repo.grant.revoke-by-id",
+            "effect:access.repo.grant.revoke-by-grantee",
         };
         // The 29 automation members outside the secrets group (Epic 31 P2 added
         // the driver-cache invalidator + the installation-bridge backfill; 41-30 added
@@ -309,7 +321,8 @@ public class ActionGroupMembershipTests
         // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
         // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
         // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key}).
-        expected.Should().HaveCount(53, "5 engine effects + 3 schedule effects + 3 policy/level effects + 34 automation + 8 platform tasks");
+        // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, eleven machinery members for tenant-admin team & repo-access routes).
+        expected.Should().HaveCount(64, "5 engine effects + 3 schedule effects + 3 policy/level effects + 11 access-admin effects + 34 automation + 8 platform tasks");
         WiresIn(ActionGroup.PlatformAutomation).Should().BeEquivalentTo(expected);
     }
 
@@ -363,7 +376,8 @@ public class ActionGroupMembershipTests
             // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
             // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
             // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key}).
-            [ActionGroup.PlatformAutomation] = 53,
+            // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery).
+            [ActionGroup.PlatformAutomation] = 64,
         };
 
         // 223 → 225 (2026-08-18): platform-automation 47 → 49 (+AdlLoopWatchdogService
@@ -381,7 +395,8 @@ public class ActionGroupMembershipTests
         // 228 → 230 (Story 43-18): platform-automation 51 → 53 (+effect:governance.action-level.{set,delete}, machinery).
         // 230 → 233 (Story 44-3 AC10): issue-tracking 16 → 19 (+effect:tracker.work-item.{reparent,move}, +effect:tracker.backlog.apply-ordering).
         // 233 → 239 (Story 44-4 AC11): issue-tracking 19 → 25 (+effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}).
-        counts.Values.Sum().Should().Be(239);
+        // 239 → 250 (Story 39-20): platform-automation 53 → 64 (+effect:access.{team,repo}.*, machinery).
+        counts.Values.Sum().Should().Be(250);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

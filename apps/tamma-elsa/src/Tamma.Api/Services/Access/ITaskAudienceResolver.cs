@@ -1,47 +1,80 @@
 namespace Tamma.Api.Services.Access;
 
 /// <summary>
-/// Story 39-20's canonical audience-resolution seam (Story 39-18 Design Decision D9).
+/// Story 39-20's canonical audience-resolution seam (AC3 / D5).
 /// Task delivery is ROLE-ADDRESSED (design review 2026-07-21): a task fans out to
-/// every role-holder the resolver says may see it, not one user. 39-18 STUBS this
-/// fail-closed behind <see cref="InitiatorOnlyTaskAudienceResolver"/> until 39-20
-/// lands; 39-20 replaces the implementation (owning the canonical
-/// <see cref="TaskRef"/>/<see cref="AudienceMember"/> shapes), so 39-18's tests run
-/// against a capturing fake with no churn.
+/// every role-holder the resolver says may see it, not one user.
+///
+/// <para>Implemented in production solely by <see cref="TaskAudienceResolver"/>
+/// (pinned by <c>TaskAudiencePinTests</c>, D11).</para>
 /// </summary>
 public interface ITaskAudienceResolver
 {
     /// <summary>
-    /// Whether <paramref name="userId"/> may see <paramref name="task"/> (initiator or
-    /// repo access — the per-user scoping that makes task delivery per-user, not merely
-    /// per-tenant).
+    /// Pure visibility predicate (AC3 / D5): true iff <paramref name="userId"/>
+    /// is a member of <paramref name="task"/>'s tenant AND (initiated the task's
+    /// workflow OR has access to the task's repo via direct/team grant or tenant
+    /// visibility). Deliberately ignores <see cref="TaskRef.RequiredPermission"/>.
     /// </summary>
     Task<bool> CanSeeAsync(Guid userId, TaskRef task);
 
     /// <summary>
-    /// The eligible audience for <paramref name="task"/> addressed to role
-    /// <paramref name="roleWire"/> — every role-holder the task fans out to (one outbox
-    /// row per member, D4).
+    /// The ordered eligible audience for <paramref name="task"/> addressed to
+    /// tenant role <paramref name="roleWire"/> — holders of the role (or higher
+    /// in <c>member &lt; admin &lt; owner</c>) ∩ visibility predicate, filtered by
+    /// <see cref="TaskRef.RequiredPermission"/> when set.
     /// </summary>
     Task<IReadOnlyList<AudienceMember>> EligibleAudienceAsync(TaskRef task, string roleWire);
 }
 
 /// <summary>
-/// The canonical task reference the audience is resolved against (39-20 owns this
-/// shape; 39-18 pins it for the stub). Carries the tenant, the issue initiator, and
-/// the repo/issue coordinates repo-access resolution needs.
+/// Story 39-20 (D10 / D11) — effective-access evaluation seam implemented by
+/// <see cref="TaskAudienceResolver"/> so consumers such as
+/// <see cref="WorkflowInitiationAuthorizer"/> and <c>RepoAccessEndpoints</c>
+/// query repo access through the single resolver without touching raw grant
+/// repositories.
 /// </summary>
-public sealed record TaskRef(Guid TenantId, Guid? InitiatorUserId, string? RepoKey, string? IssueId);
-
-/// <summary>One resolved audience member (a user id + the role it holds).</summary>
-public sealed record AudienceMember(Guid UserId, string RoleWire);
+public interface IRepoAccessEvaluator
+{
+    Task<string?> GetEffectiveAccessLevelAsync(
+        Guid userId,
+        Guid tenantId,
+        Guid? repositoryId,
+        string? repoFullName,
+        CancellationToken ct = default);
+}
 
 /// <summary>
-/// Story 39-18 (D9) — the fail-closed default stub for 39-20's resolver: ONLY the
-/// issue initiator sees anything. Until 39-20 (repo-access resolution) or 39-19's
-/// stricter <c>ConservativeAudienceResolver</c> lands, nobody extra is admitted — the
-/// safe direction. There is exactly ONE default stub, never two.
+/// The canonical task reference the audience is resolved against (Story 39-20 D5).
+/// Trailing parameters default to <c>null</c> so 4-argument callers from Stories
+/// 39-18 and 44-2 remain source-compatible without churn.
 /// </summary>
+public sealed record TaskRef(
+    Guid TenantId,
+    Guid? InitiatorUserId,
+    string? RepoKey,
+    string? IssueId,
+    Guid? RepositoryId = null,
+    Guid? DocumentId = null,
+    string? RequiredPermission = null);
+
+/// <summary>
+/// One resolved audience member: user id, tenant role wire, eligibility basis
+/// (<c>initiator</c> | <c>repo-access</c>), and effective repo access level.
+/// </summary>
+public sealed record AudienceMember(
+    Guid UserId,
+    string RoleWire,
+    string Basis = "repo-access",
+    string EffectiveLevel = "contribute");
+
+/// <summary>
+/// Story 39-18 (D9) — superseded fail-closed stub replaced in DI by
+/// <see cref="TaskAudienceResolver"/> (Story 39-20). Retained ONLY so
+/// <c>TrackerService.IsStubResolver</c> and legacy unit tests keep compiling;
+/// never registered in production DI.
+/// </summary>
+[Obsolete("Replaced by TaskAudienceResolver (Story 39-20). Do not register in production DI.")]
 public sealed class InitiatorOnlyTaskAudienceResolver : ITaskAudienceResolver
 {
     public Task<bool> CanSeeAsync(Guid userId, TaskRef task)
@@ -50,7 +83,7 @@ public sealed class InitiatorOnlyTaskAudienceResolver : ITaskAudienceResolver
     public Task<IReadOnlyList<AudienceMember>> EligibleAudienceAsync(TaskRef task, string roleWire)
     {
         IReadOnlyList<AudienceMember> audience = task.InitiatorUserId is { } initiator
-            ? new[] { new AudienceMember(initiator, roleWire) }
+            ? new[] { new AudienceMember(initiator, roleWire, "initiator", RepoAccessLevels.Contribute) }
             : Array.Empty<AudienceMember>();
         return Task.FromResult(audience);
     }

@@ -106,7 +106,8 @@ public class ActionVocabularyCountTests
         // 63 -> 65 (Story 43-18: + effect:governance.action-level.{set,delete}, the two machinery members PUT/DELETE /api/admin/actions/levels/{ns}/{key} are bound to).
         // 65 -> 68 (Story 44-3 AC10: + effect:tracker.work-item.{reparent,move} and effect:tracker.backlog.apply-ordering — the three new mutating native tracker routes, all born .Governs-bound).
         // 68 -> 74 (Story 44-4 AC11: + effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan} — the six new mutating iteration routes, all born .Governs-bound).
-        Enum.GetValues<ExternalEffect>().Should().HaveCount(74);
+        // 74 -> 85 (Story 39-20: + effect:access.{team,repo}.* — the eleven new tenant-admin team & repo-access routes, all born .Governs-bound as machinery).
+        Enum.GetValues<ExternalEffect>().Should().HaveCount(85);
     }
 
     [Test]
@@ -211,7 +212,8 @@ public class ActionVocabularyCountTests
         // 228 → 230 — effect 63 → 65 (Story 43-18: + effect:governance.action-level.{set,delete}, the two machinery members PUT/DELETE /api/admin/actions/levels/{ns}/{key} are bound to).
         // 230 → 233 — effect 65 → 68 (Story 44-3 AC10: + effect:tracker.work-item.{reparent,move} and effect:tracker.backlog.apply-ordering).
         // 233 → 239 — effect 68 → 74 (Story 44-4 AC11: + effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}).
-        ActionCatalog.All.Should().HaveCount(239);
-        ActionCatalog.ByKey.Should().HaveCount(239);
+        // 239 → 250 — effect 74 → 85 (Story 39-20: + effect:access.{team,repo}.*, machinery).
+        ActionCatalog.All.Should().HaveCount(250);
+        ActionCatalog.ByKey.Should().HaveCount(250);
     }
 }

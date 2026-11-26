@@ -56,6 +56,19 @@ public class MachineryInventoryTests
         // governance-configuration circularity posture as group-enforce.set.
         "effect:governance.action-level.set",
         "effect:governance.action-level.delete",
+        // Story 39-20: tenant-admin team & repo-access management writes.
+        // Human-operated access-control administration is never dial-governed.
+        "effect:access.team.create",
+        "effect:access.team.update",
+        "effect:access.team.delete",
+        "effect:access.team.member.add",
+        "effect:access.team.member.role.update",
+        "effect:access.team.member.remove",
+        "effect:access.repo.register",
+        "effect:access.repo.visibility.update",
+        "effect:access.repo.grant.upsert",
+        "effect:access.repo.grant.revoke-by-id",
+        "effect:access.repo.grant.revoke-by-grantee",
 
         // ── Background services — all 32 automation:* ─────────────────────
         "automation:action-catalog-startup-validator",
@@ -151,7 +164,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(53, "9 + 36 + 8 = 53 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler; Story 43-6 2026-11-07: +1 effect — governance.policy.group-enforce.set; Story 43-18: +2 effects — governance.action-level.{set,delete})");
+        MachineryInventory.Should().HaveCount(64, "20 + 36 + 8 = 64 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler; Story 43-6 2026-11-07: +1 effect — governance.policy.group-enforce.set; Story 43-18: +2 effects — governance.action-level.{set,delete}; Story 39-20: +11 effects — access.{team,repo}.*)");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(

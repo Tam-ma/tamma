@@ -707,6 +707,32 @@ public static partial class ActionCatalog
         Effect(ExternalEffect.GovernanceActionLevelDelete, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Delete action level override", "Remove a platform-scope action level override so the shipped default applies again (policy administration — machinery, never dial-governed).",
             "DELETE /api/admin/actions/levels/{ns}/{key} — ActionPolicyEndpoints.DeleteActionLevelOverride", machinery: true),
 
+        // Story 39-20 (2026-11-26) — tenant-admin team & repo-access management writes.
+        // Machinery (43-13): human-operated access-control administration is never
+        // dial-governed; bound so 43-9's shrink-only ungoverned-route ratchet stays intact.
+        Effect(ExternalEffect.AccessTeamCreate, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Create team", "Create a tenant-scoped team (access-control administration — machinery, never dial-governed).",
+            "POST /api/v1/orgs/{tenantId:guid}/teams — TeamEndpoints.CreateTeam", machinery: true),
+        Effect(ExternalEffect.AccessTeamUpdate, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Update team", "Update a tenant-scoped team's metadata or default member role (access-control administration — machinery, never dial-governed).",
+            "PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid} — TeamEndpoints.UpdateTeam", machinery: true),
+        Effect(ExternalEffect.AccessTeamDelete, ActionGroup.PlatformAutomation, ActionRisk.Destructive, "Delete team", "Delete a tenant-scoped team and its memberships/grants (access-control administration — machinery, never dial-governed).",
+            "DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid} — TeamEndpoints.DeleteTeam", reversible: false, machinery: true),
+        Effect(ExternalEffect.AccessTeamMemberAdd, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Add team member", "Add a member to a tenant-scoped team (access-control administration — machinery, never dial-governed).",
+            "POST /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members — TeamEndpoints.AddMember", machinery: true),
+        Effect(ExternalEffect.AccessTeamMemberRoleUpdate, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Update team member role", "Change a member's role within a tenant-scoped team (access-control administration — machinery, never dial-governed).",
+            "PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid} — TeamEndpoints.UpdateMemberRole", machinery: true),
+        Effect(ExternalEffect.AccessTeamMemberRemove, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Remove team member", "Remove a member from a tenant-scoped team (access-control administration — machinery, never dial-governed).",
+            "DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid} — TeamEndpoints.RemoveMember", machinery: true),
+        Effect(ExternalEffect.AccessRepoRegister, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Register repository", "Register a repository in the tenant's access-control catalogue (access-control administration — machinery, never dial-governed).",
+            "POST /api/v1/orgs/{tenantId:guid}/repos — RepoAccessEndpoints.RegisterRepo", machinery: true),
+        Effect(ExternalEffect.AccessRepoVisibilityUpdate, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Update repository visibility", "Toggle a repository's visibility between tenant-wide and restricted (access-control administration — machinery, never dial-governed).",
+            "PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/visibility — RepoAccessEndpoints.UpdateVisibility", machinery: true),
+        Effect(ExternalEffect.AccessRepoGrantUpsert, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Upsert repository access grant", "Create or update a direct user or team access grant on a repository (access-control administration — machinery, never dial-governed).",
+            "PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — RepoAccessEndpoints.UpsertGrant", machinery: true),
+        Effect(ExternalEffect.AccessRepoGrantRevokeById, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Revoke repository access grant by id", "Revoke a repository access grant by its identifier (access-control administration — machinery, never dial-governed).",
+            "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants/{grantId:guid} — RepoAccessEndpoints.RevokeGrantById", machinery: true),
+        Effect(ExternalEffect.AccessRepoGrantRevokeByGrantee, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Revoke repository access grant by grantee", "Revoke a repository access grant by userId or teamId (access-control administration — machinery, never dial-governed).",
+            "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — RepoAccessEndpoints.RevokeGrantByGrantee", machinery: true),
+
         // ── automation (27) — EscalatableToHuman=false for the whole plane ────
 
         Automation(BackgroundActor.HourlyAnalyticsRollupScheduler, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Hourly analytics rollup", "Rolls up analytics hourly.",

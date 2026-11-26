@@ -98,7 +98,12 @@ public class ActionWirePinTests
             "tracker.backlog.apply-ordering",
             // Story 44-4 AC11: iterations, commitment, and SprintPlan apply seam.
             "tracker.iteration.create", "tracker.iteration.update", "tracker.iteration.delete",
-            "tracker.iteration.commit", "tracker.iteration.uncommit", "tracker.iteration.apply-plan");
+            "tracker.iteration.commit", "tracker.iteration.uncommit", "tracker.iteration.apply-plan",
+            // Story 39-20: tenant-admin team & repo-access writes (machinery).
+            "access.team.create", "access.team.update", "access.team.delete",
+            "access.team.member.add", "access.team.member.role.update", "access.team.member.remove",
+            "access.repo.register", "access.repo.visibility.update",
+            "access.repo.grant.upsert", "access.repo.grant.revoke-by-id", "access.repo.grant.revoke-by-grantee");
     }
 
     [Test]

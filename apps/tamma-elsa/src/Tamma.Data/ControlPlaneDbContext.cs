@@ -798,6 +798,20 @@ public class ControlPlaneDbContext : DbContext
     /// </summary>
     public DbSet<ActionLevelOverride> ActionLevelOverrides => Set<ActionLevelOverride>();
 
+    // ── Story 39-20 — teams, repo catalogue & repo access grants ──
+
+    /// <summary>Story 39-20 (AC1 / D1) — tenant-scoped teams.</summary>
+    public DbSet<Team> Teams => Set<Team>();
+
+    /// <summary>Story 39-20 (AC1 / D4) — team membership with team-scoped roles.</summary>
+    public DbSet<TeamMember> TeamMembers => Set<TeamMember>();
+
+    /// <summary>Story 39-20 (AC2 / D2) — minimal tenant repository catalogue.</summary>
+    public DbSet<RegisteredRepo> RegisteredRepos => Set<RegisteredRepo>();
+
+    /// <summary>Story 39-20 (AC2 / D3) — direct user or team grants on a registered repo.</summary>
+    public DbSet<RepoAccessGrant> RepoAccessGrants => Set<RepoAccessGrant>();
+
     // Story 28-1 PR D: the 11 + 4 mentorship tenant-resident entities
     // (AgentConfig, PromptOverride, ProviderHealth, ProviderDiagnostic,
     // SanitizationRule, WorkflowDefinition, WorkflowInstance, DomainEvent,
