@@ -591,7 +591,7 @@ development_status:
   36-4-cost-and-spend-analytics-api: done             # Cost & Spend Analytics API (BYOK vs Platform) [P0] | DONE 2026-08-18 (checked in code, not from a changelog): GET /api/orgs/{tenantId}/analytics/cost (Program.cs:2613) + Api/Services/Analytics/{CostAnalyticsService,CostAnalyticsDtos,CostAnalyticsEvents}.cs + Api.Tests/Analytics/{CostAnalyticsServiceTests,CostAnalyticsEndpointTests,CostAnalyticsIsolationTests}
   36-5-agent-and-tenant-performance-rollups-api: drafted # Agent & Tenant Performance Rollups API (consume Epic 32) [P1]
   36-6-tenant-analytics-dashboard-ui: drafted         # Tenant Analytics Dashboard UI [P1]
-  36-7-pricing-cost-basis-and-platform-margin-model: drafted # Pricing / Cost-Basis & Platform Margin Model [P0]
+  36-7-pricing-cost-basis-and-platform-margin-model: done # Pricing / Cost-Basis & Platform Margin Model [P0]
   36-8-analytics-exports: drafted                     # Analytics Exports (CSV / PDF) [P1]
   36-9-scheduled-reports-and-delivery: drafted        # Scheduled Reports & Delivery [P2]
   36-10-platform-business-analytics: drafted          # Platform Business Analytics (Owner-Only: MRR, Churn, Conversion) [P1]

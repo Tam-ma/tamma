@@ -1,6 +1,6 @@
 # Story 36-7: Cost-Basis vs Margin Analytics View (Per-Tenant Gross Margin + Platform-Aggregate Margin)
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

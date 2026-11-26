@@ -1,7 +1,11 @@
+using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Tamma.Data;
 using Tamma.Data.Abstractions;
 using Tamma.Data.Entities;
+using Tamma.Data.Repositories;
 
 namespace Tamma.Api.Services.Analytics;
 
@@ -48,6 +52,9 @@ public sealed class PlatformAnalyticsService : IPlatformAnalyticsService
     // fact table is missing or stale) now fan out via the tenant factory.
     private readonly ITenantDbContextFactory? _tenantFactory;
     private readonly TimeProvider _clock;
+    private readonly IMarginAnalyticsService? _marginAnalytics;
+    private readonly IEventRepository? _events;
+    private readonly ILogger<PlatformAnalyticsService> _logger;
 
     // Event-type prefixes used by the rollup. Kept as constants so they
     // track exactly one source-of-truth copy; each is the same prefix
@@ -72,11 +79,17 @@ public sealed class PlatformAnalyticsService : IPlatformAnalyticsService
     public PlatformAnalyticsService(
         ControlPlaneDbContext cp,
         ITenantDbContextFactory? tenantFactory = null,
-        TimeProvider? clock = null)
+        TimeProvider? clock = null,
+        IMarginAnalyticsService? marginAnalytics = null,
+        IEventRepository? events = null,
+        ILogger<PlatformAnalyticsService>? logger = null)
     {
         _cp = cp ?? throw new ArgumentNullException(nameof(cp));
         _tenantFactory = tenantFactory;
         _clock = clock ?? TimeProvider.System;
+        _marginAnalytics = marginAnalytics;
+        _events = events;
+        _logger = logger ?? NullLogger<PlatformAnalyticsService>.Instance;
     }
 
     public async Task<PlatformAnalyticsSummary> GetSummaryAsync(CancellationToken ct = default)
@@ -755,4 +768,194 @@ public sealed class PlatformAnalyticsService : IPlatformAnalyticsService
     }
 
     private static decimal Round4(decimal v) => Math.Round(v, 4, MidpointRounding.AwayFromZero);
+
+    /// <inheritdoc />
+    public async Task<PlatformMarginReport> GetPlatformMarginAsync(
+        DateTime fromUtc,
+        DateTime toUtc,
+        MarginGrain grain = MarginGrain.Day,
+        int topN = 25,
+        CancellationToken ct = default)
+    {
+        var clampedTopN = Math.Clamp(topN, 1, 200);
+        var now = _clock.GetUtcNow().UtcDateTime;
+        var normFrom = fromUtc.Kind == DateTimeKind.Utc
+            ? fromUtc
+            : fromUtc.Kind == DateTimeKind.Local
+                ? fromUtc.ToUniversalTime()
+                : DateTime.SpecifyKind(fromUtc, DateTimeKind.Utc);
+        var normTo = toUtc.Kind == DateTimeKind.Utc
+            ? toUtc
+            : toUtc.Kind == DateTimeKind.Local
+                ? toUtc.ToUniversalTime()
+                : DateTime.SpecifyKind(toUtc, DateTimeKind.Utc);
+        var grainWire = grain.ToWire();
+
+        var marginSvc = _marginAnalytics
+            ?? (_tenantFactory is not null
+                ? new MarginAnalyticsService(
+                    _tenantFactory,
+                    _events,
+                    _clock,
+                    NullLogger<MarginAnalyticsService>.Instance)
+                : null);
+
+        var activeTenants = await _cp.Tenants
+            .AsNoTracking()
+            .Where(t => t.DeletedAt == null)
+            .Select(t => new { t.Id, t.Slug, t.Name, t.Plan })
+            .ToListAsync(ct)
+            .ConfigureAwait(false);
+
+        if (activeTenants.Count == 0 || marginSvc is null || normTo <= normFrom)
+        {
+            await TryEmitPlatformMarginViewedAsync(normFrom, normTo, grainWire, now, ct).ConfigureAwait(false);
+            _logger.LogInformation(
+                "Platform margin aggregate served (empty): scope=platform from={From:o} to={To:o} grain={Grain} tenantsIncluded=0 tenantsSkipped=0 costUsd=0 revenueUsd=0 marginUsd=0",
+                normFrom, normTo, grainWire);
+
+            return new PlatformMarginReport(
+                normFrom,
+                normTo,
+                grainWire,
+                MarginSummary.EmptyAt(now),
+                TenantsIncluded: 0,
+                TenantsSkipped: 0,
+                TopTenantsByMargin: Array.Empty<TenantMarginRow>(),
+                Trend: Array.Empty<MarginTrendPoint>());
+        }
+
+        decimal totalCost = 0m;
+        decimal totalRevenue = 0m;
+        var tenantsIncluded = 0;
+        var tenantsSkipped = 0;
+        var tenantRows = new List<TenantMarginRow>(activeTenants.Count);
+        var trendByBucket = new Dictionary<DateTime, (decimal Cost, decimal Revenue)>();
+
+        foreach (var tenant in activeTenants)
+        {
+            ct.ThrowIfCancellationRequested();
+
+            try
+            {
+                var report = await marginSvc.GetTenantMarginAsync(
+                    tenant.Id,
+                    normFrom,
+                    normTo,
+                    grain,
+                    emitAuditEvent: false,
+                    ct).ConfigureAwait(false);
+
+                tenantsIncluded++;
+                totalCost += report.Summary.CostUsd;
+                totalRevenue += report.Summary.RevenueUsd;
+
+                tenantRows.Add(new TenantMarginRow(
+                    tenant.Id,
+                    tenant.Slug,
+                    tenant.Name,
+                    tenant.Plan,
+                    report.Summary.CostUsd,
+                    report.Summary.RevenueUsd,
+                    report.Summary.MarginUsd,
+                    report.Summary.MarginPct));
+
+                foreach (var point in report.Trend)
+                {
+                    if (trendByBucket.TryGetValue(point.Bucket, out var existing))
+                    {
+                        trendByBucket[point.Bucket] = (
+                            existing.Cost + point.CostUsd,
+                            existing.Revenue + point.RevenueUsd);
+                    }
+                    else
+                    {
+                        trendByBucket[point.Bucket] = (point.CostUsd, point.RevenueUsd);
+                    }
+                }
+            }
+            catch (Exception ex) when (ex is not OperationCanceledException)
+            {
+                tenantsSkipped++;
+                _logger.LogWarning(
+                    ex,
+                    "Platform margin fan-out skipped tenant {TenantId} ({ErrorType}); continuing fleet aggregate.",
+                    tenant.Id, ex.GetType().Name);
+            }
+        }
+
+        var summary = MarginSummary.From(totalCost, totalRevenue, now);
+        var topTenants = tenantRows
+            .OrderByDescending(r => r.MarginUsd)
+            .ThenBy(r => r.Slug, StringComparer.OrdinalIgnoreCase)
+            .Take(clampedTopN)
+            .ToList();
+
+        var fleetTrend = trendByBucket
+            .OrderBy(kv => kv.Key)
+            .Select(kv => MarginTrendPoint.From(kv.Key, kv.Value.Cost, kv.Value.Revenue))
+            .ToList();
+
+        _logger.LogInformation(
+            "Platform margin aggregate served: scope=platform from={From:o} to={To:o} grain={Grain} tenantsIncluded={TenantsIncluded} tenantsSkipped={TenantsSkipped} costUsd={CostUsd} revenueUsd={RevenueUsd} marginUsd={MarginUsd}",
+            normFrom, normTo, grainWire, tenantsIncluded, tenantsSkipped,
+            summary.CostUsd, summary.RevenueUsd, summary.MarginUsd);
+
+        await TryEmitPlatformMarginViewedAsync(normFrom, normTo, grainWire, now, ct).ConfigureAwait(false);
+
+        return new PlatformMarginReport(
+            normFrom,
+            normTo,
+            grainWire,
+            summary,
+            tenantsIncluded,
+            tenantsSkipped,
+            topTenants,
+            fleetTrend);
+    }
+
+    private async Task TryEmitPlatformMarginViewedAsync(
+        DateTime fromUtc,
+        DateTime toUtc,
+        string grain,
+        DateTime now,
+        CancellationToken ct)
+    {
+        if (_events is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await _events.AppendAsync(new DomainEvent
+            {
+                Id = Guid.NewGuid(),
+                Type = MarginAnalyticsEvents.MarginViewed,
+                TenantId = null,
+                Tags = JsonSerializer.Serialize(new Dictionary<string, string?>
+                {
+                    ["scope"] = "platform",
+                    ["from"] = fromUtc.ToString("O"),
+                    ["to"] = toUtc.ToString("O"),
+                    ["grain"] = grain,
+                }),
+                Data = JsonSerializer.Serialize(new
+                {
+                    scope = "platform",
+                    from = fromUtc,
+                    to = toUtc,
+                    grain,
+                }),
+                Metadata = """{"workflowVersion":"1.0.0","eventSource":"system"}""",
+                CreatedAt = now,
+            }).ConfigureAwait(false);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            _logger.LogWarning(
+                ex,
+                "ANALYTICS.MARGIN.VIEWED emit failed (best-effort, swallowed): scope=platform");
+        }
+    }
 }
