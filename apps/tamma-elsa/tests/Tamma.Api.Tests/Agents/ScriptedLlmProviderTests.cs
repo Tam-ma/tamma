@@ -219,7 +219,7 @@ public class ScriptedLlmProviderTests
         var result = await runner.RunAsync(
             "scripted", config, "any-model", "system", "user", 4096, 0.7,
             tools: null, enableToolLoop: false, new ToolLoopConfig(), "corr-x",
-            repair: null, CancellationToken.None);
+            repair: null, trailContext: null, CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();
         result.Response.ResponseText.Should().Be(ScriptedCycleLibrary.StageSuccess);
@@ -253,7 +253,7 @@ public class ScriptedLlmProviderTests
         var result = await runner.RunAsync(
             "scripted", config, "m", "system", "user", 4096, 0.7,
             tools: null, enableToolLoop: false, new ToolLoopConfig(), "corr-y",
-            repair, CancellationToken.None);
+            repair, trailContext: null, CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();
         result.ContentValid.Should().BeTrue(

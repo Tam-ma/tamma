@@ -488,7 +488,7 @@ public class ToolLoopAutonomyGateSeamTests
         await runner.RunAsync(
             "anthropic", Config(), Model, "sys", "user", 4096, 0.7,
             tools: null, enableToolLoop: true, loopConfig ?? new ToolLoopConfig(), "corr-gate",
-            repair: null, CancellationToken.None);
+            repair: null, trailContext: null, CancellationToken.None);
 
     /// <summary>A registry of stub executors that records execution order.</summary>
     private static IToolExecutorRegistry RegistryRecording(List<string> executed)

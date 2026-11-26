@@ -170,6 +170,7 @@ public sealed class ManagedAgent : IManagedAgent
             TenantId = request.TenantId,
             Role = request.Role,
             CorrelationId = request.CorrelationId,
+            IssueId = request.IssueId,
         };
 
         try
@@ -345,6 +346,7 @@ public sealed class ManagedAgent : IManagedAgent
                     loopConfig: request.ToolLoopConfig ?? new ToolLoopConfig(),
                     correlationId: request.CorrelationId,
                     repair: repairPlan,
+                    trailContext: ToTrailContext(ctx, iteration: 0),
                     ct).ConfigureAwait(false);
             }
             catch (OperationCanceledException) { throw; }
@@ -627,6 +629,7 @@ public sealed class ManagedAgent : IManagedAgent
             Role = ctx.Role,
             Provider = ctx.Provider ?? string.Empty,
             Model = ctx.Model ?? string.Empty,
+            IssueId = ctx.IssueId,
             Iteration = iteration,
             CorrelationId = ctx.CorrelationId,
             CredentialSource = ctx.CredentialSource ?? "platform",
@@ -1027,6 +1030,7 @@ public sealed class ManagedAgent : IManagedAgent
         public Guid? TenantId { get; init; }
         public required string Role { get; init; }
         public required string CorrelationId { get; init; }
+        public string? IssueId { get; init; }
         public string? Provider { get; set; }
         public string? Model { get; set; }
         public Guid? AgentId { get; set; }

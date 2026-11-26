@@ -133,7 +133,7 @@ public class BufferedNonRegressionTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new InlineToolLoopResult
             {
                 Response = new NormalizedLlmResponse

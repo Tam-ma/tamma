@@ -564,6 +564,7 @@ public class ProviderSettingsResolutionTests
             loopConfig: new Tamma.Activities.LlmCall.Models.ToolLoopConfig { MaxSteps = 1 },
             correlationId: "named-model-wins",
             repair: null,
+            trailContext: null,
             ct: CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();

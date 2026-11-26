@@ -137,6 +137,7 @@ public class ProviderGoldenRequestTests
             loopConfig: new ToolLoopConfig { MaxSteps = 3 },
             correlationId: "golden-corr",
             repair: null,
+            trailContext: null,
             ct: CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();
@@ -194,6 +195,7 @@ public class ProviderGoldenRequestTests
             loopConfig: new ToolLoopConfig { MaxSteps = 3 },
             correlationId: "golden-corr",
             repair: null,
+            trailContext: null,
             ct: CancellationToken.None);
 
         result.Response.Success.Should().BeTrue();

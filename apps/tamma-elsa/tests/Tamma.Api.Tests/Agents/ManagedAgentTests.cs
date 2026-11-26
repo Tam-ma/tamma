@@ -116,10 +116,10 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (_, _, _, _, _, _, _, _, _, _, _, _, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (_, _, _, _, _, _, _, _, _, _, _, _, _, _) =>
                 {
                     startedBeforeRun = _events.TypeCount(AgentRunEventTypes.Started) == 1;
                     return Task.FromResult(SuccessLoop(1, 1, "x"));
@@ -170,10 +170,10 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (provider, cfg, model, _, _, _, _, _, _, _, _, _, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (provider, cfg, model, _, _, _, _, _, _, _, _, _, _, _) =>
                 {
                     runnerProvider = provider;
                     runnerModel = model;
@@ -366,7 +366,7 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new InlineToolLoopResult
             {
                 Response = new NormalizedLlmResponse
@@ -402,7 +402,7 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new InlineToolLoopResult
             {
                 // success but exhausted with no usable text
@@ -544,10 +544,10 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (_, _, _, systemPrompt, userPrompt, _, _, _, _, _, _, _, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (_, _, _, systemPrompt, userPrompt, _, _, _, _, _, _, _, _, _) =>
                 {
                     sentSystemPrompt = systemPrompt;
                     sentUserPrompt = userPrompt;
@@ -595,7 +595,7 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException($"upstream rejected key {TestApiKey} (401)"));
 
         var run = await _sut.RunAsync(Req(Guid.NewGuid(), "developer"));
@@ -706,10 +706,10 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (_, _, _, _, _, _, _, tools, _, _, _, _, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (_, _, _, _, _, _, _, tools, _, _, _, _, _, _) =>
                 {
                     advertised = tools;
                     return Task.FromResult(SuccessLoop(1, 1, "ok"));
@@ -753,10 +753,10 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .Returns<string, LlmProviderConfig, string, string, string, int, double,
-                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, CancellationToken>(
-                (_, _, _, _, _, _, _, tools, _, _, _, _, _) =>
+                IReadOnlyList<ResolvedTool>?, bool, ToolLoopConfig, string, RepairRingPlan?, AgentTrailContext?, CancellationToken>(
+                (_, _, _, _, _, _, _, tools, _, _, _, _, _, _) =>
                 {
                     advertised = tools;
                     return Task.FromResult(SuccessLoop(1, 1, "ok"));
@@ -822,7 +822,7 @@ public class ManagedAgentTests
                 It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<int>(),
                 It.IsAny<double>(), It.IsAny<IReadOnlyList<ResolvedTool>?>(), It.IsAny<bool>(),
                 It.IsAny<ToolLoopConfig>(), It.IsAny<string>(), It.IsAny<RepairRingPlan?>(),
-                It.IsAny<CancellationToken>()))
+                It.IsAny<AgentTrailContext?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(SuccessLoop(inTok, outTok, text));
 
     private static InlineToolLoopResult SuccessLoop(int inTok, int outTok, string text) => new()
