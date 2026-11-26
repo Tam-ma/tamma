@@ -51,35 +51,44 @@ and makes no vendor call. Only the 42-1 contract types stay in `Tamma.Activities
    path (Docker Compose on the Hetzner VPS, per CLAUDE.md) plus a generic seam, mirroring the Git/AI
    provider pattern.
 
-2. **Operation granularity — DECIDED: split the family AND report per call.**
+2. **Operation granularity — DECIDED: split the family into read and write executors.**
    *Corrected: an earlier draft graded classes in prose and left the split to an AC that accepted either
-   design. Both halves are now mandatory and separately testable.*
+   design. The split is mandatory and separately testable.* *(Per-call `PermissionClass` and
+   `ToolInvocationFacts Describe(...)` were stripped under Epic 43 reconciliation — 42-3 is deleted and
+   Epic 43's Seam B governs tools by catalog `ActionKey` with zero bespoke gating code here.)*
 
-   | Operation | Executor | Per-call `PermissionClass` |
+   | Operation | Executor | Capability boundary |
    |---|---|---|
-   | `status` | `deploy_status` | `ReadOnly` |
-   | `trigger` / `promote` to a **staging** target | `deploy_control` | `Mutating` |
-   | `trigger` / `promote` to a **prod** target, and **any** `rollback` | `deploy_control` | `Destructive` |
+   | `status` | `deploy_status` | Read-only — exposes only `status`; physically cannot reach mutating provider methods |
+   | `trigger` / `promote` / `rollback` | `deploy_control` | Mutating / destructive — governed by Epic 43's Action Catalog at Seam B |
 
-   - `deploy_status` declares `ReadOnly` / floor 70 and exposes only `status`; it cannot reach a
-     mutating provider method.
-   - `deploy_control` implements 42-3's per-call seam
-     `ToolInvocationFacts Describe(string argumentsJson)` → `{ PermissionClass, Operation, Target }`
-     with `Target` = `<targetKey>:<releaseRef>`, so an actor authorizes *this release to this target*,
-     not "may deploy".
+   - `deploy_status` exposes only `status` in its `InputSchema` and rejects any mutating operation
+     before touching `IDeployControlProvider`. This structural capability boundary holds regardless of
+     how any catalog policy row is configured.
+   - Governance (risk tier, autonomy threshold, and enforcement) lives in Epic 43's Action Catalog
+     (`ActionNamespace.Tool` and `effect:deploy.*`) rather than in bespoke tool code.
 
-3. **Target is resolved, never asserted by the model.** The prod/staging discriminator comes from the
-   **42-2 binding** (`ConfigJson`: the declared target map), keyed by a `targetKey` the model picks from
-   a closed, binding-declared set. An undeclared or missing `targetKey` is **treated as prod** →
-   `Destructive`, never as staging.
+3. **Target is server-resolved, never asserted by the model.** The model picks a `targetKey` from a
+   **closed, server-declared target map**; an undeclared or missing `targetKey` is **refused**
+   (`Success = false`, zero provider calls), and any free-text `environment` field supplied by the model
+   is ignored. *(Story 42-2 was superseded by Epic 43 and deleted; see "Configuration: open question"
+   below for where the target map now lives.)*
 
-4. **Prod deploy stays a human decision by *policy*, and this tool never bypasses it.** Epic 39 already
-   models "final production-deploy authorization for regulated/breaking changes" as an always-escalate
-   acceptance-rules class. This tool *executes* an authorized deploy; it never decides to skip the gate.
-   The always-escalate class binds **independently of** the autonomy dial and of 42-3's grant — a
-   satisfied 42-3 authorization does not satisfy the Epic 39 class.
+   **How production-deploy safety is preserved (replaces former Scope 4 / AC7, deleted by Epic 43 Story
+   43-10):** an earlier pre-reconciliation Scope 4 / AC7 required Epic 39's always-escalate class to
+   bind *independently* of the autonomy dial and of 42-3's grant — which meant two gates, two audit ids,
+   and two human decisions for a single production deploy. Both are deleted without losing any safety:
+   - `effect:deploy.promote-prod` (`effect:deploy.prod` / `effect:deploy.rollback`) ships
+     `AlwaysHuman`, and Epic 43 absorbs Epic 39's `AlwaysEscalate` list via `AcceptanceGuardrails.TryPreGate`
+     as a monotone `max()` floor that no catalog row can lower (Epic 43 Story 43-5 / 43-9 AC16).
+   - `IActionAuthorizationLedger` makes **one** human grant cover the correlation across seams (one
+     gate, one audit id, one human decision).
+   - The existing business-mode predicate in `DeploymentPipelineWorkflow` is **OR'd, never replaced**
+     (Epic 43 Story 43-9 AC11), so business-mode production approval can never be weakened.
+   - `WaitForToolOperationActivity` below is **unaffected**: it is an **operation** wait (waiting for
+     the remote deploy job to finish), not an **authorization** wait.
 
-5. **Secret binding.** `SecretRequirement(SecretPurpose.ApiKey | SecretPurpose.SigningKey,
+4. **Secret binding.** `SecretRequirement(SecretPurpose.ApiKey | SecretPurpose.SigningKey,
    "deploy/<platform>", Required)` — `SecretPurpose` being the `Tamma.Core`-sited enum 42-1 §0
    relocates. Resolved by 42-4 to **`SecretRef.ForTenant(runTenantId, name)` in SaaS** and
    **`SecretRef.ForPlatform(name)` in single-user**. *Corrected: an earlier draft said "user-scoped in
@@ -87,14 +96,14 @@ and makes no vendor call. Only the 42-1 contract types stay in `Tamma.Activities
    `SecretRef`'s constructor throws on either mismatch. The sole user's ownership is
    `SecretMetadata.OwnerUserId` metadata.* `runTenantId` comes from the run context only.
 
-6. **Long deploys — the executor does NOT suspend; it returns a handle.**
+5. **Long deploys — the executor does NOT suspend; it returns a handle.**
    *Corrected: an earlier draft said "trigger the deploy, suspend the workflow". An `IToolExecutor`
    cannot suspend a workflow: the tool loop runs server-side inside a **blocking**
    `POST /api/v1/llm/call` in `Tamma.Api` (`CallLlmInlineActivity` is a thin client over
    `TammaApiClient`), where there is no `ActivityExecutionContext` and no bookmark to create. The old
    AC — "a long deploy suspends and resumes on completion" — was unverifiable against the executor.*
 
-   The shape, mirroring 42-3's cross-process gate and the landed `WaitForCIResultsActivity`:
+   The shape, mirroring the landed `WaitForCIResultsActivity`:
    - `deploy_control` **returns promptly** with `Success = true` and an `operationHandle`
      (`{ platform, deploymentId, targetKey, releaseRef }`); it holds no thread past the per-tool timeout.
    - `Suspends = true` on the descriptor is a **declaration that completion is owned by an engine-side
@@ -109,71 +118,77 @@ and makes no vendor call. Only the 42-1 contract types stay in `Tamma.Activities
    - Any polling of the deploy platform is a `Tamma.Api` concern (platform task / callback endpoint),
      never engine-side.
 
-7. **Audit.** Every op emits 42-5 `TOOL.*` tagged `platform` / `operation` / `targetKey` / `releaseRef`
-   / `deploymentId` / terminal `status`. A `promote`-to-prod or `rollback` carries the authorizing actor
-   and the 42-3 decision id in its lineage, plus the Epic 39 acceptance decision id when the
-   always-escalate class fired.
+6. **Audit.** Every op emits 42-5 `TOOL.*` tagged `platform` / `operation` / `targetKey` / `releaseRef`
+   / `deploymentId` / terminal `status`. Governance decisions and human approvals are audited separately
+   by Epic 43's `ACTION.GATE.*` event family.
+
+## Configuration: open question
+
+- **What configuration this story needs:** the declared **target map** (mapping closed `targetKey`
+  values to concrete deployment targets).
+- **Why it has no store today:** Story 42-2 (`tool_bindings` / `ConfigJson`) was superseded by Epic 43
+  and deleted. Epic 43's `action_assignments` absorbs policy only (thresholds and flags) — deliberately,
+  because it is a governance table and not a settings store.
+- **Interim resolution:** deployment configuration via `IOptions` (platform-scoped, validated fail-loud
+  at startup), which is sufficient for single-user mode and for a single-tenant deployment.
+- **Unresolved product gap (SaaS):** **per-tenant tool configuration in SaaS is genuinely lost and
+  unresolved.** `IOptions` is process-wide, so two tenants cannot configure different deploy targets.
+  Restoring per-tenant configuration requires an explicit product decision before this story is
+  implemented: either introduce a narrow `tool_configuration` table (config only, no policy —
+  explicitly *not* a second governance store) or accept that tool configuration is deployment-scoped in
+  v1. `IOptions` is an interim workaround, **not** a closed answer.
 
 ## Acceptance Criteria
 
-1. Two executors are registered; descriptors read through an **`IToolExecutor`-typed** reference
-   (42-1's DIM caveat): `deploy_status` = `ReadOnly` / floor 70 / `Suspends=false`; `deploy_control` =
-   `Destructive` (family max) / floor 100 / `Suspends=true`. Both declare
-   `SecretRequirement(ApiKey|SigningKey, "deploy/<platform>", Required)`.
+1. Two executors are registered declaring 42-1's abstract `ToolDescriptor`: `deploy_status`
+   (`Suspends = false`) and `deploy_control` (`Suspends = true`), both with
+   `SecretRequirement(ApiKey | SigningKey, "deploy/<platform>", Required)`.
 2. `deploy_status` cannot mutate: its `InputSchema` enumerates only `status`, and an argument object
    naming `trigger`/`promote`/`rollback` returns `Success = false` with **zero** calls on a spy
    `IDeployControlProvider`.
-3. `deploy_control.Describe(argumentsJson)` is table-driven-tested: `trigger`/`promote` to a
-   binding-declared staging target → `Mutating`; the same to a binding-declared prod target →
-   `Destructive`; `rollback` against **any** target (including staging) → `Destructive`; and each of
-   {undeclared `targetKey`, missing `targetKey`, malformed JSON} → `Destructive`. `Target` equals
-   `<targetKey>:<releaseRef>`.
-4. The model cannot downgrade the class: a test supplies a free-text `"environment": "staging"` field
-   alongside a `targetKey` the binding maps to prod, and asserts the class derives from the binding map
-   alone.
-5. A prod `promote` and a `rollback` each produce **no** provider call and terminate the run with
-   `AgentRunFailureCodes.ToolAuthorizationRequired`, the `ToolAuthorizationRequest` carrying the
-   operation and the concrete `Target`. Asserted on **both** execution branches —
-   `EnableParallelTools = false` (the default) and `true`.
-6. Authorization is target-bound and single-use: after an `Authorize` for
-   `(session, deploy_control, promote, prod:v1.4.2)`, exactly one matching promote executes; a second
-   identical promote re-gates and a promote of `prod:v1.4.3` re-gates.
-7. The Epic 39 always-escalate class is **independent** of the 42-3 grant: a prod deploy whose
-   acceptance class is always-escalate routes to a human even when autonomy is 100 **and** a valid 42-3
-   grant is present — the test asserts the provider is not called until both are satisfied.
-8. Provider abstraction holds: a stub `IDeployControlProvider` drives `trigger → status → rollback`
+3. **Containment.** `deploy_control` accepts only a `targetKey` declared in the closed server target
+   map; an undeclared or missing `targetKey` returns `Success = false` with **zero** provider calls. A
+   test supplies a free-text `"environment": "staging"` field alongside a `targetKey` mapped to prod and
+   asserts the resolved target derives from the server map alone.
+4. Provider abstraction holds: a stub `IDeployControlProvider` drives `trigger → status → rollback`
    with the reference driver **not registered**; the executors name no concrete platform type.
-9. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)`, single-user resolves
+5. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)`, single-user resolves
    `SecretRef.ForPlatform(name)`; constructing a `Tenant`-scoped ref with a null tenant id throws; a
    grep-for-value test asserts the credential appears in no `ToolExecutionResult.Output`, no `TOOL.*`
    payload, and no captured log line.
-10. Long-op round trip: against a stub slow provider, `trigger` returns inside the per-tool timeout with
-    `Success = true` and a non-empty `operationHandle`, and **no** suspend occurs inside
-    `POST /api/v1/llm/call`. `WaitForToolOperationActivity` then (a) resumes to `Completed` on the
-    callback, (b) resumes to `TimedOut` on its durable delay with no callback, and (c) resumes from the
-    **persisted** bookmark after the workflow host is restarted mid-wait. A test asserts the activity
-    type is present in `LifecycleBookmarks.CanonicalSuspendActivities`.
-11. A driver that throws yields `Success = false` + `TOOL.FAILED`; the test asserts `ExecuteAsync`
-    **returns** rather than propagating (never-throw contract).
-12. A gated `promote`/`rollback` `TOOL.*` row carries the authorizing actor id, the 42-3 decision id,
-    and — when the Epic 39 class fired — the acceptance decision id.
+6. Long-op round trip: against a stub slow provider, `trigger` returns inside the per-tool timeout with
+   `Success = true` and a non-empty `operationHandle`, and **no** suspend occurs inside
+   `POST /api/v1/llm/call`. `WaitForToolOperationActivity` then (a) resumes to `Completed` on the
+   callback, (b) resumes to `TimedOut` on its durable delay with no callback, and (c) resumes from the
+   **persisted** bookmark after the workflow host is restarted mid-wait. A test asserts the activity
+   type is present in `LifecycleBookmarks.CanonicalSuspendActivities`.
+7. A driver that throws yields `Success = false` + `TOOL.FAILED`; the test asserts `ExecuteAsync`
+   **returns** rather than propagating (never-throw contract).
+8. Every op emits 42-5 `TOOL.INVOKED` + `TOOL.SUCCEEDED`/`TOOL.FAILED` carrying `platform` /
+   `operation` / `targetKey` / `releaseRef` / `deploymentId` / terminal `status` tags (never the
+   credential).
+
+*(Former AC3 `Describe`, AC5 `ToolAuthorizationRequired`, AC6 42-3 target-bound auth, and AC7
+independently-binding Epic 39 always-escalate gate were deleted under Epic 43 Story 43-10 — see §3
+above for how production-deploy safety is preserved through Epic 43's `AlwaysHuman` floor,
+`IActionAuthorizationLedger`, and OR'd business-mode predicate.)*
 
 ## Events
 
 Reuses 42-5 `TOOL.INVOKED/SUCCEEDED/FAILED` with `platform` / `targetKey` / `releaseRef` /
-`deploymentId` / `status` tags. The engine-side wait activity emits its request/completion pair through
-`TammaEventEmitter` — it *is* an Elsa activity with a context, the one place in this story where that
-emitter applies. No new family.
+`deploymentId` / `status` tags (governance decisions emit Epic 43's `ACTION.GATE.*`). The engine-side
+wait activity emits its request/completion pair through `TammaEventEmitter` — it *is* an Elsa activity
+with a context, the one place in this story where that emitter applies. No new family.
 
 ## Single-user vs SaaS
 
 - **single-user:** the sole user's deploy credential as a **platform-scoped** secret
-  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; prod authorizations route to the
-  single orchestrator/user.
-- **SaaS:** tenant-scoped credential and tenant-scoped target map (a tenant drives only its own
-  deploys); prod authorizations route to the tenant orchestrator/role, and both the authorization
-  bookmark and the operation bookmark are tenant-folded, so a cross-tenant resume cannot resolve
-  another tenant's deploy.
+  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; gating resolves against the user's
+  Epic 43 `action_assignments` rows.
+- **SaaS:** tenant-scoped credential (`SecretRef.ForTenant(runTenantId, …)`); gating resolves against
+  the tenant's Epic 43 `action_assignments` rows and platform ceiling, and the operation bookmark is
+  tenant-folded, so a cross-tenant resume cannot resolve another tenant's deploy. *(Per-tenant target
+  maps are currently lost with 42-2's `ConfigJson` — see "Configuration: open question" above.)*
 
 ## Epic 41 consumers
 
@@ -182,12 +197,14 @@ emitter applies. No new family.
 
 ## Dependencies
 
-- **42-1** — `ToolDescriptor` + `Suspends`; the `Tamma.Core`-sited `SecretPurpose` (§0). DIM caveats
-  apply: read descriptors through an `IToolExecutor`-typed reference; a mocked executor returns **null**.
-- **42-2** — the binding's `ConfigJson` carries the declared target map; without it §3's fail-safe
-  degrades to "every target is prod".
-- **42-3** — `Describe` + stage-2 argument-bound authorization on both branches, the
-  `ToolAuthorizationRequired` code, and the engine-side gate.
+- **Product decision (blocking before implementation):** resolve the `ConfigJson` open question above
+  (narrow `tool_configuration` table vs deployment-scoped `IOptions` in v1).
+- **42-1** — `ToolDescriptor(RequiredSecret, Suspends)`; the `Tamma.Core`-sited `SecretPurpose` (§0).
+- **Epic 43 (Action Catalog + Seam B + Seam E + Authorization Ledger)** — owns risk classification,
+  `AlwaysHuman` prod-deploy/rollback floors, absorbed Epic 39 `AlwaysEscalate` precedence, one-grant
+  correlation coverage, and OR'd business-mode preservation. *(42-2 and 42-3 were superseded by Epic 43
+  and deleted; 42-3's siting analysis and effective-ceiling insight were transplanted into Epic 43
+  Story 43-9.)*
 - **42-4** — credential binding. *Corrected: an earlier draft called this "hard-blocked on the Epic 29
   reveal path". It is not — four runtime plaintext readers already ship and 42-4 generalizes them. The
   residual dependency is a non-null `ISecretAccessAuditor`; only `NullSecretAccessAuditor` is registered
@@ -196,38 +213,27 @@ emitter applies. No new family.
 - **42-7 (shared)** — `WaitForToolOperationActivity`, its bookmark prefix, its
   `CanonicalSuspendActivities` registration, and its authenticated callback endpoint. Land once,
   whichever story is first.
-- **Epic 39** — the always-escalate acceptance-rules class for prod deploy (policy, reused not rebuilt).
 - **`Tamma.Activities` holds no external credential** and carries the `TAMMA001` analyzer; no
   credential-holding code from this story may be added to it.
 - **Epic 41 / 41-29** consumers.
 
 ## Risks
 
-- **Stage-1 filter vs. max-class descriptor — settled in 42-3, and a hard prerequisite here.**
-  `deploy_control`'s max **is** `Destructive`, so a stage-1 filter reading the raw descriptor max
-  would never hand it to the agent and stage 2 would never fire. 42-3 Scope 1 now keys stage 1 on the
-  **binding-resolved effective ceiling**, with `Destructive` as a stage-2 discriminator and a
-  max-class tool with a non-empty ceiling still offered (42-3 AC1b). Treat that as a prerequisite:
-  if it is reverted, this family is unreachable.
 - **Prod blast radius.** A wrongly-authorized prod deploy is the highest-impact action in the epic.
-  Mitigation: target-bound single-use authorization (AC6), the *independent* Epic 39 always-escalate
-  class (AC7), and full lineage (AC12).
+  Mitigation: `deploy_status` cannot mutate (AC2), closed server-declared target map containment (AC3),
+  Epic 43's `AlwaysHuman` prod/rollback defaults + absorbed `AlwaysEscalate` floor + OR'd business-mode
+  predicate (§3), and full `TOOL.*` + `ACTION.GATE.*` audit lineage (AC8).
 - **Handle forgery.** The `operationHandle` crosses from the tool result into an engine-side bookmark
   name. It must be minted server-side and tenant-folded; a model-supplied handle must never select a
-  bookmark. Pinned in the AC10 round trip.
+  bookmark. Pinned in the AC6 round trip.
 - **Callback endpoint is external surface.** The completion callback that resumes the wait is a new
   seam and must be authenticated and tenant-scoped like `DocumentDecisionResumeEndpoint` (keyed
   tenant + operation), not deployment-id-only — otherwise anyone who learns a deployment id can resume
   a suspended workflow.
-- **Rollback is graded `Destructive` even on staging.** Deliberate: a rollback discards a deployed
-  state and is the operation most often reached for under incident pressure. If this proves too coarse,
-  the change belongs in `Describe`'s table (AC3), not in a per-call model assertion.
 
 ## Estimated Effort
 
 Large. ~5–6 days standalone; **~4 days if 42-7 lands first** and
 `WaitForToolOperationActivity` + bookmark + callback endpoint are already in place. Provider
-abstraction + reference driver + read/write split + `Describe` + the Epic-39-class interaction test.
-**Under the stated wave order** (42-9 → 42-8A → 42-8B → 42-7) this story lands first and therefore
-carries the shared wait machinery — budget the standalone ~5–6 days here and the reduced figure for
-42-7. The pair pays for that machinery **once**.
+abstraction + reference driver + read/write split + closed target-map containment + shared wait
+machinery. The pair (42-8B + 42-7) pays for that machinery **once**.

@@ -13,9 +13,9 @@ Then check the knowledge base: `.dev/spikes/`, `.dev/bugs/`, `.dev/findings/`, `
 ## User Story
 
 As the **platform audit trail**, I want **every tool invocation** to emit a durable, secret-free DCB
-event — invoked, succeeded, failed — tagged with `issueId`/`tenantId`/`toolName`/`permissionClass`, so
+event — invoked, succeeded, failed — tagged with `issueId`/`tenantId`/`toolName`/`toolCallId`, so
 that a tool call carries the same 100%-audit, time-travel-debuggable trail as a document transition, and
-"the agent deleted a VPS at 14:03 under autonomy 95, authorized by the orchestrator" is a queryable row.
+what every tool did is a queryable row correlated alongside Epic 43's `ACTION.GATE.*` decision trail.
 
 ## Priority
 
@@ -84,14 +84,18 @@ emission happens in `Tamma.Api.Services.Agents`.
 
    | Event | When | Key payload |
    |---|---|---|
-   | `TOOL.INVOKED` | before execution | toolName, permissionClass, autonomyAtCall, toolCallId, argsRedacted |
+   | `TOOL.INVOKED` | before execution | toolName, toolCallId, argsRedacted |
    | `TOOL.SUCCEEDED` | `Success == true` | toolName, durationMs, outputSizeBytes |
-   | `TOOL.FAILED` | `Success == false` / timeout / exception / rejected-by-gate | toolName, durationMs, failureReason (redacted) |
+   | `TOOL.FAILED` | `Success == false` / timeout / exception / rejected-by-validator | toolName, durationMs, failureReason (redacted) |
 
    These sit **alongside** (not replacing) the ephemeral `TOOL_LOOP.*` SSE events — SSE is the live UI
-   feed; `TOOL.*` is the permanent record. (42-3 owns the pre-invocation governance events
-   `TOOL.RESOLVED`/`DENIED`/`ESCALATED`/`AUTHORIZED`; 42-4 owns `TOOL.SECRET_ACCESSED`. This story owns
-   the **invocation** trio and the shared emit path + redaction rule those events reuse.)
+   feed; `TOOL.*` is the permanent invocation record. Governance decision events live exclusively in
+   **Epic 43's single `ACTION.GATE.*` event family** (emitted at Epic 43's seams; 42-2 and 42-3 were
+   superseded and deleted, so no `TOOL.RESOLVED`/`DENIED`/`ESCALATED`/`AUTHORIZED` or `TOOL.BINDING_*`
+   events exist). 42-4 owns `TOOL.SECRET_ACCESSED`. This story owns the **invocation trio** (`TOOL.INVOKED`
+   / `TOOL.SUCCEEDED` / `TOOL.FAILED`) and the shared emit path + redaction rule `TOOL.SECRET_ACCESSED`
+   reuses. *(Earlier drafts also carried `permissionClass` and `autonomyAtCall` on `TOOL.INVOKED`; both
+   were dropped under Epic 43 reconciliation because risk and dial state belong to `ACTION.GATE.*`.)*
 
 2. **The run context the emitter needs does not reach the runner — and `issueId` is dropped one level
    above it.** `IInlineToolLoopRunner.RunAsync` takes only a `correlationId` (no `tenantId`, no
@@ -120,18 +124,18 @@ emission happens in `Tamma.Api.Services.Agents`.
    A tool with no `RequiredSecret` still passes through the pattern path.
 
 4. **Tagging for lineage — reuse the landed contract.** Every `TOOL.*` event is tagged via
-   `AgentTrailTags.Build(ctx, extra)` with `extra` adding `toolName`, `permissionClass`, `toolCallId`
-   and `autonomyAtCall`; `issueId`, `tenantId`, `correlationId`, `agentId` and `role` come free from
-   `AgentTrailContext`. `IEventRepository.AppendAsync` writes the row into the resolving tenant's
-   `t_<hex>.domain_events`. Do **not** invent a second tag vocabulary.
+   `AgentTrailTags.Build(ctx, extra)` with `extra` adding `toolName` and `toolCallId`; `issueId`,
+   `tenantId`, `correlationId`, `agentId` and `role` come free from `AgentTrailContext`.
+   `IEventRepository.AppendAsync` writes the row into the resolving tenant's `t_<hex>.domain_events`.
+   Do **not** invent a second tag vocabulary.
 
-5. **Reconcile the three sinks — and revive the dead one.** Document the invariant: `IToolLoopEventSink`
-   = ephemeral live progress; `TOOL.*` = the durable audit of record; `AGENT.TOOL_CALL.*` (32-6) = the
-   per-agent analytics trail. Because this story now collects a per-call summary anyway, it must also
-   **populate `InlineToolLoopResult.ToolCalls`** (`ToolCallSummary(ToolCallId, ToolName, Success,
-   DurationMs)`) from the same collection, so 32-6's `EmitTrailToolCallsAsync` stops being structurally
-   dead. Leaving two families that both claim to record tool calls while one silently emits nothing is
-   not an acceptable end state.
+5. **Document the sink split (do NOT populate `InlineToolLoopResult.ToolCalls`).** Document the
+   invariant: `IToolLoopEventSink` = ephemeral live progress (`TOOL_LOOP.*`); `TOOL.*` = the durable
+   invocation audit of record; `ACTION.GATE.*` (Epic 43) = the durable governance decision trail.
+   *Removed by Epic 43 reconciliation (Story 43-10):* `InlineToolLoopResult.ToolCalls` is documented
+   always-empty at `IInlineToolLoopRunner.cs:133-134` (and `:112-114`), and reviving `AGENT.TOOL_CALL.*`
+   from it would create a second durable tool-call family alongside `TOOL.*`; this story does **not**
+   populate `InlineToolLoopResult.ToolCalls` and does **not** revive `EmitTrailToolCallsAsync`.
 
 ## Acceptance Criteria
 
@@ -145,27 +149,28 @@ emission happens in `Tamma.Api.Services.Agents`.
    `ToolExecutionResult.Success == false` rather than a throw.
 4. **Redaction.** A tool call whose args carry a credential-shaped literal (e.g. `ghp_…`,
    `Authorization: Bearer …`, `api_key=…`) emits `TOOL.INVOKED` with the value replaced by the
-   redaction placeholder; a field named by the descriptor's `RequiredSecret` is absent entirely. Plus a
-   **structural** assertion that no emitter method accepts a credential parameter — the never-hold
-   guarantee is a signature property, not a string search.
+   redaction placeholder; when a descriptor carries a `RequiredSecret`, the corresponding argument field
+   is absent entirely. Plus a **structural** assertion that no emitter method accepts a credential
+   parameter — the never-hold guarantee is a signature property, not a string search.
 5. Every `TOOL.*` event carries a **non-null** `issueId` when the run has one (the test asserts the value
    round-trips from `ManagedAgentRequest.IssueId`, since `ToTrailContext` drops it today) plus
-   `tenantId`/`toolName`/`permissionClass`/`toolCallId`, all built through `AgentTrailTags`; a replay
-   test reconstructs the tool timeline for an issue from `domain_events` alone.
+   `tenantId`/`toolName`/`toolCallId`, all built through `AgentTrailTags`; a replay test reconstructs
+   the tool timeline for an issue from `domain_events` alone.
 6. Durable emission is **sink-independent**: with `NullToolLoopEventSink` wired (no SSE) and
    `EnableStreaming == false`, the `TOOL.*` rows are still persisted.
 7. The ephemeral `TOOL_LOOP.*` SSE events are unchanged (no regression to 32-x dashboard behavior).
-8. `InlineToolLoopResult.ToolCalls` is populated for both branches, and a run that executes N tools
-   produces N `AGENT.TOOL_CALL.*` rows via the existing 32-6 emitter (asserting the previously dead path
-   now fires).
-9. An event-store append failure never fails the run: a test with a throwing `IEventRepository` asserts
-   the tool result is still returned and a WARN is logged (the `AgentTrailEmitter` AC7 posture).
+8. *(Former AC8 — populating `InlineToolLoopResult.ToolCalls` / reviving `AGENT.TOOL_CALL.*` — was
+   deleted by Epic 43 Story 43-10 because `InlineToolLoopResult.ToolCalls` is documented always-empty at
+   `IInlineToolLoopRunner.cs:133-134` and reviving `AGENT.TOOL_CALL.*` would create a second durable
+   tool-call family alongside `TOOL.*`.)* An event-store append failure never fails the run: a test with
+   a throwing `IEventRepository` asserts the tool result is still returned and a WARN is logged (the
+   `AgentTrailEmitter` AC7 posture).
 
 ## Events
 
 Defines `TOOL.INVOKED` / `TOOL.SUCCEEDED` / `TOOL.FAILED`, and the shared Api-side emit path + redaction
-rule inherited by every other `TOOL.*` event in the epic (42-3's governance events, 42-4's
-`TOOL.SECRET_ACCESSED`). Uses the `AGGREGATE.ACTION.STATUS` convention (`TOOL` aggregate), matching
+rule inherited by 42-4's `TOOL.SECRET_ACCESSED`. Governance decisions live exclusively in Epic 43's
+`ACTION.GATE.*` family. Uses the `AGGREGATE.ACTION.STATUS` convention (`TOOL` aggregate), matching
 `AgentTrailEventTypes`.
 
 ## Single-user vs SaaS
@@ -176,16 +181,19 @@ behavior beyond the tag.
 
 ## Dependencies
 
-- **42-1** — `PermissionClass` for the tag, `RequiredSecret` for the field-suppression set.
-- **Story 32-6** — `IAgentTrailEmitter` / `AgentTrailContext` / `AgentTrailTags` (the tag contract,
-  never-throw posture, and the `AGENT.TOOL_CALL.*` family this story revives). *Corrected: the
-  `TammaEventEmitter` → `tamma:events` → `EventDrain` path is **not** a dependency — it is unusable
-  here.*
+- **42-1 (soft enhancement, not blocking)** — `RequiredSecret` supplies the field-suppression set when
+  present, but pattern redaction covers a tool with no descriptor, so this story can land in parallel
+  with 42-1. *(Earlier drafts depended on 42-1's `PermissionClass`; dropped under Epic 43.)*
+- **Story 32-6** — `IAgentTrailEmitter` / `AgentTrailContext` / `AgentTrailTags` (the tag contract and
+  never-throw posture). *Corrected: the `TammaEventEmitter` → `tamma:events` → `EventDrain` path is
+  **not** a dependency — it is unusable here.*
 - **42-4** — supplies the redaction rules; explicitly does **not** supply secret values to match against.
-- **Wave 0.5 cleanup** — the two independently-sourced allowlists in `InlineToolLoopRunner` (the
-  resolved-tool name list at L262 vs `loopConfig.AllowedTools` at L342/L419) both produce rejections that
-  must be audited; 42-3 owns reconciling them, this story must emit for whichever survives.
-- **Unblocks:** every family — no `Destructive` tool ships without this trail.
+- **Dual allowlists in `InlineToolLoopRunner`** — the two independently-sourced allowlists (the
+  resolved-tool name list at L262 vs `loopConfig.AllowedTools` at L342/L419) both produce rejections;
+  with 42-3 deleted (superseded by Epic 43 Seam B, which preserves the fail-open allowlists), nobody
+  currently owns reconciling them. This story audits whichever rejection fires and does not reconcile
+  them.
+- **Unblocks:** every Wave-3 family — no external-touching tool ships without this invocation trail.
 
 ## Risks
 

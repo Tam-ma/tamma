@@ -98,6 +98,29 @@ This story gives it its first, by taking **only** its always-escalate contributi
 also implements an unrelated rounds-exhausted short-circuit (`AcceptanceGuardrailsTests.cs:58,66` exercise
 it); the evaluator must ignore that outcome — the document lifecycle keeps owning rounds.
 
+### Two-scoping ownership & resolution model *(transplanted from superseded Story 42-2, with credit)*
+
+Per CLAUDE.md's universal rule, every governance surface answers ownership **twice**, mirroring the
+Prompt Store (`prompt_overrides`) and Acceptance Rules (`acceptance_rules_overrides`) two-scoping model
+originally drafted in Epic 42 Story 42-2 (deleted during the 2026-07-25 reconciliation and superseded by
+`action_assignments` here), extended with a third platform-ceiling plane:
+
+- **single-user mode** — the sole user owns action/group assignments, keyed by `user_id` (`tenant_id IS
+  NULL`). Resolution: `max(platformCeiling, legacyAlwaysEscalate, user action override ?? user group
+  override ?? shipped default)`. There is no tenant layer in single-user mode.
+- **SaaS mode** — `tenant_owner` / `tenant_admin` owns the tenant's assignments, keyed by `tenant_id`
+  (`user_id IS NULL`); `member` users receive the tenant's resolved policy with **no edit access** (403
+  on write, matching the Prompt Store), and there is **no per-user override layer**. Resolution:
+  `max(platformCeiling, legacyAlwaysEscalate, tenant action override ?? tenant group override ?? shipped
+  default)`.
+- **Platform ceiling (both modes)** — `user_id IS NULL AND tenant_id IS NULL`, writable by platform
+  operators only; composes monotonically via `max()` (thresholds), OR (`Enforce`), AND (`Enabled`), and
+  intersection (`AllowedRoles`), so a tenant or user can tighten further but never loosen below a
+  platform ceiling.
+
+*(Attribution: the two-scoping ownership and non-overlapping single-user / SaaS resolution prose was
+transplanted from Epic 42 Story 42-2 per Story 43-10 AC10 so it is preserved after 42-2's deletion.)*
+
 ### Shape to follow, verbatim
 
 `TammaModelConfiguration.cs:1621-1654` (the `AcceptanceRulesOverride` block) is the template for the EF

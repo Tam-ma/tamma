@@ -1,22 +1,12 @@
 # Implementation Plan — Story 42-8A: Feature-Flag / Config-Toggle Tool
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** The verdict for 42-8A (with 42-7 / 42-8B / 42-9)
-is **"Gating sections stripped. They declare capability and secrets; the catalog governs them."** The
-deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| §2's per-call `PermissionClass` table and `ToolInvocationFacts Describe(string argumentsJson)` | **STRIPPED.** `Describe` was 42-3's seam; 42-3 is deleted. `ToolPermissionClass` no longer exists (42-1 rewritten; `ToolDescriptor` is `(RequiredSecret, Suspends)`). Epic 43's **Seam B** gates on an `ActionKey` derived from the tool name. |
-| §2's **read/write executor split** | **KEPT — a capability boundary, not a gate.** `feature_flag_read` physically cannot reach `SetAsync`. Post-reconciliation this is the story's primary structural safety property, because it holds regardless of how any catalog row is configured. |
-| **§3 — "the prod/non-prod discriminator comes from the 42-2 binding (`ConfigJson`: the environment map + the `kill_switch` flag list)"** | **42-2 is DELETED and nothing replaces `ConfigJson`.** Epic 43's `action_assignments` stores *policy* — a threshold plus three nullable columns (`Enforce`, `Enabled`, `AllowedRoles`) — and has **no config blob and no per-tool settings**. So the environment map has no home. Resolved by **D3**: it moves to deployment configuration (`IOptions`), platform-scoped. The *containment* rule survives verbatim (the model picks a key from a closed declared set; an undeclared key is refused); the *classification* half is gone. **This is a real capability reduction in SaaS — see G1.** |
-| AC1's `ReadOnly`/floor 70, `Destructive`/floor 100 | **STRIPPED.** AC1 becomes: two executors registered, both declaring `SecretRequirement(ApiKey, "flags/<provider>", Required)`, both `Suspends = false`. |
-| AC3 (`Describe` table), AC5 (`ToolAuthorizationRequired` + `ToolAuthorizationRequest`), AC6 (target-bound single-use authorization), AC10's "42-3 decision id" | **STRIPPED.** AC4 survives in the rewritten form of D3 (the model cannot select an undeclared environment); AC10's previous/new-value pair survives as an audit requirement. |
-| The "Stage-1 filter vs. max-class descriptor" risk | **Gone** — it was about 42-3's stage-1 filter. Epic 43 records the same insight in its Seam B analysis, with credit. |
-
-**Unchanged:** §1's provider abstraction, §4's secret binding, §5's `Suspends = false`, §6's audit, and the
-"Where this code lives" siting rule.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict (stripping gating sections and `Describe`, keeping the read/write split, re-expressing
+server-resolved environments as `AutonomyQuery.Target` + closed configuration containment, and carrying
+the `ConfigJson` open question) have been applied directly to `42-8a-feature-flag-tool.md`; the story
+file and this plan now agree with zero residual deltas.
 
 ## Scope & Deliverable
 

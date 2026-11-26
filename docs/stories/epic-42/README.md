@@ -64,19 +64,16 @@ things **do** ship today and change how the stories are scoped:
   built on `ResolveToolsActivity`.
 - **A seventh `IToolExecutor` implementation exists.** `GetAcceptanceRulesTool` (`get_acceptance_rules`,
   Story 39-5 D6) is **principal-bound at construction and deliberately not DI-registered**, so
-  "registers exactly six" above is precise as written. 42-1 **does** annotate it (`ReadOnly`, floor 70,
-  no secret — leaving it to inherit the `Destructive`/100 default would arm a trap for the 39-17 host
-  that eventually mounts it), but keeps it **out of the DI-registered startup drift test** (42-1 AC4),
-  which an implementer must not widen to "all `IToolExecutor` types". It is also outside 42-3's
-  registry-driven stage-1 set: 42-3 Scope 5 decides that such a tool is admitted only by a host
-  **injecting** it into the run, never by a blanket exemption. See both stories' carve-outs.
+  "registers exactly six" above is precise as written. 42-1 gives it an explicit `ToolDescriptor`
+  (`RequiredSecret = null, Suspends = false`), enforced by the compiler because `Descriptor` is a plain
+  abstract interface member, while preserving its D6 non-DI-registered invariant (Epic 43 Story 43-4's
+  startup validator gives it a permanent allowlist entry rather than registering it as a singleton).
 
 **This epic makes the tool layer first-class: extensible (native + dynamic + MCP), secured
-(secret-bound, redacted), and autonomy-gated (per-role, per-autonomy, per-mode) — the same governance
-documents already get.** It *extends* the real `IToolExecutor` / `IToolExecutorRegistry` /
-`ManagedAgent.ToResolvedTools` / `InlineToolLoopRunner` / `ParallelToolExecutor` / `ToolCallValidator`
-surface. It does **not** design a parallel framework, and it does **not** reinvent the accept gate
-(Epic 39) or the secret store (Epic 29) — it composes them.
+(secret-bound, redacted), and governed through Epic 43 (The Action Catalog).** It *extends* the real
+`IToolExecutor` / `IToolExecutorRegistry` / `InlineToolLoopRunner` / `ParallelToolExecutor` /
+`ToolCallValidator` surface. It does **not** design a parallel framework, and it does **not** reinvent
+governance (Epic 43), the accept gate (Epic 39), or the secret store (Epic 29) — it composes them.
 
 ## The gap this epic fills — and how it underpins Epic 41
 
@@ -105,29 +102,32 @@ untouched; this epic populates the tools those workflows resolve).
 
 ## The tool contract (what a tool declares) — extending the real `IToolExecutor`
 
-Today `IToolExecutor` is `{ ToolName, Description, InputSchema, ExecuteAsync }` and *must never throw*
-(errors are `ToolExecutionResult { Success = false }`). Story **42-1** keeps all four members and the
-never-throw contract, and adds a governance descriptor. To avoid breaking the six built-ins and the
-never-throw guarantee, the new metadata is exposed as a **`ToolDescriptor`** the executor surfaces
-(via a `Descriptor` member with a **fail-safe default** — most-restrictive, never permissive — so an
-un-annotated tool is *denied by default*, not silently granted):
+*(Reconciled against Epic 43 — see the verdict box under Stories below.)* Today `IToolExecutor` is
+`{ ToolName, Description, InputSchema, ExecuteAsync }` and *must never throw* (errors are
+`ToolExecutionResult { Success = false }`). Story **42-1** keeps all four members and the never-throw
+contract, and adds a **plain abstract** `ToolDescriptor Descriptor { get; }` member carrying capability
+metadata only (governance — risk class, autonomy thresholds, per-principal overrides, and enforcement —
+is owned by **Epic 43**, not by `ToolDescriptor`):
 
-| Field (new) | Type | Meaning | Fail-safe default |
-|---|---|---|---|
-| `Category` | `ToolCategory` = `Native` \| `Mcp` \| `ProviderAbstracted` | Where the tool comes from; drives which registration path owns it. | `Native` |
-| `PermissionClass` | `ToolPermissionClass` = `ReadOnly` \| `Mutating` \| `Command` \| `Destructive` | Governance tier, and **the family MAXIMUM over the tool's operations** — the *per-call* class comes from 42-3's `Describe(argumentsJson)`. `ReadOnly` = no side effects (FileRead, SearchCode). `Mutating` = reversible write (FileWrite, GitOperations, RunTests). `Command` = arbitrary exec, already `ActionGate`-gated (ShellExecute). `Destructive` = irreversible / prod-impacting (delete a cloud resource, flip a prod flag, promote a deploy). | `Destructive` (deny-by-default) |
-| `AutonomyFloor` | `int` (within the dial range from `GET /api/actions/dial`) | Minimum autonomy dial at which an `AgentRole` may invoke the tool **directly**; below it, the action is routed to the orchestrator/human as a `ToolAuthorizationRequest` on the decision-gate plumbing — never silently skipped. **No code branches on the dial today** (see below): 42-3 builds this consumer. | `100` |
-| `RequiredSecret` | `SecretRequirement?` | Declares the credential this tool needs — `{ Purpose, logical Name, scope-shape }`. `Purpose` is Epic 29's `SecretPurpose` **after 42-1 §0 relocates it to `Tamma.Core`** — it ships today in `Tamma.Api.Services.Secrets`, which the contract's assembly cannot reach. `null` for tools that touch nothing external. | `null` |
-| `Suspends` | `bool` | **Declares that completion is owned by an engine-side wait** — not a capability the executor exercises. *Corrected: an `IToolExecutor` cannot suspend a workflow.* The tool loop runs inside a **blocking** `POST /api/v1/llm/call` in `Tamma.Api`, where there is no `ActivityExecutionContext` and no bookmark to create. So the executor returns promptly with an `operationHandle`, and `WaitForToolOperationActivity` (engine-side, credential-free) suspends on it and resumes on the callback or a durable timeout (42-7 §4 / 42-8B §6). | `false` |
+| Field (new) | Type | Meaning |
+|---|---|---|
+| `RequiredSecret` | `SecretRequirement?` | Declares the credential this tool needs — `{ Purpose, logical Name, Required }`. `Purpose` is Epic 29's `SecretPurpose` **after 42-1 §0 relocates it to `Tamma.Core`** — it ships today in `Tamma.Api.Services.Secrets`, which the contract's assembly cannot reach. `null` for tools that touch nothing external. |
+| `Suspends` | `bool` | **Declares that completion is owned by an engine-side wait** — not a capability the executor exercises. *Corrected: an `IToolExecutor` cannot suspend a workflow.* The tool loop runs inside a **blocking** `POST /api/v1/llm/call` in `Tamma.Api`, where there is no `ActivityExecutionContext` and no bookmark to create. So the executor returns promptly with an `operationHandle`, and `WaitForToolOperationActivity` (engine-side, credential-free) suspends on it and resumes on the callback or a durable timeout (42-7 §4 / 42-8B §5). |
 
-The four existing members are unchanged; the six built-ins each declare a real `ToolDescriptor` (e.g.
-`SearchCodeTool` → `ReadOnly`, floor 70, no secret; `ShellExecuteTool` → `Command`, floor 85, no
-secret — it stays `ActionGate`-gated). `IToolExecutorRegistry` gains a **dynamic registration** seam
+*Dropped by Epic 43 reconciliation (Story 43-10):* `Category` (the registry's registration path decides
+built-in vs dynamic), `PermissionClass` (now `Tamma.Core/Actions/ActionRisk`), and `AutonomyFloor` (now
+`ActionDescriptor.DefaultMinAutonomy` + `action_assignments.min_autonomy`). With those three fields
+gone, the default-interface-member fail-safe had nothing left to fail safe to, so `Descriptor` is a
+**plain abstract interface member** enforced by the compiler.
+
+The four existing members are unchanged; all six DI-registered built-ins and `GetAcceptanceRulesTool`
+declare `new ToolDescriptor(RequiredSecret: null, Suspends: false)` (per-tool governance lives in
+Epic 43's Action Catalog). `IToolExecutorRegistry` gains a **dynamic registration** seam
 (`Register(IToolExecutor)` / `Unregister(name)` alongside today's DI-seeded set) so tools can be added
 per deployment and by MCP — the *vocabulary of governance is static; the catalog is dynamic*,
 mirroring Epic 39's "vocabulary static, composition dynamic". **Scope caveat:** the registry is a
 **singleton**, so 42-1 ships this seam **platform/deployment-scoped only** and rejects a
-principal-scoped registration outright (42-1 AC7); per-tenant tools wait for 42-6 Part B's
+principal-scoped registration outright (42-1 AC4); per-tenant tools wait for 42-6 Part B's
 per-principal registry *view*, since registering one principal's tool into the singleton leaks it to
 every other principal.
 
@@ -142,8 +142,8 @@ is **circular and will not compile**.
 |---|---|
 | `Tamma.Core` | Shared value types the contract needs on both sides — including **Epic 29's `SecretPurpose`, which 42-1 §0 *moves* here** (it ships in `Tamma.Api.Services.Secrets`, which `Tamma.Activities` cannot reach). *Move, not mirror:* 42-1 §0 rejects a parallel Core-owned enum mapped onto Epic 29's, because two taxonomies drift and the mapping table is exactly what the descriptor exists to remove. The move is data-safe — `SecretRow.Purpose` is a `string` column, so no schema or data change. |
 | `Tamma.Activities.LlmCall.Tools` | The **contract only**: `IToolExecutor`, `ToolDescriptor`, `SecretRequirement`, `IToolExecutorRegistry` / `ToolExecutorRegistry`. |
-| `Tamma.Api` | **Every external-touching executor and its provider drivers**: `CloudResourceTool`/`ICloudResourceProvider` (42-7), `FeatureFlagTool`/`IFeatureFlagProvider` + `DeployControlTool`/`IDeployControlProvider` (42-8A/42-8B), `HttpRequestTool` (42-9), `McpToolExecutor` + the MCP client (42-6), and the `IToolSecretProvider` implementation (42-4). Also both gating stages (42-3) and the `TOOL.*` emitter (42-5) — `ManagedAgent` / `InlineToolLoopRunner` are Api-side. |
-| `Tamma.Activities` (engine side) — **carve-out** | The **suspend/wait activities only**, because an `IToolExecutor` cannot suspend a workflow (no `ActivityExecutionContext` inside the blocking `POST /api/v1/llm/call`): `WaitForToolAuthorizationActivity` (42-3) and `WaitForToolOperationActivity` (42-7 / 42-8B, landed once and shared). Both are **credential-free and make no vendor call** — they resume on a callback; any polling of a vendor is an Api-side concern. This is the *only* engine-side code the epic adds. |
+| `Tamma.Api` | **Every external-touching executor and its provider drivers**: `CloudResourceTool`/`ICloudResourceProvider` (42-7), `FeatureFlagTool`/`IFeatureFlagProvider` + `DeployControlTool`/`IDeployControlProvider` (42-8A/42-8B), `HttpRequestTool` (42-9), `McpToolExecutor` + the MCP client (42-6), the `IToolSecretProvider` implementation (42-4), and the `TOOL.*` invocation emitter (42-5) — `ManagedAgent` / `InlineToolLoopRunner` are Api-side. (Tool governance itself lives in Epic 43's Seam B, also Api-side.) |
+| `Tamma.Activities` (engine side) — **carve-out** | The **operation wait activity only**, because an `IToolExecutor` cannot suspend a workflow (no `ActivityExecutionContext` inside the blocking `POST /api/v1/llm/call`): `WaitForToolOperationActivity` (42-7 / 42-8B, landed once and shared). It is **credential-free and makes no vendor call** — it resumes on a callback; any polling of a vendor is an Api-side concern. This is the *only* engine-side code the epic adds. |
 
 This follows **rule 1** ("a workflow step must never call an external API/provider directly or hold an
 external credential"), whose permanent backstop is the **`TAMMA001`** analyzer
@@ -167,85 +167,38 @@ assembly, outside the analyzed engine surface, so no engine exemption is needed.
 
 ## Permission + autonomy + secret model (single-user **and** SaaS)
 
-Per CLAUDE.md's universal rule, every tenant-aware surface here answers ownership **twice**. The model
-mirrors the **Prompt Store** two-scoping pattern exactly (Story 42-2 owns the persistence, a
-`tool_bindings` table analogous to `prompt_overrides`; a `CHECK (user_id XOR tenant_id)` constraint):
+*(Reconciled against Epic 43 — Stories 42-2 and 42-3 were superseded and deleted; see the verdict box
+under Stories below.)*
 
-- **single-user mode** — the sole user owns tool enablement + the per-role/per-autonomy grant.
-  Bindings keyed by `user_id`. Resolution: user binding → system default descriptor.
-- **SaaS mode** — `tenant_owner` / `tenant_admin` owns the tenant's grants; `member` users get the
-  resolved grant with **no edit access** (403 on write, exactly like the Prompt Store). Bindings keyed
-  by `tenant_id`. **No per-user override layer.** Resolution: tenant binding → system default.
+**Governance storage and two-scoping resolution live in Epic 43 Story 43-5** (`action_assignments` and
+`action_authorizations`, control-plane resident in both modes, with three scopes: user-only,
+tenant-only, and platform ceiling). Story 42-2's `tool_bindings` table was deleted; its two-scoping
+resolution prose is transplanted into `docs/stories/epic-43/story-43-5/`:
 
-**Enforcement is two-stage on the live tool path (Story 42-3), not a new gate.**
-*Corrected: earlier drafts sited enforcement in `ResolveToolsActivity`, which is dead code (see
-"What already exists"). It is also single-stage, which cannot work — see below.*
+- **single-user mode** — the sole user owns assignments (`user_id`-scoped) resolved via
+  `IGovernancePrincipalResolver` / `ISoleUserProvider`: `max(platformCeiling, legacyAlwaysEscalate,
+  user action → user group → shipped default)`.
+- **SaaS mode** — `tenant_owner` / `tenant_admin` owns the tenant's assignments (`tenant_id`-scoped;
+  `member` users get 403 on write, no per-user override layer), bounded above by platform ceilings:
+  `max(platformCeiling, legacyAlwaysEscalate, tenant action → tenant group → shipped default)`.
 
-- **Stage 1 — resolve-time pre-screen**, where the eligible tool set is built: `ManagedAgent.ToResolvedTools`
-  (today `names.Select(n => new ResolvedTool { Name = n })` — bare names, no descriptor). It returns only
-  the subset that is (a) enabled for the principal, (b) permitted for the agent's `AgentRole`, and
-  (c) **autonomy-eligible** — `Descriptor.AutonomyFloor ≤ current dial`.
-- **Stage 2 — invocation-time authorization**, in `InlineToolLoopRunner`'s pre-execution filter, covering
-  **both** the parallel and the sequential branch (`ToolLoopConfig.EnableParallelTools` defaults to
-  `false`, so sequential is the *default* path — a gate on only one branch governs nothing). Stage 2 is
-  where `LlmToolCall.ArgumentsJson` first exists, so it is the **only** place the *operation* and *target*
-  can be authorized. Resolve-time can only authorize a *capability* (`cloud_resource_write`), which would
-  silently cover delete-any-resource; the per-call class + target must be reported to the gate regardless
-  of how the tool family splits its verbs.
+**Tool-call enforcement lives in Epic 43 Story 43-9 (Seam B), not in a separate Epic 42 gate.**
+Story 42-3 was deleted; its siting analysis and effective-ceiling insight (filtering advertisement on a
+raw max class would have made every Wave-3 write tool unreachable) are transplanted into
+`docs/stories/epic-43/story-43-9/`:
 
-**What stage 1 does *not* do — filter on the raw descriptor class.** The descriptor's `PermissionClass`
-is the family's **maximum**, and every Wave-3 write executor advertises `Destructive` as that maximum.
-A stage-1 filter of `PermissionClass != Destructive` would hand the agent none of them, so the model
-would never emit a call and stage 2 would never fire — the whole catalog inert. 42-3 therefore keys
-stage 1 on the **binding-resolved effective ceiling** for the principal + role + autonomy, dropping a
-tool only when that ceiling is empty. `Destructive` is a **stage-2** discriminator, applied to the
-concrete call.
-
-A gated *action* — one whose per-call class is `Destructive`, or whose resolved floor exceeds the
-current dial — is **not executed**;
-instead the step routes that action to the orchestrator/human over the **existing decision-gate
-plumbing** (`WaitForDocumentDecisionActivity` + `DocumentDecisionResumeEndpoint`, keyed on
-tenant + session) carrying a **sibling `ToolAuthorizationRequest` payload** — Epic 39: *"the acceptor is
-an actor, not a branch"* — so a destructive tool call is a *decision taken by someone*, never an
-unattended side effect. *Corrected:* `AcceptanceRequest` itself is **not** reusable — all seven of its
-properties are `required`, including a `review`-typed `DocumentEnvelope`, and `AcceptanceRequestFactory`
-is its only constructor and rejects a non-`review` envelope. 42-3 therefore owns three concrete
-adaptation costs: a tool-authorization decision vocabulary (the gate's `[FlowNode]` outcomes and
-`ReadDecision` are pinned to the four `AcceptanceDecision` kinds), a `RequestedAtUtc` equivalent (the
-gate throws `DOCUMENT.DECISION.MISSING_REQUESTED_AT` without it), and a new bookmark prefix registered
-in `LifecycleBookmarks.CanonicalSuspendActivities`.
-
-**The autonomy dial (42-3 is its first control-flow consumer).** *Corrected: an earlier draft stated
-flatly that "the dial is read live, never cached into a running workflow (Epic 39 rule)".* Epic 39 does
-**specify** that (`epic-39/README.md`; story 39-5 Technical Notes) — but the landed
-`DocumentLifecycleWorkflow` resolves `ResolvedAcceptanceRules` **once at Init** (`ResolveRules`, L184)
-into serialized lifecycle state, and every later stage reads `state.Rules`. Worse, `AcceptanceRules.AutonomyLevel`
-is validated to `[70,100]` and then **never branched on anywhere** — no comparison, no switch (nor is
-the per-type `AcceptorRequirement` floor). So `AutonomyFloor ≤ currentAutonomy` is a **new** control-flow
-use: 42-3 must *ship* the live-read resolver seam (an `Input<T>` bound to a delegate that consults the
-resolver per activity execution — the re-read-on-resume pattern `WaitForDocumentDecisionActivity`
-already proves), not merely call an existing one.
-
-> **DECIDED (2026-07-24, product owner).** This is **not** an open question, and the dial being
-> unread today is "not built yet", not a design flaw. The dial is **both**:
-> 1. **Prompt context** — the orchestrator reads it to decide *how much it forwards to users*. This is
->    its existing role and it stays.
-> 2. **A hard gate** — below a threshold, specific **action classes** must not be auto-decided or
->    auto-called at all. Named examples: **ambiguity**, **deployment**, **design decisions**.
->
-> Two consequences for this epic:
-> - 42-3's premise is **confirmed valid** — build the floor. No Epic 39 sign-off is outstanding; the
->   live-read seam is in scope for 42-3 precisely because (2) makes the dial a safety control, and a
->   safety control cached at Init would not respond to an operator turning it down mid-run.
-> - **Scope gap in this epic:** 42-3 models the floor for **tools only**. The decision above is
->   broader — it also covers **`llm-call`s and workflow actions** (an ambiguity assessment or a design
->   decision is not a tool call). The per-action-class floor therefore belongs in the **Epic 39 policy
->   layer** alongside `AcceptorRequirement`, with 42-3's tool floor as one consumer of it, not as the
->   mechanism. Filed as a follow-up: see Dependencies.
->
-> Relationship to the landed `AcceptorRequirement` (`any`|`human`, per *document type*): that is the
-> **coarse** form of the same idea and stays. The decision above adds a **finer, per-action-class**
-> floor. Both are policy inputs the orchestrator honors; neither replaces the other.
+- **Seam B (`InlineToolLoopRunner`)** sits at one shared call site **after** `ToolCallValidator`
+  sanitizes `ArgumentsJson` and **before** the `EnableParallelTools` fork (covering both the default
+  sequential branch and the parallel branch), additive over the existing fail-open allowlists.
+- Denied calls are expressed through `rejectedToolCalls` (returned to the model as a tool result with
+  outcome `Denied`, never `RequiresHuman` because no human wait sits inside the blocking LLM HTTP
+  request) and audited under Epic 43's single **`ACTION.GATE.*`** event family.
+- **Human waits and correlation-scoped grants** live in **Epic 43 Seam E + `IActionAuthorizationLedger`**
+  (reusing existing Elsa approval waits and resume endpoints, with `DeploymentPipelineWorkflow`'s
+  business-mode predicate OR'd rather than replaced).
+- **The autonomy dial** (`AutonomyDial` in Epic 43 Story 43-1, single constant) is read live by
+  Epic 43's `AutonomyGateService` via `IAcceptanceRulesResolver.ResolveBase*Async` (Story 43-5) — both
+  as prompt context and as the hard gate threshold decided by the product owner on 2026-07-24.
 
 **Credentials (Story 42-4)** bind through Epic 29's `ISecretStore` — `SecretScope.Tenant` in SaaS
 (keyed by the tenant `Guid`), `SecretScope.Platform` in single-user. *Corrected:* there is **no user
@@ -272,17 +225,18 @@ so no engine-surface tool may inject it — which is exactly why the executor li
 ## Tool families (the concrete capabilities the platform needs)
 
 All five families ship their executor and provider drivers in **`Tamma.Api`** (see "Where the code
-lives"). Every one of them is **also** an invocation-time authorization subject: the permission class
-column is per-*operation*, so the class the descriptor advertises is the family's **maximum**, and the
-actual class + target must be reported per call to 42-3's stage-2 gate.
+lives"). Each family declares only its capability metadata (`RequiredSecret`, `Suspends`) via 42-1's
+`ToolDescriptor`, binds secrets through 42-4, and emits invocation audit through 42-5; risk tiers
+(`ActionRisk`), autonomy thresholds, and enforcement live in **Epic 43's Action Catalog** and **Seam B**
+with zero bespoke gating code inside any family.
 
-| Family (story) | What it does | Permission class (max = descriptor) | Secret purpose † | Epic 41 consumers |
+| Family (story) | What it does | Catalog risk profile (`ActionRisk` in Epic 43) | Secret purpose † | Epic 41 consumers |
 |---|---|---|---|---|
-| **Cloud / VPS resource ops** (42-7) — provider-abstracted (Hetzner / generic), like the Git & AI provider abstractions | list / create / resize / delete VPS & cloud resources | `ReadOnly` (list) · `Mutating` (create/resize) · **`Destructive`** (delete) | `ApiKey` (cloud-provider token) | **41-29 `infra` tasks** (coding path) · `deployment-pipeline` · **41-22** incident/rollback · **41-23** capacity & health |
-| **Feature-flag / config toggle** (42-8A) | read & flip feature flags / runtime config | `Mutating` (non-prod) · **`Destructive`** (prod flag / kill-switch) | `ApiKey` (flag provider) | `deployment-pipeline` promotion · **41-22** kill-switch · 41-29 `infra` kind (coding path) |
-| **Deploy control** (42-8B) | trigger / promote / rollback / gate a release | `Mutating` (staging) · **`Destructive`** (prod) | `ApiKey` or `SigningKey` (deploy platform) | `deployment-pipeline` · **41-22** rollback · **41-24** release notes trigger |
-| **Authenticated HTTP / external API** (42-9) — generic, host+method allowlisted, per-endpoint bound | one authenticated REST call to a bound endpoint | `ReadOnly` (GET-only bindings) · **`Mutating`** (default) | `ApiKey` (per-endpoint) | **41-5** stakeholder update · **41-7** standup publish · **41-24/25/26** docs publish · any integration |
-| **MCP-exposed tools** (42-6) | whatever an external MCP server exposes; **also** reconciles the 8 ungoverned `/api/kb/mcp/*` routes — **retire 2, re-scope 6** (Part A) | inherited/declared per tool — **`Destructive`** until classified | per bound server | open-ended — any future kind |
+| **Cloud / VPS resource ops** (42-7) — provider-abstracted (Hetzner / generic), like the Git & AI provider abstractions | list / create / resize / delete VPS & cloud resources (`cloud_resource_read` / `cloud_resource_write`) | `ReadOnly` (read executor) · `Destructive` (write executor) | `ApiKey` (cloud-provider token) | **41-29 `infra` tasks** (coding path) · `deployment-pipeline` · **41-22** incident/rollback · **41-23** capacity & health |
+| **Feature-flag / config toggle** (42-8A) | read & flip feature flags / runtime config (`feature_flag_read` / `feature_flag_write`) | `ReadOnly` (read executor) · `Destructive` (write executor) | `ApiKey` (flag provider) | `deployment-pipeline` promotion · **41-22** kill-switch · 41-29 `infra` kind (coding path) |
+| **Deploy control** (42-8B) | trigger / promote / rollback / status a release (`deploy_status` / `deploy_control`) | `ReadOnly` (status) · `Destructive` (control; prod/rollback `AlwaysHuman` in Epic 43) | `ApiKey` or `SigningKey` (deploy platform) | `deployment-pipeline` · **41-22** rollback · **41-24** release notes trigger |
+| **Authenticated HTTP / external API** (42-9) — generic, host+method allowlisted, server-configured endpoints | one authenticated REST call to a configured endpoint | `Mutating` / `Destructive` (governed by Epic 43 catalog) | `ApiKey` (per-endpoint) | **41-5** stakeholder update · **41-7** standup publish · **41-24/25/26** docs publish · any integration |
+| **MCP-exposed tools** (42-6) | whatever an external MCP server exposes; **also** reconciles the 8 ungoverned `/api/kb/mcp/*` routes — **retire 2, re-scope 6** (Part A) | **blocked on MCP catalog-binding fork** (Part B §2; `effect:mcp.tool.invoke` ships `AlwaysHuman`) | per bound server | open-ended — any future kind |
 
 † *Corrected:* Epic 29's `SecretPurpose` enum ships in `Tamma.Api.Services.Secrets` and is **not
 reachable from `Tamma.Activities`** (which references only `Tamma.Core` + `Tamma.Data`; the reverse
@@ -290,14 +244,14 @@ reference is circular). **42-1 §0 relocates the enum itself to `Tamma.Core.Enum
 members, same order, no schema change — so the column above names the *actual* type
 `SecretRequirement.Purpose` carries after Wave 0, not a mirrored one the API side maps.
 
-Each family declares its `PermissionClass`, `AutonomyFloor`, and `RequiredSecret`, so it is governed by
-42-1–42-5 with **zero bespoke security code** — a new tool is a descriptor + an executor, not a new
-gate. One naming constraint binds MCP specifically: `ToolCallValidator` rejects any tool name not
-matching `^[a-zA-Z0-9_\-]{1,64}$` — no colon, 64 chars total. **Decided (42-6 Part B §1):
+Each family declares its `RequiredSecret` and `Suspends` on `ToolDescriptor`, registers into
+`ToolExecutorRegistry`, and is governed by Epic 43's Action Catalog + Seam B with **zero bespoke
+security code** — a new tool is a descriptor + an executor + a catalog entry, not a new gate. One
+naming constraint binds MCP specifically: `ToolCallValidator` rejects any tool name not matching
+`^[a-zA-Z0-9_\-]{1,64}$` — no colon, 64 chars total. **Decided (42-6 Part B §1):
 `mcp__<server>__<tool>`**, so `server + tool ≤ 57` chars; an overflowing or case-insensitively
-colliding name is rejected **at registration**, never truncated. The same 64-char budget is enforced a
-second time by `tool_bindings.ToolName`'s `HasMaxLength(64)` (42-2) — an unbindable tool is an
-ungovernable one.
+colliding name is rejected **at registration**, never truncated. That registration-time check is
+load-bearing (42-2 was deleted and Epic 43's `ActionKey` carries no separate 64-char DB cap).
 
 ## Stories
 
@@ -310,29 +264,30 @@ ungovernable one.
 > Twelve concrete duplications in all. **None of Epic 42 exists in code**, so this is a spec
 > reconciliation, not a migration.
 >
-> The story table below is the PRE-reconciliation text, retained for its analysis. The verdicts:
+> The verdict box below is retained as the audit trail of *why*; **Epic 43 Story 43-10 applied every
+> verdict directly to the story files, implementation plans, and this README.**
 >
 > | Story | Verdict |
 > |---|---|
 > | **42-1** | **Rewritten** — drop `AutonomyFloor`, `PermissionClass` and `Category` (absorbed by the catalog, along with their default-interface-member default and its three caveats). Keep `SecretRequirement`, `Suspends`, and the `SecretPurpose` relocation. |
 > | **42-2** | **DELETED** — a third per-principal override store of identical shape. Its two-scoping prose is transplanted into Epic 43 Story 5. |
 > | **42-3** | **DELETED** — a second gate on the same code path. Its siting analysis and its effective-ceiling insight (filtering on the raw descriptor class would have made every Wave-3 write tool unreachable) are transplanted into Epic 43's Seam B, with credit. |
-> | **42-4** | Unchanged. |
+> | **42-4** | Unchanged (carries the `ConfigJson` open question for secret-name override; AC6 updated for invocation-time fail-closed). |
 > | **42-5** | **Narrowed** — keeps the invocation trio; loses the governance events (Epic 43 owns one event family) and its dependency on `InlineToolLoopResult.ToolCalls`, which is documented as always empty. |
-> | **42-6** | Part A unchanged. **Part B gains a catalog-binding prerequisite** — an MCP tool entering the registry must resolve to a catalog entry. |
-> | **42-7 / 42-8A / 42-8B / 42-9** | **Gating sections stripped.** They declare capability and secrets; the catalog governs them. |
+> | **42-6** | Part A unchanged. **Part B gains a catalog-binding prerequisite** (unclassified ⇒ rejected at registration) **AND is marked blocked on the unresolved MCP coarse-vs-open-catalog fork** (see Open Question 1). |
+> | **42-7 / 42-8A / 42-8B / 42-9** | **Gating sections stripped.** They declare capability and secrets; the catalog governs them. 42-8A/8B/9 carry the `ConfigJson` open question. |
 > | **42-8B specifically** | **Scope 4 / AC7 DELETED** — it required the Epic 39 always-escalate class to bind *independently* of the dial and of 42-3's grant, so a satisfied tool authorization would not satisfy the class. That is two gates, two audit ids and two human decisions for one production deploy. |
 >
 > Also settled here: the contradiction where this README said 42-3 was *not* blocked on the Epic 39
 > gating work while Story 39-23 said it *was*, and 42-3 itself never mentioned either. 39-23 is
 > superseded; 42-3 is deleted; the question is moot.
 >
-> Applied by **Epic 43 Story 10**. See `docs/stories/epic-43/README.md` and
+> Applied by **Epic 43 Story 43-10**. See `docs/stories/epic-43/README.md` and
 > `.dev/decisions/epic-43-action-catalog-design.md`.
 
 | Story | Title | Purpose (one line) |
 |---|---|---|
-| **42-1** | Tool Contract & Registry Evolution | Add `ToolDescriptor` (category / permission class / autonomy floor / secret requirement / suspends) to the `IToolExecutor` surface and a dynamic `Register`/`Unregister` seam to `IToolExecutorRegistry`; annotate the six built-ins. |
+| **42-1** | Tool Contract & Registry Evolution | Add plain abstract `ToolDescriptor(RequiredSecret, Suspends)` to `IToolExecutor`, relocate `SecretPurpose` to `Tamma.Core`, and add a platform-scoped dynamic `Register`/`Unregister` seam to `IToolExecutorRegistry`; annotate the six built-ins + `GetAcceptanceRulesTool`. |
 | ~~**42-2**~~ | ~~Tool Binding & Config Store~~ | **SUPERSEDED by Epic 43 — story file deleted 2026-07-25.** It persisted per-principal tool enablement + autonomy floor in a new `tool_bindings` table. Epic 43's `action_assignments` stores the same policy for *all* actions, of which tools are one namespace; two tables holding the same setting can disagree. Two-scoping prose transplanted to Epic 43 Story 5. **⚠️ But see the gap below — the deletion took `ConfigJson` with it.** |
 
 > ### ⚠️ Gap opened by the 42-2 deletion — `ConfigJson` has no replacement
@@ -366,60 +321,62 @@ ungovernable one.
 > 42-8A, 42-8B or 42-9 are implemented.
 
 | ~~**42-3**~~ | ~~Per-Tool Permission & Autonomy Gating~~ | **SUPERSEDED by Epic 43 — story file deleted 2026-07-25.** A second gate on the same code path as Epic 43's Seam B, with no stated ordering between them, its own denial-audit schema and its own escalation machinery. Its siting analysis and effective-ceiling insight (filtering on the raw descriptor class would have made every Wave-3 write tool unreachable) are transplanted to Epic 43 Story 9, with credit. |
-| **42-4** | Tool Credential / Secret Binding | Generalize the shipped runtime-reveal pattern into `IToolSecretProvider` (impl in `Tamma.Api`), bind external-touching tools to `ISecretStore` (`SecretScope.Tenant` SaaS / `SecretScope.Platform` single-user); guarantee no-secret-in-logs/events. |
-| **42-5** | Tool-Use DCB Audit | Emit the durable **invocation trio** `TOOL.INVOKED` / `TOOL.SUCCEEDED` / `TOOL.FAILED` (secret-redacted args, `issueId`/`tenantId` tags) via a **direct `IEventRepository` append in `Tamma.Api`** at the shared `InlineToolLoopRunner` call site covering both execution branches, alongside the ephemeral `TOOL_LOOP.*` SSE stream; owns the shared emit path + redaction rule the other `TOOL.*` events reuse. *(The governance events `TOOL.RESOLVED`/`DENIED`/`ESCALATED`/`AUTHORIZED` are **42-3**'s; `TOOL.SECRET_ACCESSED` is **42-4**'s; `TOOL.BINDING_*` is **42-2**'s.)* |
-| **42-6** | MCP Integration | **Part A (Wave 0.5):** retire the 2 tool-facing `/api/kb/mcp/*` routes and re-scope the other 6 as sidecar-KB admin. **Part B (Wave 2):** let external MCP servers expose tools into the registry via the 42-1 dynamic path, wrapped as `IToolExecutor` (`mcp__<server>__<tool>`) with the same permission/autonomy/secret/audit treatment as native tools; decide **port-vs-adopt** for the orphaned `packages/mcp-client/` (proxying via the sidecar is rejected). |
-| **42-7** | Cloud / VPS Resource Operations Tool | Provider-abstracted (Hetzner + generic) cloud/VPS list/create/resize/delete tool family, split `cloud_resource_read` / `cloud_resource_write`. |
+| **42-4** | Tool Credential / Secret Binding | Generalize the shipped runtime-reveal pattern into `IToolSecretProvider` (impl in `Tamma.Api`), bind external-touching tools to `ISecretStore` (`SecretScope.Tenant` SaaS / `SecretScope.Platform` single-user); guarantee no-secret-in-logs/events. Carries the `ConfigJson` open question for secret-name override. |
+| **42-5** | Tool-Use DCB Audit | Emit the durable **invocation trio** `TOOL.INVOKED` / `TOOL.SUCCEEDED` / `TOOL.FAILED` (secret-redacted args, `issueId`/`tenantId`/`toolName`/`toolCallId` tags) via a **direct `IEventRepository` append in `Tamma.Api`** at the shared `InlineToolLoopRunner` call site covering both execution branches, alongside the ephemeral `TOOL_LOOP.*` SSE stream; owns the shared emit path + redaction rule `TOOL.SECRET_ACCESSED` (42-4) reuses. *(Governance decisions live in Epic 43's `ACTION.GATE.*`; does not populate always-empty `InlineToolLoopResult.ToolCalls`.)* |
+| **42-6** | MCP Integration | **Part A (Wave 0.5):** retire the 2 tool-facing `/api/kb/mcp/*` routes and re-scope the other 6 as sidecar-KB admin. **Part B (Wave 2 — ⛔ BLOCKED on MCP catalog-binding fork):** wrap external MCP tools as `IToolExecutor` (`mcp__<server>__<tool>`) via 42-1's dynamic path, requiring catalog resolution (unclassified ⇒ rejected at registration) and governed by Epic 43 Seam B; adopts `ModelContextProtocol.Core` and deletes `packages/mcp-client/`. |
+| **42-7** | Cloud / VPS Resource Operations Tool | Provider-abstracted (Hetzner + generic) cloud/VPS list/create/resize/delete tool family, split `cloud_resource_read` / `cloud_resource_write`; shares `WaitForToolOperationActivity` with 42-8B; governed by Epic 43. |
 | **42-8** | *(split)* Feature-Flag & Deploy-Control Tools | **Superseded by 42-8A + 42-8B** — the two halves share no implementation (two provider abstractions, two drivers, two secret bindings, and a suspend path on only one side). The remaining `42-8-…md` is the split index. |
-| **42-8A** | Feature-Flag / Config-Toggle Tool | `feature_flag_read` / `feature_flag_write`; prod-vs-non-prod class resolved from the binding, never asserted by the model. No engine-side work. Medium. |
-| **42-8B** | Deploy-Control Tool | `deploy_status` / `deploy_control` (trigger / promote / rollback); shares `WaitForToolOperationActivity` with 42-7. Large. |
-| **42-9** | Authenticated HTTP / External-API Tool | Generic host+method-allowlisted authenticated REST tool covering publish/notify/integration needs. |
+| **42-8A** | Feature-Flag / Config-Toggle Tool | `feature_flag_read` / `feature_flag_write`; server-resolved environment containment (`AutonomyQuery.Target`, never asserted by the model), governed by Epic 43; carries the `ConfigJson` open question. No engine-side work. Medium. |
+| **42-8B** | Deploy-Control Tool | `deploy_status` / `deploy_control` (trigger / promote / rollback); shares `WaitForToolOperationActivity` with 42-7; governed by Epic 43 (`AlwaysHuman` + ledger + OR'd business-mode predicate); carries the `ConfigJson` open question. Large. |
+| **42-9** | Authenticated HTTP / External-API Tool | Generic host+method-allowlisted authenticated REST tool (S1–S11 SSRF containment + by-value redaction) covering publish/notify/integration needs; governed by Epic 43; carries the `ConfigJson` open question. |
 
 ## Sequencing
 
-**Wave 0 — the contract.** **42-1** (descriptor + dynamic registry, plus §0's relocation of Epic 29's
-`SecretPurpose` into `Tamma.Core`). Everything depends on it. Its `Register`/`Unregister` seam lands
-**platform/deployment-scoped only**; principal-scoped registration into the singleton stays rejected
-until 42-6's per-tenant view.
+**Wave 0 — the contract.** **42-1** (`ToolDescriptor(RequiredSecret, Suspends)` + dynamic registry,
+plus §0's relocation of Epic 29's `SecretPurpose` into `Tamma.Core`). Everything depends on it. Its
+`Register`/`Unregister` seam lands **platform/deployment-scoped only**; principal-scoped registration
+into the singleton stays rejected until 42-6's per-tenant view. *(Dead `ResolveToolsActivity` was
+already deleted by Epic 43 Story 43-0.)*
 
-**Wave 0.5 — prerequisite cleanup + closing the live hole.** Two independent items, neither gated on
-42-1:
-- Delete `ResolveToolsActivity` (or fix its `read_file` built-in to `file_read`) *before* anything is
-  built on it, and reconcile the two independently-sourced allowlists `InlineToolLoopRunner` already
-  carries (the resolved-tool name list vs `loopConfig.AllowedTools`). Small, but 42-3 and 42-5 both
-  land on this surface.
+**Wave 0.5 — closing the live hole.**
 - **42-6 Part A** (P0) — retire the 2 tool-facing `/api/kb/mcp/*` routes, re-scope the other 6 as
   sidecar-KB admin. Depends on **nothing** in this epic. It is a deletion while the route dead-ends;
   it becomes a migration the moment anyone sets `mcpClient` on the sidecar bundle. Shipping the epic
   with this open would make its own governance claim false.
 
-**Wave 1 — governance rails (parallel after 42-1).** **42-2** (binding store) → **42-3** (two-stage
-gating + the live-read autonomy resolver — the largest item in the wave, and an Epic 39 design change
-needing sign-off); **42-4** (secret binding — *Corrected: **Medium**, a generalization of a shipped
-seam, no longer the critical-path blocker*); **42-5** (DCB audit). Together these are the security
-envelope every family and MCP tool inherits — no family ships before them.
+**Wave 1 — security & audit rails (parallel after 42-1; governance already lives in Epic 43).**
+*(42-2 and 42-3 were superseded by Epic 43 and deleted; Epic 43 Stories 43-1..43-9 already ship the
+Action Catalog, `action_assignments`, `action_authorizations`, and Seam B.)*
+- **42-4** (secret binding — *Medium*, a generalization of a shipped seam);
+- **42-5** (durable `TOOL.*` invocation DCB audit — can land in parallel with 42-1, which is a soft
+  enhancement for `RequiredSecret` field suppression).
+Together with Epic 43's Seam B, these are the security and audit envelope every family and MCP tool
+inherits — no Wave-3 family ships before them.
 
-**Wave 2 — the open catalog.** **42-6 Part B** (MCP) — the dynamic-tool path proving a non-native tool
-obeys 42-1–42-5. It needs the full Wave-1 envelope. Its route-reconciliation half is **not** here: it
-is Part A, in Wave 0.5, and is **not optional** (see above). Part B's estimate is not meaningful until
-its §0 port-vs-adopt decision is recorded in `.dev/decisions/`.
+**Wave 2 — the open catalog (⛔ BLOCKED on the MCP catalog-binding fork).** **42-6 Part B** (MCP) —
+the dynamic-tool path proving a non-native tool obeys 42-1 / 42-4 / 42-5 and Epic 43's Seam B. Its
+route-reconciliation half is **not** here (that is Part A, in Wave 0.5). Part B's client choice (§0) is
+settled (**adopt `ModelContextProtocol.Core`**), but Part B remains **blocked on resolving Open
+Question 1's MCP catalog-binding fork** (coarse `effect:mcp.tool.invoke` vs dynamically-minted catalog
+members).
 
-**Wave 3 — the families (parallel on the Wave-1 rails).** **42-9** HTTP, **42-8A** flags, **42-8B**
-deploy, **42-7** cloud/VPS — each a descriptor + executor **in `Tamma.Api`**. Order by Epic 41 demand
-and by engine-side cost: **42-9 → 42-8A → 42-8B → 42-7**. 42-9 unblocks the most 41 workflows (docs
-publish, stakeholder, standup) and 42-8A needs nothing engine-side; 42-8B and 42-7 share
+**Wave 3 — the families (parallel on the Wave-1 rails + Epic 43; gated on the `ConfigJson` product
+decision).** **42-8A** flags, **42-9** HTTP, **42-8B** deploy, **42-7** cloud/VPS — each a descriptor +
+executor **in `Tamma.Api`**. Recommended order (adjusted post-reconciliation, see 42-8 plan C2):
+**42-8A → 42-9 → 42-8B → 42-7** (42-8A needs nothing engine-side and delivers 41-22's kill-switch; 42-9
+unblocks the most Epic 41 workflows once its destination config is decided; 42-8B and 42-7 share
 `WaitForToolOperationActivity`, its bookmark prefix, its `CanonicalSuspendActivities` registration and
 its authenticated callback endpoint — **whichever lands first ships them, the second reuses them**, so
-only one of the two carries that cost (the per-story estimates state both figures).
+only one of the two carries that cost).
 
 ## Out of scope (deliberately not this epic)
 
 - **A general plugin/marketplace runtime for arbitrary code.** MCP (42-6) is the extensibility path;
   loading untrusted in-process assemblies is not. — *MCP gives the open catalog with a process boundary
   and the same governance; in-proc plugins reopen the trust surface this epic closes.*
-- **Rewriting the accept gate or the secret store.** This epic *composes* the Epic 39 decision-gate
-  plumbing (adding a sibling `ToolAuthorizationRequest` payload, not a second acceptor) and the Epic 29
-  `ISecretStore` (adding no second cabinet).
+- **Rewriting governance, the accept gate, or the secret store.** This epic *composes* **Epic 43** (the
+  Action Catalog, `action_assignments`, `action_authorizations`, and Seam B/E — adding no second gate or
+  override table) and the Epic 29 `ISecretStore` (adding no second cabinet).
 - **Building the flag / deploy / cloud *providers themselves*.** 42-7/42-8A/42-8B/42-9 define the
   provider-abstracted tool + one reference driver each (Hetzner, a flag provider, the deploy platform);
   exhaustive driver coverage per vendor is follow-on, exactly as the Git/AI provider abstractions grew.
@@ -431,6 +388,13 @@ only one of the two carries that cost (the per-story estimates state both figure
 
 ## Dependencies
 
+- **Epic 43 (Action Catalog — single source of truth for governance):** Epic 43 owns `ActionRisk`,
+  `AutonomyDial` (one constant), `action_assignments` + `action_authorizations` (Story 43-5), the
+  `IAcceptanceRulesResolver.ResolveBase*Async` widening (done once in Story 43-5 — never duplicated
+  here), Seam B tool-loop gating + Seam E Elsa approval gating (Story 43-9), and the `ACTION.GATE.*`
+  event family. *(Pre-reconciliation drafts assigned a live-read autonomy seam to 42-3 and cited Story
+  39-23 for the per-action-class autonomy floor. Both 42-3 and 39-23 are **superseded by Epic 43**;
+  Epic 43 provides the entire governance layer.)*
 - **Epic 29 (secrets):** `ISecretStore` / `SecretRef` / `SecretScope` / `SecretPurpose` **exist** (Story
   29-1) — all in `Tamma.Api.Services.Secrets`, i.e. **in the API assembly and unreachable from
   `Tamma.Activities`**, which is why 42-1 §0 **relocates `SecretPurpose` to `Tamma.Core.Enums`**
@@ -442,30 +406,10 @@ only one of the two carries that cost (the per-story estimates state both figure
   `ISecretAccessAuditor`: today only `NullSecretAccessAuditor` is registered, so audited-read acceptance
   criteria cannot be satisfied until it is swapped. 42-7/42-8A/42-8B/42-9's agent paths **no longer wait** on a
   reveal path.
-- **Epic 39:** the decision-gate plumbing (`WaitForDocumentDecisionActivity` +
-  `DocumentDecisionResumeEndpoint`, keyed tenant+session) carrying a **sibling `ToolAuthorizationRequest`** —
-  `AcceptanceRequest` itself is not reusable (seven `required` properties incl. a `review`-typed
-  `DocumentEnvelope`; `AcceptanceRequestFactory` is the only constructor). **Autonomy dial — not an
-  existing consumable behaviour:** `AutonomyLevel` is stored, validated `[70,100]` and emitted in audit,
-  but **no code branches on it**, and `DocumentLifecycleWorkflow` caches the resolved rules at Init
-  contrary to Epic 39's own written rule; 42-3 must ship the live-read path. **Sign-off obtained
-  (2026-07-24)** — the dial is deliberately both prompt context *and* a hard gate; see the DECIDED note
-  in "The autonomy dial" above. Also: resumable-by-design (42-1 `Suspends`).
-- **Epic 39 follow-up this epic does NOT own — the per-action-class autonomy floor.** The product
-  decision that fixes 42-3's premise is broader than tools: below a threshold, whole **action classes**
-  (named: **ambiguity**, **deployment**, **design decisions**) must not be auto-decided or auto-called —
-  which covers `llm-call`s and workflow actions, not just `IToolExecutor` invocations. That floor
-  belongs in the **Epic 39 policy layer** next to the landed per-document-type `AcceptorRequirement`
-  (`any`|`human`), with 42-3's `AutonomyFloor` as **one consumer** of it rather than the mechanism.
-  Until it exists, 42-3's floor governs tools only and the non-tool classes stay ungated.
-  **Filed 2026-07-25 as Story 39-23** (Autonomy Gate — admin-configurable, dial-sensitive
-  action-class gating). 42-3 reads the floor 39-23 resolves rather than reimplementing it.
-  Note for 42-3's authors: 39-5 already ships the configurable gate vocabulary
-  (`AlwaysEscalate` / `EscalationClass{document-type|agent-action}`, fail-loud taxonomy
-  validation, `PUT /api/acceptance-rules/{documentTypeKey}`, base row, both scoping models),
-  so **what to gate is admin configuration** — 42-3 must not hardcode a tool gate list either.
-  42-3 is not blocked on 39-23 for its tool-only scope, but its `AutonomyFloor` semantics
-  should match 39-23's `minAutonomyLevel` (gated below the level, released at/above it).
+- **Epic 39:** resumable-by-design bookmark standard (`LifecycleBookmarks.CanonicalSuspendActivities`
+  for 42-7 / 42-8B's `WaitForToolOperationActivity`). *(Decision-gate / autonomy-dial plumbing is now
+  consumed through Epic 43's `IActionAuthorizationLedger` and Seam E rather than via a bespoke
+  `ToolAuthorizationRequest` in deleted Story 42-3.)*
 - **DCB audit transport (42-5):** *Corrected* — **not** `TammaEventEmitter` → `tamma:events` →
   `EventDrain`. That emitter structurally requires an `ActivityExecutionContext` **and** an `IActivity`,
   and the tool loop no longer runs in the engine; `Tamma.Api` holds `IEventRepository` directly (as
@@ -501,20 +445,21 @@ design questions" below — that list has been renumbered; cite these as **D1** 
   BYOK→platform resolver (`DefaultProviderCredentialResolver`). 42-4 generalizes that pattern into
   `IToolSecretProvider` (impl in `Tamma.Api`); no Epic 29 story is filed or waited on. Residual
   dependency: a non-null `ISecretAccessAuditor`.
-- **D2 — Destructive-tool routing rides the decision-gate plumbing with a *sibling*
-  `ToolAuthorizationRequest`.** `AcceptanceRequest` cannot carry a tool call:
-  all seven properties are `required`, including a `review`-typed `DocumentEnvelope`, and
-  `AcceptanceRequestFactory` — its only constructor — rejects a non-`review` envelope. The reusable part
-  is the bookmark/suspend/resume machinery (`WaitForDocumentDecisionActivity` +
-  `DocumentDecisionResumeEndpoint`, keyed tenant+session), not the record. 42-3 owns the three
-  adaptation costs named above (decision vocabulary, `RequestedAtUtc` equivalent, bookmark prefix
-  registration). Task View integration follows from reusing the machinery, and is 42-3's to verify.
+- **D2 — ~~Destructive-tool routing rides the decision-gate plumbing with a sibling `ToolAuthorizationRequest`.~~ SUPERSEDED by Epic 43 (Story 43-9).** Story 42-3 was deleted; tool-call denials at Epic 43's Seam B return `Denied` via `rejectedToolCalls` (no human wait sits inside the blocking LLM HTTP request), and human waits / correlation-scoped grants ride Epic 43's Seam E + `IActionAuthorizationLedger` over the existing Elsa resume endpoints (no new bookmark prefix and no `ToolAuthorizationRequest`).
 
 ## Open design questions (genuinely unresolved — worth a decision)
 
-1. **Descriptor default: deny vs. read-only.** An un-annotated tool defaults to `Destructive` / floor
-   `100` (deny-by-default). Safe, but every dynamically-registered/MCP tool is inert until classified.
-   Accept the friction, or default MCP tools to `ReadOnly` and require explicit elevation to write?
+1. ~~**Descriptor default: deny vs. read-only.**~~ **RESOLVED as *deny at registration* — replaced by
+   an unresolved MCP catalog-binding fork (⛔ BLOCKS 42-6 Part B).** Under Epic 43 reconciliation
+   (Story 43-10), an MCP tool entering the registry must resolve to an Epic 43 catalog entry and is
+   rejected at registration if unclassified (*deny*, not read-only). **However**, Epic 43's own README
+   states: *"MCP is one coarse member with no drift signal. Adding a server, or a tool on an existing
+   server, changes nothing in the catalog."* That creates an unresolved fork: **(i)** every MCP tool
+   binds to the single coarse `effect:mcp.tool.invoke` member (which governs nothing finer than a
+   blanket toggle, making per-tool catalog binding ceremonial), or **(ii)** MCP tools dynamically mint
+   catalog members at runtime (which makes the catalog **open** and breaks Epic 43's closed-vocabulary
+   premise, count pins, and keyset-equality sweeps). **42-6 Part B is blocked until this fork is
+   decided.** Entangled with Question 2 below and Epic 43 Open Question 1.
 2. **MCP server trust & tenancy.** In SaaS, may a `tenant_admin` register an arbitrary MCP server
    (tenant-scoped), or is the MCP server allowlist platform-owned? Determines whether 42-6 needs a
    per-tenant MCP registration surface or only a platform one. Sharpened by 42-1's `Register`/`Unregister`
@@ -541,8 +486,13 @@ design questions" below — that list has been renumbered; cite these as **D1** 
    Fallbacks in the decision record. Note a second, independent customer for the chosen transport:
    `HttpProviderClient.NonHttpProviders` fails `zen-mcp`/`zen` with `PROVIDER_NOT_SUPPORTED` because the
    MCP transport "is not yet ported to C#" — worth knowing, without taking that provider port on.
-4. **Autonomy-dial design change (needs Epic 39 sign-off).** `AutonomyFloor ≤ currentAutonomy` would be
-   the **first** control-flow use of `AcceptanceRules.AutonomyLevel` anywhere in the codebase. Confirm
-   with Epic 39 that the dial is intended to gate behaviour (not just annotate audit), and that the
-   live-read seam 42-3 ships is the one Epic 39 wants — including whether
-   `DocumentLifecycleWorkflow`'s cache-at-Init should be corrected in the same change.
+4. ~~**Autonomy-dial design change (needs Epic 39 sign-off).~~ RESOLVED by Epic 43 (Stories 43-1, 43-5,
+   43-9).** The dial is both prompt context and a hard gate (2026-07-24 PO decision), expressed once in
+   `AutonomyDial` and read live by Epic 43's `AutonomyGateService` via
+   `IAcceptanceRulesResolver.ResolveBase*Async`. Story 42-3 and Story 39-23 are superseded.
+5. **Per-tenant tool configuration in SaaS (`ConfigJson` gap — ⛔ gates Wave 3).** Deleting Story 42-2
+   removed `tool_bindings.ConfigJson`, leaving 42-4 (secret-name override), 42-8A (environment map /
+   kill-switch / sensitive list), 42-8B (target map), and 42-9 (destination / host allowlist) with
+   deployment-scoped `IOptions` only. Decide before implementing 42-7/42-8A/42-8B/42-9: add a narrow
+   `tool_configuration` table (config only, explicitly *not* a second governance store) or accept
+   deployment-scoped tool configuration in v1.

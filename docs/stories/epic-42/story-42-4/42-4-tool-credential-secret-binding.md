@@ -89,19 +89,20 @@ the interface moves to `Tamma.Activities` with the impl staying in `Tamma.Api` (
 `IProviderCredentialResolver` split) — and must then be added to `InjectionDenylist`.
 
 1. **Resolve a tool's `RequiredSecret` to a `SecretRef` per mode.** 42-1's descriptor declares
-   `SecretRequirement(Purpose, Name, Required)`; 42-2's binding may override the logical `Name`
-   (`secret_binding_name`). This story maps that to a concrete ref:
+   `SecretRequirement(Purpose, Name, Required)`. *(Story 42-2 was superseded by Epic 43 and deleted;
+   there is no per-principal `secret_binding_name` override — see "Configuration: open question"
+   below.)* This story maps the descriptor's logical `Name` to a concrete ref:
    - **single-user:** `SecretRef.ForPlatform(name)`. *Corrected:* there is **no user scope** —
      `SecretScope` has exactly `Platform` and `Tenant`, and `SecretRef`'s constructor throws on either
      mismatch (`Platform` + non-null tenant, `Tenant` + null tenant), an invariant re-enforced by
      `SecretMetadataFactory.ValidateScopeTenant` and by `SecretStorePlatformCredentialReader`. The sole
      user's ownership is recorded as **metadata** on `SecretMetadata.OwnerUserId`, never as a scope.
-     (42-2's `tool_bindings` legitimately keys on `user_id`; the *secret* it points at is still a
-     platform ref.)
    - **SaaS:** `SecretRef.ForTenant(runTenantId, name)` where `runTenantId` comes from the **run
      context**, never from tool config, tool arguments, or the LLM.
    A `Required` secret that does not resolve is a **loud, typed** "capability unconfigured" failure at
-   resolve time (42-3 surfaces it) — never a tool that runs unauthenticated.
+   **invocation time** inside `ExecuteAsync` (`ToolExecutionResult { Success = false }`, zero external
+   calls) — never a tool that runs unauthenticated. *(Story 42-3 was superseded by Epic 43 and deleted;
+   there is no resolve-time pre-screen.)*
 
 2. **`IToolSecretProvider` — generalize the shipped seam.** *Corrected: this is no longer "the hard
    dependency". The epic records this as **decision D1** ("Secret reveal for runtime tool execution:
@@ -135,8 +136,8 @@ the interface moves to `Tamma.Activities` with the impl staying in `Tamma.Api` (
    forbids it downstream). The line is: **the executor already holds the plaintext** — it just used it
    for the external call — so it must scrub the credential **by value** from anything it *returns*
    (`ToolExecutionResult.Output`, an echoed header, a status line, an error message) **before**
-   `ExecuteAsync` returns. Everything downstream of that return — the 42-5 emitter, the DCB row, the
-   `ToolAuthorizationRequest`, the log — is never handed the value and therefore cannot value-match,
+   `ExecuteAsync` returns. Everything downstream of that return — the 42-5 emitter, the DCB row,
+   Epic 43's `ACTION.GATE.*` audit, the log — is never handed the value and therefore cannot value-match,
    and must not try. In one sentence: **by-value at the `ExecuteAsync` boundary, never-hold + pattern
    after it.** Families that echo an endpoint's response (42-9 in particular) carry the by-value half;
    the emit path carries only the pattern half.
@@ -147,20 +148,37 @@ the interface moves to `Tamma.Activities` with the impl staying in `Tamma.Api` (
    `NullSecretAccessAuditor`, the **DCB event is the load-bearing trail** for this epic; wiring a real
    `ISecretAccessAuditor` is an Epic 29 follow-on that this story records but does not own.
 
+## Configuration: open question
+
+- **What configuration this story needs:** an optional per-principal **secret-name override**
+  (`secret_binding_name`), allowing a deployment or tenant to map a tool's logical
+  `SecretRequirement.Name` onto a different cabinet entry without changing code.
+- **Why it has no store today:** Story 42-2 (`tool_bindings` / `ConfigJson`) was superseded by Epic 43
+  and deleted. Epic 43's `action_assignments` absorbs policy only (thresholds and flags) — deliberately,
+  because it is a governance table and not a settings store.
+- **Interim resolution:** `IOptions` / descriptor-declared logical `Name` (deployment-scoped), which is
+  sufficient for single-user mode and for a single-tenant deployment.
+- **Unresolved product gap (SaaS):** **per-tenant tool configuration in SaaS is genuinely lost and
+  unresolved.** `IOptions` is process-wide, so two tenants cannot configure different secret-name
+  overrides. Restoring per-tenant configuration requires an explicit product decision before Wave-3
+  families are implemented: either introduce a narrow `tool_configuration` table (config only, no
+  policy — explicitly *not* a second governance store) or accept that tool configuration is
+  deployment-scoped in v1. `IOptions` is an interim workaround, **not** a closed answer.
+
 ## Acceptance Criteria
 
 1. **Scope resolution per mode.** Single-user resolves `SecretRef.ForPlatform(name)`; SaaS resolves
    `SecretRef.ForTenant(runTenantId, name)`. Tests: (a) both refs are exactly as stated; (b)
-   constructing a tenant-scoped ref with a null tenant id throws `ArgumentException`; (c) a binding or
-   tool argument naming a tenant id other than the run's is **rejected before any read** with a typed
+   constructing a tenant-scoped ref with a null tenant id throws `ArgumentException`; (c) a config value
+   or tool argument naming a tenant id other than the run's is **rejected before any read** with a typed
    failure — asserted against the *provider*, because `SecretStore` would serve it (it holds no caller
    identity); (d) the provider exposes no overload that accepts a caller-constructed `SecretRef`.
 2. **Short-lived credential.** `IToolSecretProvider` returns a credential for one invocation; a test
    asserts the value is not retained after `ExecuteAsync` returns, and that the type handed to any
    log/event/diagnostic is the tag projection (no member exposing the plaintext).
 3. **Unconfigured `Required` secret fails loud.** A missing/inactive secret produces a typed
-   `TammaError` at resolve time and the executor's `ExecuteAsync` is never entered (test asserts zero
-   invocations, not merely a failed result).
+   `TammaError` inside the executor before any vendor call and yields `ToolExecutionResult { Success = false }`
+   with **zero** calls to the underlying external provider.
 4. **No plaintext anywhere.** A test seeds a known credential-shaped value, runs a family tool, and
    greps `ToolExecutionResult.Output`, every emitted DCB event's `Tags`+`Data`, and the error text for
    it — plus a structural assertion that the 42-5 emit call site is never handed the credential
@@ -170,15 +188,18 @@ the interface moves to `Tamma.Activities` with the impl staying in `Tamma.Api` (
    once. The test asserts the DCB row (real) and the auditor call (via a capturing fake) — it must not
    assert a persisted `SECRET.READ` row, because the registered auditor is `NullSecretAccessAuditor`.
 6. **Degradation, not steady state.** With the secret provider stubbed unavailable, an
-   external-touching tool is not offered to the agent and the step routes human-assigned (Epic 41
-   rule 4) — never a crash, never a silent unauthenticated call. *This is a resilience test, not the
-   expected operating mode: the reveal path exists.*
+   external-touching tool fails closed at invocation time with `ToolExecutionResult { Success = false }`,
+   emits one `TOOL.FAILED` row, makes **zero** vendor calls, and never crashes or makes a silent
+   unauthenticated call. *(Routing a step human-assigned on missing secret belongs to Epic 43's Seam E,
+   not to a deleted 42-3 resolve-time filter. This is a resilience test, not the expected operating mode:
+   the reveal path exists.)*
 
 ## Events
 
-`TOOL.SECRET_ACCESSED` (ref storage key + purpose + tenant tag, **no value**). All other tool events are
-42-5; this story defines only the secret-access one and the never-hold/tag-projection/pattern-redaction
-rules the rest inherit.
+`TOOL.SECRET_ACCESSED` (ref storage key + purpose + tenant tag, **no value**). All other invocation
+tool events (`TOOL.INVOKED`/`SUCCEEDED`/`FAILED`) are 42-5; governance decisions are Epic 43's
+`ACTION.GATE.*`. This story defines only the secret-access event and the
+never-hold/tag-projection/pattern-redaction rules the rest inherit.
 
 ## Single-user vs SaaS
 
@@ -200,11 +221,11 @@ rules the rest inherit.
   flagged in `SecretStore`'s own docs).
 - **42-1** — `SecretRequirement` on the descriptor **and its §0 relocation of the purpose enum to
   `Tamma.Core`**; without that, the descriptor cannot name a purpose at all.
-- **42-2** (`secret_binding_name` override), **42-5** (inherits the redaction rules; is never handed a
-  credential).
+- **42-5** — inherits the redaction rules; is never handed a credential. *(42-2 and 42-3 were
+  superseded by Epic 43 and deleted.)*
 - **Guardrail:** `Tamma.Activities` carries the `TAMMA001` analyzer and holds no external credential —
   credential-holding code must not be added to it.
-- **Unblocks:** 42-7/8/9 agent paths. *Corrected: they are no longer waiting on an unlanded Epic 29
+- **Unblocks:** 42-7/8A/8B/9 agent paths. *Corrected: they are no longer waiting on an unlanded Epic 29
   capability; they wait only on this story.*
 
 ## Risks
@@ -215,8 +236,8 @@ rules the rest inherit.
 - **Assembly drift.** A future contributor sites a credential-resolving tool in `Tamma.Activities`
   because the six built-ins live there. Mitigation: the placement rule above + the `TAMMA001` denylist
   precedent for `IProviderCredentialResolver`.
-- **Leak surface breadth.** Secrets can leak via output, events, errors, or a mis-typed `config` blob
-  (42-2). Mitigation: never-hold + tag projection at the boundary, pattern redaction
+- **Leak surface breadth.** Secrets can leak via output, events, errors, or a mis-typed `IOptions`
+  configuration block. Mitigation: never-hold + tag projection at the boundary, pattern redaction
   (`ToolOutputHelper.RedactSecrets`, `CredentialRedactor.Clean`) on anything that does cross, and AC4's
   structural + grep test run against every family.
 - **Silent audit.** With `NullSecretAccessAuditor` registered, an implementer can "pass" an audit test

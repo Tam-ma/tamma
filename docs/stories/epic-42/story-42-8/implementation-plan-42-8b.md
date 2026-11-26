@@ -1,25 +1,12 @@
 # Implementation Plan — Story 42-8B: Deploy-Control Tool
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** 42-8B's verdict is **"Gating sections stripped"**
-plus one story-specific deletion called out by name in both READMEs: **"42-8B's Scope 4 / AC7 DELETED — it
-required the always-escalate class to bind *independently* of the dial and of 42-3's grant, so a satisfied
-tool authorization would not satisfy the class. That is two gates, two audit ids and two human decisions for
-one production deploy."** The deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| **§4 — "the always-escalate class binds *independently of* the autonomy dial and of 42-3's grant; a satisfied 42-3 authorization does not satisfy the Epic 39 class"** and **AC7** — "a prod deploy whose acceptance class is always-escalate routes to a human even when autonomy is 100 **and** a valid 42-3 grant is present" | **DELETED — both.** This is the single most consequential reconciliation delta in the epic. Epic 43 **absorbs** `AlwaysEscalate` rather than running it in parallel: the gate evaluator calls `AcceptanceGuardrails.TryPreGate` (**giving it its first production call site**) and, if it escalates for a class mapping to this `ActionKey`, contributes `AlwaysHuman` as a **floor composed with `max()`**. Because the encoding is monotone, a legacy always-escalate entry becomes a floor the catalog **cannot lower** — the safety property AC7 wanted — while producing **one** gate, **one** audit id and **one** human decision. See **D6**. |
-| §2's per-call `PermissionClass` table and `ToolInvocationFacts Describe(string argumentsJson)` | **STRIPPED.** 42-3 is deleted; `ToolPermissionClass` no longer exists (42-1 rewritten). |
-| §2's **`deploy_status` / `deploy_control` split** | **KEPT — a capability boundary, not a gate.** `deploy_status` physically cannot reach a mutating provider method. Post-reconciliation this is the primary structural safety property here. |
-| **§3 — "the prod/staging discriminator comes from the 42-2 binding (`ConfigJson`: the declared target map)"** | **42-2 is DELETED and nothing replaces `ConfigJson`** — Epic 43's `action_assignments` stores policy only. The target map moves to deployment configuration (**D3**); the containment rule (the model picks a `targetKey` from a closed declared set; undeclared is refused) survives verbatim. **Per-tenant target maps become a recorded gap — G1.** |
-| AC1's `ReadOnly`/floor 70 and `Destructive`/floor 100 | **STRIPPED.** AC1 becomes: two executors, both declaring `SecretRequirement(ApiKey\|SigningKey, "deploy/<platform>", Required)`; `deploy_status.Suspends == false`, `deploy_control.Suspends == true`. |
-| AC3 (`Describe` table), AC5 (`ToolAuthorizationRequired`), AC6 (target-bound single-use), **AC7**, AC12's "42-3 decision id" and "Epic 39 acceptance decision id" | **STRIPPED / DELETED.** AC4's containment half survives (D3); AC12 reduces to 42-5's family tags. |
-| Risk: "Stage-1 filter vs. max-class descriptor" | **Gone** — Epic 43 records the same insight in its Seam B analysis, with credit. |
-
-**Unchanged:** §1's provider abstraction, §5's secret binding, §6's handle-not-suspend design and the shared
-`WaitForToolOperationActivity`, §7's audit tags, and the siting rule.
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict — including deleting Scope 4 / AC7 and its AC7-dependent risk text with the preserved-safety
+argument, stripping gating sections and `Describe`, keeping the read/write split and shared wait
+machinery, and carrying the `ConfigJson` open question — have been applied directly to
+`42-8b-deploy-control-tool.md`; the story file and this plan now agree with zero residual deltas.
 
 ## Scope & Deliverable
 

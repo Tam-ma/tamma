@@ -1,19 +1,12 @@
 # Implementation Plan — Story 42-6: MCP Integration
 
-## Reconciled scope — differs from the story file
+## Reconciled scope
 
-**Epic 42 was reconciled against Epic 43 on 2026-07-25.** 42-6's verdict is **"Part A unchanged. Part B
-gains a catalog-binding prerequisite — an MCP tool entering the registry must resolve to a catalog entry."**
-The deltas:
-
-| Story file says | Reconciled |
-|---|---|
-| **Part A (§A1, §A2, AC A1–A3)** | **Unchanged.** Every line survives, including the retire-2/re-scope-6 decision and the "no tool-invoking route may reappear under `/api/kb/mcp/*`" invariant test. |
-| **Part B §2** — an MCP tool "inherits 42-1's fail-safe default (`Destructive`, floor 100, deny-by-default) until an operator/`tenant_admin` classifies it via the **42-2 binding store**" | **42-1 no longer has a fail-safe governance default** (its descriptor is now `(RequiredSecret, Suspends)`), and **42-2 is DELETED.** Replaced by the new prerequisite: **registration is refused unless the composed tool name resolves to an Epic 43 catalog entry under `ActionNamespace.Tool`** (D5). Deny-by-default survives, relocated: an unclassified MCP tool cannot enter the registry at all, which is *stricter* than entering-but-inert. |
-| **Part B §3 / B6 / B8** — 42-3 stage-2 authorization, "no `ExecuteAsync` before an `Authorize` decision" | **42-3 is DELETED.** Gating is Epic 43's **Seam B**, one call site in the shared tool-loop path. B8 is rewritten (D6) to assert that an MCP tool is subject to Seam B *identically to a native tool* — which follows from it being an ordinary `IToolExecutor` behind the same registry, and is exactly what this story must prove. |
-| **Part B §1** — the 64-char budget "enforced twice: the validator regex and `tool_bindings.ToolName`'s `HasMaxLength(64)` (42-2 §1c)" | The second enforcement **no longer exists**. Epic 43's `ActionKey` is `(ActionNamespace Ns, string Key)` with no stated length constraint. So the budget is enforced by the validator regex **and by this story's registration-time check** — which therefore becomes load-bearing rather than belt-and-braces (D4). |
-| **Part B Dependencies** — 42-1, 42-2, 42-3, 42-4, 42-5 | 42-2 and 42-3 are gone; **Epic 43's catalog (Stories 2/3/5) joins as a hard prerequisite** for D5. Surviving: 42-1 (`Register`/`Unregister`), 42-4 (secret binding), 42-5 (audit). |
-| §0 / Open Question 3 — port `packages/mcp-client/` to C# **vs** adopt an MCP C# SDK | **DECIDED 2026-07-30 — adopt `ModelContextProtocol.Core` behind an `IMcpTransport` seam; delete `packages/mcp-client/` outright.** *This plan did not decide it; the decision record `.dev/decisions/story-42-6-mcp-client-port-vs-adopt.md` does, and adopts X1's corrected 9,662 LOC.* Part B's implementation is now estimable (~4–6 days, +~0.5 for P1). Two facts the plan's framing did not have: the TS client's WebSocket transport has **no counterpart in the current spec** (MCP's transports are stdio + Streamable HTTP), so a faithful port would port a transport the protocol dropped; and the SDK requires the **10.x `Microsoft.Extensions.AI.Abstractions` line on net8.0 at every available version**, while `Tamma.Api` resolves 9.5.0 via `Elsa.Agents.Core 3.5.3` → `Microsoft.SemanticKernel 1.57.0` — see D3. |
+*Applied by Epic 43 Story 43-10 on 2026-11-26.* All reconciliation deltas from the 2026-07-25 Epic 43
+verdict — including the catalog-binding prerequisite (answering PO Question 1 as *deny at registration*),
+the unresolved MCP coarse-vs-open-catalog fork blocking Part B, the 64-char registration check, and Seam
+B parity — have been applied directly to `42-6-mcp-integration.md`; the story file and this plan now
+agree with zero residual deltas.
 
 ## Scope & Deliverable
 

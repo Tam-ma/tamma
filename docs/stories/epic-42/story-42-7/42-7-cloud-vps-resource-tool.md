@@ -64,30 +64,25 @@ Only the 42-1 contract types the executors implement (`IToolExecutor`, `ToolDesc
    Git platforms / 8 AI providers did. The executors dispatch to the configured provider; the LLM sees
    an `operation` + `resource` schema, never per-provider tools.
 
-2. **Operation granularity — DECIDED: split the family AND report per call.**
+2. **Operation granularity — DECIDED: split the family into read and write executors.**
    *Corrected: an earlier draft offered "operation-scoped descriptors **or** a read/write split", with
-   an acceptance criterion that accepted whichever got built. That AC could not fail; both halves are
-   now mandatory and separately testable.*
+   an acceptance criterion that accepted whichever got built. The split is mandatory and separately
+   testable.* *(Per-call `PermissionClass` and `ToolInvocationFacts Describe(...)` were stripped under
+   Epic 43 reconciliation — 42-3 is deleted and Epic 43's Seam B governs tools by catalog `ActionKey`
+   with zero bespoke gating code here.)*
 
-   | Operation | Executor | Per-call `PermissionClass` | Notes |
-   |---|---|---|---|
-   | `list` / `describe` | `cloud_resource_read` | `ReadOnly` | safe at autonomy 70 |
-   | `create` | `cloud_resource_write` | `Mutating` | reversible (delete undoes it) |
-   | `resize` | `cloud_resource_write` | `Destructive` | downtime / data movement |
-   | `delete` | `cloud_resource_write` | `Destructive` | irreversible |
+   | Operation | Executor | Capability boundary |
+   |---|---|---|
+   | `list` / `describe` | `cloud_resource_read` | Read-only — physically cannot reach mutating provider methods |
+   | `create` / `resize` / `delete` | `cloud_resource_write` | Mutating / destructive — governed by Epic 43's Action Catalog at Seam B |
 
-   - **Two registered executors, not one.** `cloud_resource_read` declares `ReadOnly` / floor 70 and
-     **physically cannot** reach a mutating provider method — it exposes only `list`/`describe` in its
-     `InputSchema` and rejects any other `operation`. This is what makes a read capability genuinely
-     free at autonomy 70 no matter how the write half is gated.
-   - **The split is not sufficient on its own**, which is why it is not the whole decision: one grant of
-     `cloud_resource_write` still covers *delete any resource*. `cloud_resource_write` therefore
-     implements 42-3 Scope 2's per-call seam — `ToolInvocationFacts Describe(string argumentsJson)`
-     returning `{ PermissionClass, Operation, Target }` — with `Target` = `<provider>:<resourceId>`
-     (for `create`, the requested `<provider>:<resourceType>/<name>`). 42-3 stage 2 authorizes **that
-     action against that target**, single-use.
-   - Unparseable / unknown-operation arguments return the fail-safe facts
-     (`Destructive`, `Operation = ToolName`, `Target = null`) — deny-by-default, never permissive.
+   - **Two registered executors, not one.** `cloud_resource_read` exposes only `list`/`describe` in its
+     `InputSchema` and rejects any other `operation` before touching `ICloudResourceProvider`. This
+     capability boundary holds regardless of how any catalog policy row is configured.
+   - **Governance lives in Epic 43.** `cloud_resource_read` and `cloud_resource_write` declare only
+     capability metadata (`RequiredSecret` and `Suspends`) via 42-1's `ToolDescriptor`; risk tier,
+     autonomy threshold, and enforcement live in Epic 43's Action Catalog (`ActionNamespace.Tool`) and
+     are enforced at Seam B.
 
 3. **Secret binding.** `SecretRequirement(SecretPurpose.ApiKey, "cloud/<provider>-token", Required)` —
    `SecretPurpose` being the `Tamma.Core`-sited enum 42-1 §0 relocates (Epic 29's own enum is in
@@ -106,7 +101,7 @@ Only the 42-1 contract types the executors implement (`IToolExecutor`, `ToolDesc
    `TammaApiClient`), where there is no `ActivityExecutionContext` and no bookmark to create. The old
    AC ("no blocked worker thread, resumable across a crash") was unverifiable against the executor.*
 
-   The shape, mirroring 42-3's cross-process gate and the landed `WaitForCIResultsActivity`:
+   The shape, mirroring the landed `WaitForCIResultsActivity`:
    - `cloud_resource_write` **returns promptly** with `Success = true` and an `operationHandle`
      (`{ provider, operationId, resourceId?, pollUrlKey? }`) — the executor holds no thread and no
      socket past the per-tool timeout.
@@ -125,60 +120,49 @@ Only the 42-1 contract types the executors implement (`IToolExecutor`, `ToolDesc
      never engine-side — same rule-1 reason as the executor itself.
 
 5. **Audit.** Every op emits 42-5 `TOOL.*` with `provider` / `operation` / `resourceId` /
-   `operationHandle` tags (never the token). A `resize`/`delete` carries the authorizing actor and the
-   42-3 decision id in its lineage.
+   `operationHandle` tags (never the token). Governance decisions are audited separately by Epic 43's
+   `ACTION.GATE.*` event family at Seam B.
 
 ## Acceptance Criteria
 
-1. Two executors are registered with the descriptors read through an **`IToolExecutor`-typed**
-   reference (42-1's DIM caveat): `cloud_resource_read` = `ReadOnly` / floor 70 / `Suspends=false`;
-   `cloud_resource_write` = `Destructive` (family max) / floor 100 / `Suspends=true`. Both declare
+1. Two executors are registered declaring 42-1's abstract `ToolDescriptor`: `cloud_resource_read`
+   (`Suspends = false`) and `cloud_resource_write` (`Suspends = true`), both with
    `SecretRequirement(ApiKey, "cloud/<provider>-token", Required)`.
 2. `cloud_resource_read` cannot mutate: its published `InputSchema` enumerates only `list`/`describe`,
    and an argument object naming `create`/`resize`/`delete` returns `Success = false` with **zero**
    calls on a spy `ICloudResourceProvider` (asserted on the spy, not on the message).
-3. `cloud_resource_write.Describe(argumentsJson)` is table-driven-tested: `create`→`Mutating`,
-   `resize`→`Destructive`, `delete`→`Destructive`; `Target` equals `<provider>:<resourceId>` for
-   resize/delete and `<provider>:<resourceType>/<name>` for create; malformed JSON, a missing
-   `operation`, and an unknown `operation` each return `(Destructive, Operation = "cloud_resource_write",
-   Target = null)`.
-4. A `delete` produces **no** `ICloudResourceProvider.DeleteAsync` call and terminates the run with
-   `AgentRunFailureCodes.ToolAuthorizationRequired`; the emitted `ToolAuthorizationRequest` carries
-   `Operation = "delete"` and the concrete `Target`. Asserted on **both** execution branches — once
-   with `EnableParallelTools = false` (the default) and once `true`.
-5. Authorization is target-bound: after an `Authorize` for `(session, cloud_resource_write, delete,
-   <provider>:srv-A)`, exactly one delete of `srv-A` executes; a second delete of `srv-A` re-gates, and
-   a delete of `srv-B` re-gates.
-6. Provider abstraction holds: a stub `ICloudResourceProvider` drives `create → describe → delete` with
+3. Provider abstraction holds: a stub `ICloudResourceProvider` drives `create → describe → delete` with
    the Hetzner driver **not registered**, and the test passes — the executors name no Hetzner type.
-7. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)` and single-user resolves
+4. Credential scoping: SaaS resolves `SecretRef.ForTenant(runTenantId, name)` and single-user resolves
    `SecretRef.ForPlatform(name)`; a test asserts constructing a `Tenant`-scoped ref with a null tenant
    id throws, and a grep-for-value test asserts the token string appears in no
    `ToolExecutionResult.Output`, no `TOOL.*` event payload, and no captured log line.
-8. Long-op round trip: against a stub async provider, `create` returns inside the per-tool timeout with
+5. Long-op round trip: against a stub async provider, `create` returns inside the per-tool timeout with
    `Success = true` and a non-empty `operationHandle`, and **no** suspend occurs inside
    `POST /api/v1/llm/call`. `WaitForToolOperationActivity` then (a) resumes to `Completed` on the
    callback, (b) resumes to `TimedOut` on its durable delay with no callback, and (c) resumes from the
    **persisted** bookmark after the workflow host is restarted mid-wait. A test asserts the activity
    type is present in `LifecycleBookmarks.CanonicalSuspendActivities`.
-9. A `resize`/`delete` `TOOL.*` row carries the authorizing actor id and the 42-3 decision id.
-10. A driver that throws (transport, 4xx, 5xx) yields `Success = false` + `TOOL.FAILED`; the test
-    asserts `ExecuteAsync` **returns** rather than propagating — the never-throw contract holds.
+6. Every op emits 42-5 `TOOL.INVOKED` + `TOOL.SUCCEEDED`/`TOOL.FAILED` carrying `provider` /
+   `operation` / `resourceId` / `operationHandle` tags (never the token).
+7. A driver that throws (transport, 4xx, 5xx) yields `Success = false` + `TOOL.FAILED`; the test
+   asserts `ExecuteAsync` **returns** rather than propagating — the never-throw contract holds.
 
 ## Events
 
-Reuses 42-5 `TOOL.INVOKED/SUCCEEDED/FAILED` with cloud tags. The engine-side wait activity emits its
-request/completion pair through `TammaEventEmitter` (it *is* an Elsa activity with a context — the one
-place in this story where that emitter applies). No new family.
+Reuses 42-5 `TOOL.INVOKED/SUCCEEDED/FAILED` with cloud tags (governance decisions emit Epic 43's
+`ACTION.GATE.*`). The engine-side wait activity emits its request/completion pair through
+`TammaEventEmitter` (it *is* an Elsa activity with a context — the one place in this story where that
+emitter applies). No new family.
 
 ## Single-user vs SaaS
 
 - **single-user:** the sole user's cloud token, stored as a **platform-scoped** secret
-  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; authorization of a gated op routes
-  to the single orchestrator/user.
-- **SaaS:** tenant-scoped token (`SecretRef.ForTenant(runTenantId, …)`); gated ops route to the tenant
-  orchestrator/role. The authorization bookmark is tenant-folded, so a tenant's cloud operations and
-  credentials never cross the boundary.
+  (`SecretRef.ForPlatform`) owned via `SecretMetadata.OwnerUserId`; gating resolves against the user's
+  Epic 43 `action_assignments` rows.
+- **SaaS:** tenant-scoped token (`SecretRef.ForTenant(runTenantId, …)`); gating resolves against the
+  tenant's Epic 43 `action_assignments` rows and platform ceiling. The operation bookmark is
+  tenant-folded, so a tenant's cloud operations and credentials never cross the boundary.
 
 ## Epic 41 consumers
 
@@ -187,12 +171,11 @@ recreate/replace a node), **41-23** (capacity & health review — `cloud_resourc
 
 ## Dependencies
 
-- **42-1** — `ToolDescriptor` + `Suspends`; the `Tamma.Core`-sited `SecretPurpose` (§0). Note the DIM
-  caveats: descriptors must be read through an `IToolExecutor`-typed reference, and a mocked executor
-  returns a **null** descriptor.
-- **42-3** — the per-call `ToolInvocationFacts Describe(...)` seam and stage-2 argument-bound
-  authorization (both execution branches), plus the `ToolAuthorizationRequired` failure code and the
-  engine-side gate. This family is inert-but-safe until 42-3 lands.
+- **42-1** — `ToolDescriptor(RequiredSecret, Suspends)` + the `Tamma.Core`-sited `SecretPurpose` (§0).
+- **Epic 43 (Action Catalog + Seam B)** — owns risk classification, autonomy thresholds, per-principal
+  assignments, and enforcement for `cloud_resource_read` / `cloud_resource_write`. *(Story 42-3 was
+  superseded by Epic 43 and deleted; its siting analysis and effective-ceiling insight were
+  transplanted into Epic 43 Story 43-9.)*
 - **42-4** — token binding. *Corrected: an earlier draft called this "hard-blocked on the Epic 29
   reveal path". It is not. Four runtime plaintext readers already ship (`SecretStorePlatformCredentialReader`
   is audited and scope-generic); 42-4 generalizes them. The residual dependency is a non-null
@@ -207,20 +190,12 @@ recreate/replace a node), **41-23** (capacity & health review — `cloud_resourc
 
 ## Risks
 
-- **Stage-1 filter vs. max-class descriptor — settled in 42-3, but this family depends on it.**
-  This family's write half advertises `Destructive` as its **maximum**, so a stage-1 filter reading
-  the raw descriptor max would never hand `cloud_resource_write` to the agent: the model emits no
-  call, stage 2 never fires, and "route the action to an actor" degrades to "the capability is
-  unreachable". 42-3 Scope 1 now decides this — stage 1 keys on the **binding-resolved effective
-  ceiling**, `Destructive` is a stage-2 discriminator, and a max-class tool with a non-empty ceiling
-  **is** offered (42-3 AC1b). If that decision is ever reverted, this family is dead on arrival;
-  treat 42-3 AC1b as a hard prerequisite of this story.
-- **Irreversible ops.** A wrongly-authorized `delete` is unrecoverable. Mitigation: target-bound,
-  single-use authorization (AC5) + full lineage (AC9). Consider an always-escalate acceptance-rules
-  class for `delete` regardless of autonomy — Epic 39 policy, not tool code.
+- **Irreversible ops.** A wrongly-authorized `delete` is unrecoverable. Mitigation: Epic 43's Action
+  Catalog + Seam B govern `cloud_resource_write`, `cloud_resource_read` is structurally unable to
+  mutate (AC2), and every op carries full `TOOL.*` + `ACTION.GATE.*` audit lineage (AC6).
 - **Handle forgery.** The `operationHandle` crosses from the tool result into an engine-side bookmark
   name. It must be minted server-side and tenant-folded; a model-supplied handle must never select a
-  bookmark. Pin in the AC8 round trip.
+  bookmark. Pin in the AC5 round trip.
 - **Callback endpoint is external surface.** The completion callback that resumes the wait is a new
   unauthenticated-by-default seam. It must be authenticated and tenant-scoped like
   `DocumentDecisionResumeEndpoint` (keyed tenant + operation), not session-id-only.
@@ -229,9 +204,9 @@ recreate/replace a node), **41-23** (capacity & health review — `cloud_resourc
 
 Large. ~6–8 days **standalone**; **~4–5 days if 42-8B lands first** and `WaitForToolOperationActivity`
 + its bookmark prefix + `CanonicalSuspendActivities` registration + the authenticated callback endpoint
-are already in place — provider abstraction + Hetzner driver + the read/write split + `Describe` remain
-either way. *Corrected upward from ~5–6 days: the earlier estimate assumed the executor could suspend,
-which it cannot; the wait activity and its resume path are new work.* **Note the wave order** (42-9 →
-42-8A → 42-8B → 42-7): under it 42-8B ships the shared wait machinery, so this story's realistic figure
-is the lower one and 42-8B's is its standalone ~5–6 days. The pair costs the wait activity **once** —
-do not budget both stories' upper figures.
+are already in place — provider abstraction + Hetzner driver + the read/write split remain either way.
+*Corrected upward from ~5–6 days: the earlier estimate assumed the executor could suspend, which it
+cannot; the wait activity and its resume path are new work.* **Note the wave order** (42-9 → 42-8A →
+42-8B → 42-7): under it 42-8B ships the shared wait machinery, so this story's realistic figure is the
+lower one and 42-8B's is its standalone ~5–6 days. The pair costs the wait activity **once** — do not
+budget both stories' upper figures.

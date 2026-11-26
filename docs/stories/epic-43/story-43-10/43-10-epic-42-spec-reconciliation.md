@@ -1,6 +1,6 @@
 # Story 43-10: Epic 42 Spec Reconciliation — Apply the Verdicts to the Story Files
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
@@ -130,3 +130,4 @@ The four **plans** already moved their configuration to `IOptions` (deployment c
 | Date       | Version | Changes                | Author |
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-25 | 1.0.0   | Initial story creation | Claude |
+| 2026-11-26 | 2.0.0   | Applied all 11 ACs: rewrote 42-1 (`ToolDescriptor(RequiredSecret, Suspends)`, plain abstract `Descriptor`, deleted former ACs 2/4/5/8 with D3 replacement notes, preserved §0/§3/`Suspends` verbatim); narrowed 42-5 (dropped `permissionClass`/`autonomyAtCall`, governance events, Scope §5 `ToolCalls` population + AC8); added 42-6 Part B catalog-binding prerequisite + unresolved MCP coarse-vs-open-catalog fork (marked Part B blocked); deleted 42-8B Scope 4/AC7/AC7 risk text with preserved-safety argument; stripped gating from 42-7/42-8A/42-8B/42-9 (re-expressing 42-8A's rule as server-sourced `AutonomyQuery.Target`); carried the open `ConfigJson` SaaS gap into 42-4/42-8A/42-8B/42-9; emptied all 8 Epic 42 plan delta tables; reconciled all four self-contradicting passages + story table + open questions in `epic-42/README.md`; verified 39-23 superseded banner; filed attributed transplants into Stories 43-5 (42-2 two-scoping prose) and 43-9 (42-3 siting analysis & effective-ceiling insight); updated `.dev/decisions/epic-43-action-catalog-design.md` with the 12 duplications, verdicts, 4 transplants, and both reconciliation-created gaps (`ConfigJson` loss + MCP fork). | Antigravity |
