@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Tamma.Api.Services.AcceptanceRules;
 using Tamma.Api.Services.Access;
+using Tamma.Api.Services.Chat;
 using Tamma.Api.Services.Diagnostics;
 using Tamma.Api.Services.Documents;
 using Tamma.Api.Services.Orchestrator.Tools;
@@ -114,6 +115,7 @@ public sealed class OrchestratorAgentRegistry : IOrchestratorAgentRegistry, IAsy
             var diagnostics = sp.GetService<IDiagnosticsService>();
             var audience = sp.GetService<ITaskAudienceResolver>();
             var repoAccess = sp.GetService<IRepoAccessEvaluator>();
+            var chatInitiation = sp.GetService<IChatWorkflowInitiationService>();
 
             var toolDeps = new OrchestratorToolDependencies(
                 events,
@@ -124,7 +126,9 @@ public sealed class OrchestratorAgentRegistry : IOrchestratorAgentRegistry, IAsy
                 diagnostics,
                 audience,
                 repoAccess,
-                _loggerFactory.CreateLogger("Tamma.Api.OrchestratorTools"));
+                _loggerFactory.CreateLogger("Tamma.Api.OrchestratorTools"),
+                chatInitiation,
+                taskAssignment);
 
             var instance = new OrchestratorAgentInstance(
                 tenantId,

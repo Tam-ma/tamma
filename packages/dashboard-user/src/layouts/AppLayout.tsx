@@ -31,6 +31,13 @@ export function AppLayout({ children }: { children?: ReactNode }): JSX.Element {
           <Link to="/" className="px-2 py-1.5 rounded hover:bg-gray-100">
             Dashboard
           </Link>
+          {/* Story 39-19 — Orchestrator Chat & Task View (pinned in ROUTE_PATHS). */}
+          <Link to="/chat" className="px-2 py-1.5 rounded hover:bg-gray-100">
+            Chat
+          </Link>
+          <Link to="/tasks" className="px-2 py-1.5 rounded hover:bg-gray-100">
+            Tasks
+          </Link>
           <Link to="/alerts" className="px-2 py-1.5 rounded hover:bg-gray-100">
             Alerts
           </Link>
