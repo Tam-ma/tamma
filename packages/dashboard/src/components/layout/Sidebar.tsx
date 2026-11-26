@@ -86,6 +86,8 @@ const ADMIN_NAV_GROUPS: NavGroup[] = [
       { to: '/admin/prompts', label: 'System Prompts' },
       // Story 27-11: convention admin UI.
       { to: '/admin/conventions', label: 'System Conventions' },
+      // Story 39-20: teams & repository access grants admin UI.
+      { to: '/admin/access', label: 'Teams & Access' },
     ],
   },
 ];

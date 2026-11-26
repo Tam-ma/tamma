@@ -2618,6 +2618,118 @@ namespace Tamma.Data.Migrations.ControlPlane
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.RegisteredRepo", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<DateTime?>("DeletedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("ExternalId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("PlatformKind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("github");
+
+                    b.Property<string>("RepoFullName")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Visibility")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("tenant");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "RepoFullName");
+
+                    b.HasIndex("TenantId", "PlatformKind", "RepoFullName")
+                        .IsUnique();
+
+                    b.ToTable("repositories", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_repositories_visibility", "\"Visibility\" IN ('tenant','restricted')");
+                        });
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.RepoAccessGrant", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("AccessLevel")
+                        .IsRequired()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("RepositoryId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TeamId");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("RepositoryId", "UserId", "TeamId")
+                        .IsUnique();
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("RepositoryId", "UserId", "TeamId"), false);
+
+                    b.ToTable("repo_access_grants", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_repo_access_grants_grantee_xor", "((\"UserId\" IS NOT NULL AND \"TeamId\" IS NULL) OR (\"UserId\" IS NULL AND \"TeamId\" IS NOT NULL))");
+
+                            t.HasCheckConstraint("ck_repo_access_grants_level", "\"AccessLevel\" IN ('read','contribute','admin')");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.ScheduledTrigger", b =>
                 {
                     b.Property<Guid>("Id")
@@ -2829,6 +2941,93 @@ namespace Tamma.Data.Migrations.ControlPlane
                     b.HasIndex("Status", "NextAttemptAt");
 
                     b.ToTable("slack_outbox", (string)null);
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.Team", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("DefaultMemberRole")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("member");
+
+                    b.Property<string>("Description")
+                        .HasMaxLength(500)
+                        .HasColumnType("character varying(500)");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(120)
+                        .HasColumnType("character varying(120)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId");
+
+                    b.HasIndex("TenantId", "Name")
+                        .IsUnique();
+
+                    b.ToTable("teams", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_teams_default_member_role", "\"DefaultMemberRole\" IN ('member','maintainer')");
+                        });
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.TeamMember", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Role")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(20)
+                        .HasColumnType("character varying(20)")
+                        .HasDefaultValue("member");
+
+                    b.Property<Guid>("TeamId")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId");
+
+                    b.HasIndex("TeamId", "UserId")
+                        .IsUnique();
+
+                    b.ToTable("team_members", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_team_members_role", "\"Role\" IN ('member','maintainer')");
+                        });
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.Tenant", b =>
@@ -3685,6 +3884,42 @@ namespace Tamma.Data.Migrations.ControlPlane
                     b.Navigation("User");
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.RegisteredRepo", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.RepoAccessGrant", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.RegisteredRepo", "Repository")
+                        .WithMany("Grants")
+                        .HasForeignKey("RepositoryId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tamma.Data.Entities.Team", "Team")
+                        .WithMany("RepoGrants")
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade);
+
+                    b.HasOne("Tamma.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict);
+
+                    b.Navigation("Repository");
+
+                    b.Navigation("Team");
+
+                    b.Navigation("User");
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.ScheduledTriggerFire", b =>
                 {
                     b.HasOne("Tamma.Data.Entities.ScheduledTrigger", null)
@@ -3692,6 +3927,36 @@ namespace Tamma.Data.Migrations.ControlPlane
                         .HasForeignKey("TriggerId")
                         .OnDelete(DeleteBehavior.Cascade)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.Team", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.TeamMember", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Team", "Team")
+                        .WithMany("Members")
+                        .HasForeignKey("TeamId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.HasOne("Tamma.Data.Entities.User", "User")
+                        .WithMany()
+                        .HasForeignKey("UserId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Team");
+
+                    b.Navigation("User");
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.Tenant", b =>
@@ -3801,6 +4066,18 @@ namespace Tamma.Data.Migrations.ControlPlane
             modelBuilder.Entity("Tamma.Data.Entities.Provider", b =>
                 {
                     b.Navigation("Prices");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.RegisteredRepo", b =>
+                {
+                    b.Navigation("Grants");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.Team", b =>
+                {
+                    b.Navigation("Members");
+
+                    b.Navigation("RepoGrants");
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.Tenant", b =>

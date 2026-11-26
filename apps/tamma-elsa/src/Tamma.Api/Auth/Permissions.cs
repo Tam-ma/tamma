@@ -133,6 +133,15 @@ public static class Permissions
         // user is auto-owner of their personal tenant.
         ["tracker:view"] = ["member", "admin", "owner"],
         ["tracker:manage"] = ["admin", "owner"],
+        // Story 39-20 (AC6 / D9) — Teams, repo access grants & human task
+        // reassignment. Admin+owner reach on path-tenant routes evaluated
+        // against the RequireTenantMembershipFilter-derived role; team
+        // maintainers additionally manage their own team's member list per D4
+        // without bypassing tenant roles. Single-user mode is unaffected —
+        // every signed-up user is auto-owner of their personal tenant.
+        ["teams:manage"] = ["admin", "owner"],
+        ["repos:manage"] = ["admin", "owner"],
+        ["tasks:assign"] = ["admin", "owner"],
     };
 
     public static bool HasPermission(string? role, string? permission)

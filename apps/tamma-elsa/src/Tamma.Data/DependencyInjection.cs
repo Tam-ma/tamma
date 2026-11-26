@@ -125,6 +125,9 @@ public static class DependencyInjection
         services.AddScoped<IPasswordResetRepository, PasswordResetRepository>();
         services.AddScoped<ITenantRepository, TenantRepository>();
         services.AddScoped<ITenantMembershipRepository, TenantMembershipRepository>();
+        // Story 39-20 — control-plane teams, repo catalogue & repo access grants.
+        services.AddScoped<ITeamRepository, TeamRepository>();
+        services.AddScoped<IRepoAccessRepository, RepoAccessRepository>();
         services.AddScoped<IInviteRepository, InviteRepository>();
         services.AddScoped<IApiKeyRepository, ApiKeyRepository>();
         // Story 28-7 deferred-item: CP-scoped routing index for prefix-based

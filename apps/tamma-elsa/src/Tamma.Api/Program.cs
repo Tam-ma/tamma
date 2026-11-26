@@ -442,9 +442,23 @@ builder.Services.AddSignalR().AddJsonProtocol(o =>
 builder.Services.AddScoped<Tamma.Data.Repositories.IChannelOutboxRepository,
     Tamma.Data.Repositories.ChannelOutboxRepository>();
 builder.Services.AddScoped<Tamma.Api.Services.Channels.ChannelOutboxService>();
-// D9 — 39-20's audience resolver, STUBBED fail-closed (initiator-only) until it lands.
-builder.Services.AddScoped<Tamma.Api.Services.Access.ITaskAudienceResolver,
-    Tamma.Api.Services.Access.InitiatorOnlyTaskAudienceResolver>();
+// Story 39-20 (AC3 / D5 / D6 / D7 / D10) — teams, repo access & task routing.
+// Replaces Story 39-18's InitiatorOnlyTaskAudienceResolver stub with the real
+// TaskAudienceResolver backed by UserRepoScopeCache (TTL 60s + event invalidation).
+builder.Services.AddSingleton<Tamma.Api.Services.Access.IUserRepoScopeCache>(sp =>
+    new Tamma.Api.Services.Access.UserRepoScopeCache(
+        sp.GetService<TimeProvider>() ?? TimeProvider.System));
+builder.Services.AddScoped<Tamma.Api.Services.Access.TaskAudienceResolver>();
+builder.Services.AddScoped<Tamma.Api.Services.Access.ITaskAudienceResolver>(sp =>
+    sp.GetRequiredService<Tamma.Api.Services.Access.TaskAudienceResolver>());
+builder.Services.AddScoped<Tamma.Api.Services.Access.IRepoAccessEvaluator>(sp =>
+    sp.GetRequiredService<Tamma.Api.Services.Access.TaskAudienceResolver>());
+builder.Services.AddScoped<Tamma.Api.Services.Access.TeamService>();
+builder.Services.AddScoped<Tamma.Api.Services.Access.RepoAccessService>();
+builder.Services.AddScoped<Tamma.Api.Services.Access.IWorkflowInitiationAuthorizer,
+    Tamma.Api.Services.Access.WorkflowInitiationAuthorizer>();
+builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.ITaskAssignmentService,
+    Tamma.Api.Services.Tasks.TaskAssignmentService>();
 // D8 — chat relay is OFF until 39-19's OrchestratorChatService lands: the stand-in
 // refuses every message with an agent-offline result and records nothing.
 builder.Services.AddScoped<Tamma.Api.Services.Channels.IOrchestratorChatRelay,
@@ -2643,6 +2657,41 @@ orgs.MapPost("/{tenantId:guid}/transfer-ownership", OrgEndpoints.TransferOwnersh
 orgs.MapDelete("/{tenantId:guid}", OrgEndpoints.DeleteOrg)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 
+// Story 39-20 (AC1 / AC2 / D9) — tenant-scoped teams & repository access grants.
+orgs.MapGet("/{tenantId:guid}/teams", TeamEndpoints.ListTeams)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPost("/{tenantId:guid}/teams", TeamEndpoints.CreateTeam)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapGet("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.GetTeam)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPut("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.UpdateTeam)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapDelete("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.DeleteTeam)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapGet("/{tenantId:guid}/teams/{teamId:guid}/members", TeamEndpoints.ListMembers)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPost("/{tenantId:guid}/teams/{teamId:guid}/members", TeamEndpoints.AddMember)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPut("/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}", TeamEndpoints.UpdateMemberRole)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapDelete("/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}", TeamEndpoints.RemoveMember)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+
+orgs.MapGet("/{tenantId:guid}/repos", RepoAccessEndpoints.ListRepos)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPost("/{tenantId:guid}/repos", RepoAccessEndpoints.RegisterRepo)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPut("/{tenantId:guid}/repos/{repoId:guid}/visibility", RepoAccessEndpoints.UpdateVisibility)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapGet("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.ListGrants)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapPut("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.UpsertGrant)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapDelete("/{tenantId:guid}/repos/{repoId:guid}/grants/{grantId:guid}", RepoAccessEndpoints.RevokeGrantById)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+orgs.MapDelete("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.RevokeGrantByGrantee)
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+
 // Story 29-3 — tenant-scope secret create. Caller must be a member of
 // {tenantId} (RequireTenantMembershipFilter); the endpoint handler
 // derives the tenant-role gating from HttpContext.Items["TenantRole"]
@@ -4012,6 +4061,7 @@ using (var scope = app.Services.CreateScope())
                     provider_diagnostics, provider_health, queued_tasks, refresh_tokens,
                     sanitization_rules, stories,
                     tenant_databases, tenant_invites, tenant_memberships, tenants,
+                    repo_access_grants, repositories, team_members, teams,
                     tenant_platform_installations,
                     user_api_keys, user_installations, user_invites, users,
                     workflow_definitions, workflow_instances,

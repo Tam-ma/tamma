@@ -326,6 +326,127 @@ internal static class TammaModelConfiguration
                 .OnDelete(DeleteBehavior.Cascade);
         });
 
+        // ── Team (Story 39-20 AC1 / D1) ──
+        modelBuilder.Entity<Team>(entity =>
+        {
+            entity.ToTable("teams", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_teams_default_member_role",
+                    "\"DefaultMemberRole\" IN ('member','maintainer')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Name).IsRequired().HasMaxLength(120);
+            entity.Property(e => e.Description).HasMaxLength(500);
+            entity.Property(e => e.DefaultMemberRole).IsRequired().HasMaxLength(20).HasDefaultValue("member");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.TenantId, e.Name }).IsUnique();
+            entity.HasIndex(e => e.TenantId);
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── TeamMember (Story 39-20 AC1 / D4) ──
+        modelBuilder.Entity<TeamMember>(entity =>
+        {
+            entity.ToTable("team_members", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_team_members_role",
+                    "\"Role\" IN ('member','maintainer')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.Role).IsRequired().HasMaxLength(20).HasDefaultValue("member");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.TeamId, e.UserId }).IsUnique();
+            entity.HasIndex(e => e.UserId);
+
+            entity.HasOne(e => e.Team)
+                .WithMany(tm => tm.Members)
+                .HasForeignKey(e => e.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+        });
+
+        // ── RegisteredRepo (Story 39-20 AC2 / D2) ──
+        modelBuilder.Entity<RegisteredRepo>(entity =>
+        {
+            entity.ToTable("repositories", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_repositories_visibility",
+                    "\"Visibility\" IN ('tenant','restricted')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.PlatformKind).IsRequired().HasMaxLength(32).HasDefaultValue("github");
+            entity.Property(e => e.RepoFullName).IsRequired().HasMaxLength(255);
+            entity.Property(e => e.ExternalId).HasMaxLength(128);
+            entity.Property(e => e.Visibility).IsRequired().HasMaxLength(20).HasDefaultValue("tenant");
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.TenantId, e.PlatformKind, e.RepoFullName }).IsUnique();
+            entity.HasIndex(e => new { e.TenantId, e.RepoFullName });
+
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
+        // ── RepoAccessGrant (Story 39-20 AC2 / D3) ──
+        modelBuilder.Entity<RepoAccessGrant>(entity =>
+        {
+            entity.ToTable("repo_access_grants", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_repo_access_grants_level",
+                    "\"AccessLevel\" IN ('read','contribute','admin')");
+                t.HasCheckConstraint(
+                    "ck_repo_access_grants_grantee_xor",
+                    "((\"UserId\" IS NOT NULL AND \"TeamId\" IS NULL) OR (\"UserId\" IS NULL AND \"TeamId\" IS NOT NULL))");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.AccessLevel).IsRequired().HasMaxLength(20);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+            entity.Property(e => e.UpdatedAt).HasDefaultValueSql("now()");
+
+            entity.HasIndex(e => new { e.RepositoryId, e.UserId, e.TeamId })
+                .IsUnique()
+                .AreNullsDistinct(false);
+            entity.HasIndex(e => e.UserId);
+            entity.HasIndex(e => e.TeamId);
+
+            entity.HasOne(e => e.Repository)
+                .WithMany(r => r.Grants)
+                .HasForeignKey(e => e.RepositoryId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasOne(e => e.User)
+                .WithMany()
+                .HasForeignKey(e => e.UserId)
+                .OnDelete(DeleteBehavior.Restrict);
+
+            entity.HasOne(e => e.Team)
+                .WithMany(tm => tm.RepoGrants)
+                .HasForeignKey(e => e.TeamId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
+
         // ── UserInvite ──
         modelBuilder.Entity<UserInvite>(entity =>
         {
@@ -1893,6 +2014,12 @@ internal static class TammaModelConfiguration
             // Story 38-3 — slack_outbox is CP-resident; keep it out of the tenant
             // model graph (mirrors platform_email_outbox above).
             modelBuilder.Ignore<SlackOutboxMessage>();
+            // Story 39-20 — teams, team_members, repositories, and repo_access_grants
+            // are CP-resident alongside tenant_memberships (D1).
+            modelBuilder.Ignore<Team>();
+            modelBuilder.Ignore<TeamMember>();
+            modelBuilder.Ignore<RegisteredRepo>();
+            modelBuilder.Ignore<RepoAccessGrant>();
         }
 
         // ── AgentConfig ──

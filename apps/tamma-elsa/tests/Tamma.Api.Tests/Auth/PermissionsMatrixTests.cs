@@ -160,6 +160,7 @@ public class PermissionsMatrixTests
             "conventions:manage", "platforms:manage", "agents:manage", "pricing:manage",
             "acceptance-rules:manage", "schedules:manage", "actions:manage",
             "tracker:view", "tracker:manage",
+            "teams:manage", "repos:manage", "tasks:assign",
         };
         var actual = Permissions.Matrix.Keys.ToHashSet(StringComparer.Ordinal);
 

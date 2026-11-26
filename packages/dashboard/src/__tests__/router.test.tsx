@@ -41,5 +41,10 @@ describe('router — /work tracker routes (Story 44-6)', () => {
 
     // D2: never register a /tasks route in packages/dashboard.
     expect(all.find((r) => r.path === '/tasks')).toBeUndefined();
+
+    // Story 39-20: /admin/access wrapped in AdminGuard.
+    const accessRoute = all.find((r) => r.path === '/admin/access');
+    expect(accessRoute).toBeDefined();
+    expect((accessRoute?.element as ReactElement).type).toBe(AdminGuard);
   });
 });
