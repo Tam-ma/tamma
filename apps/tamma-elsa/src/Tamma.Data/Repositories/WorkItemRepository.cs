@@ -43,6 +43,186 @@ public class WorkItemRepository(
         return await db.WorkItems.FirstOrDefaultAsync(w => w.Id == id);
     }
 
+    public async Task<List<WorkItemEntity>> GetByIdsAsync(IReadOnlyCollection<Guid> ids)
+    {
+        ArgumentNullException.ThrowIfNull(ids);
+        if (ids.Count == 0)
+            return [];
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        return await db.WorkItems.Where(w => ids.Contains(w.Id)).ToListAsync();
+    }
+
+    public async Task<List<BoardItemRow>> BoardQueryAsync(BoardQuery query)
+    {
+        ArgumentNullException.ThrowIfNull(query);
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+
+        // Exhaustive switch over the closed BoardGroupBy enum (AC6 / D5) —
+        // never interpolated from caller input.
+        var groupKeyExpr = query.GroupBy switch
+        {
+            BoardGroupBy.Status => """w."Status" """,
+            BoardGroupBy.Kind => """w."Kind" """,
+            BoardGroupBy.Priority => """COALESCE(w."Priority", 'unprioritized')""",
+            BoardGroupBy.Assignee => """COALESCE(w."AssigneeUserId"::text, 'unassigned')""",
+            BoardGroupBy.Iteration => """COALESCE(w."IterationId"::text, 'backlog')""",
+            _ => throw new ArgumentOutOfRangeException(nameof(query.GroupBy), query.GroupBy, null),
+        };
+
+        var where = new StringBuilder("""WHERE w."ProjectId" = @projectId""");
+        var parameters = new List<object>
+        {
+            new NpgsqlParameter("projectId", query.ProjectId),
+        };
+
+        if (query.IterationId is { } iterationId)
+        {
+            where.Append(""" AND w."IterationId" = @iterationId""");
+            parameters.Add(new NpgsqlParameter("iterationId", iterationId));
+        }
+        if (query.AssigneeUserId is { } assigneeId)
+        {
+            where.Append(""" AND w."AssigneeUserId" = @assigneeId""");
+            parameters.Add(new NpgsqlParameter("assigneeId", assigneeId));
+        }
+        if (query.Kinds is { Count: > 0 } kinds)
+        {
+            where.Append(""" AND w."Kind" = ANY(@kinds)""");
+            parameters.Add(new NpgsqlParameter("kinds", NpgsqlDbType.Array | NpgsqlDbType.Text)
+            {
+                Value = kinds.ToArray(),
+            });
+        }
+        if (!string.IsNullOrWhiteSpace(query.ColumnKey))
+        {
+            where.Append($""" AND ({groupKeyExpr}) = @columnKey""");
+            parameters.Add(new NpgsqlParameter("columnKey", query.ColumnKey));
+        }
+
+        // Cursor predicate applies ONLY to the ranked slice, AFTER GroupTotal is
+        // computed over the full column so totalCount stays honest on page 2+.
+        var cursorWhere = new StringBuilder();
+        if (query.AfterRank is not null && query.AfterId is { } afterId)
+        {
+            cursorWhere.Append(""" AND (f."Rank" > @afterRank COLLATE "C" OR (f."Rank" = @afterRank COLLATE "C" AND f."Id" > @afterId))""");
+            parameters.Add(new NpgsqlParameter("afterRank", query.AfterRank));
+            parameters.Add(new NpgsqlParameter("afterId", afterId));
+        }
+
+        var perColumnLimit = query.PerColumnLimit is > 0 and <= 200 ? query.PerColumnLimit : 50;
+        // Fetch perColumnLimit + 1 so the projection can tell exact `hasMore` even when paging with a cursor.
+        parameters.Add(new NpgsqlParameter("fetchLimit", perColumnLimit + 1));
+
+        // ONE single SQL statement (AC5 / D4): window function partitioned by group_key
+        // ordered by (Rank COLLATE "C", Id), plus LEFT JOIN LATERAL direct-child roll-ups.
+        var sql = $$"""
+            WITH filtered AS (
+                SELECT
+                    w."Id", w."ProjectId", w."Key",
+                    array_to_json(w."PreviousKeys")::text AS "PreviousKeysJson",
+                    w."Number", w."Kind", w."Status", w."Priority", w."IssueType",
+                    w."Title", w."Description", w."ParentId", w."IterationId",
+                    w."Rank", w."SiblingRank", w."AssigneeUserId", w."CreatedByUserId",
+                    w."Estimate", w."ExternalRefJson"::text AS "ExternalRefJson",
+                    w."CreatedAt", w."UpdatedAt", w."ClosedAt", w."Version",
+                    ({{groupKeyExpr}}) AS group_key
+                FROM work_items w
+                {{where}}
+            ),
+            totals AS (
+                SELECT group_key, COUNT(*)::int AS group_total
+                FROM filtered
+                GROUP BY group_key
+            ),
+            ranked AS (
+                SELECT
+                    f.*,
+                    t.group_total AS "GroupTotal",
+                    ROW_NUMBER() OVER (
+                        PARTITION BY f.group_key
+                        ORDER BY f."Rank" COLLATE "C" ASC, f."Id" ASC
+                    ) AS rn
+                FROM filtered f
+                JOIN totals t ON t.group_key = f.group_key
+                WHERE TRUE {{cursorWhere}}
+            )
+            SELECT
+                r."Id", r."ProjectId", r."Key", r."PreviousKeysJson",
+                r."Number", r."Kind", r."Status", r."Priority", r."IssueType",
+                r."Title", r."Description", r."ParentId", r."IterationId",
+                r."Rank", r."SiblingRank", r."AssigneeUserId", r."CreatedByUserId",
+                r."Estimate", r."ExternalRefJson",
+                r."CreatedAt", r."UpdatedAt", r."ClosedAt", r."Version",
+                r.group_key AS "GroupKey",
+                r."GroupTotal",
+                rollups.child_count AS "ChildCount",
+                rollups.child_count_by_status_json AS "ChildCountByStatusJson"
+            FROM ranked r
+            LEFT JOIN LATERAL (
+                SELECT
+                    COALESCE(SUM(c.cnt), 0)::int AS child_count,
+                    COALESCE(jsonb_object_agg(c."Status", c.cnt), jsonb_build_object())::text AS child_count_by_status_json
+                FROM (
+                    SELECT ch."Status", COUNT(*)::int AS cnt
+                    FROM work_items ch
+                    WHERE ch."ParentId" = r."Id"
+                    GROUP BY ch."Status"
+                ) c
+            ) rollups ON TRUE
+            WHERE r.rn <= @fetchLimit
+            ORDER BY r.group_key COLLATE "C" ASC, r."Rank" COLLATE "C" ASC, r."Id" ASC
+            """;
+
+        var rows = await db.Database
+            .SqlQueryRaw<BoardItemSqlRow>(sql, parameters.ToArray())
+            .ToListAsync();
+
+        return rows.Select(r => new BoardItemRow(
+            ToEntity(r),
+            r.GroupKey,
+            r.GroupTotal,
+            r.ChildCount,
+            ParseStatusCounts(r.ChildCountByStatusJson))).ToList();
+    }
+
+    public async Task<int> BulkSetIterationAsync(
+        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId)
+    {
+        ArgumentNullException.ThrowIfNull(workItemIds);
+        if (workItemIds.Count == 0)
+            return 0;
+
+        var tid = RequireTenantId();
+        await using var db = await tenantDbFactory.CreateAsync(tid);
+        await using var tx = await db.Database.BeginTransactionAsync();
+
+        const string sql = """
+            UPDATE work_items
+            SET "IterationId" = @iterationId,
+                "UpdatedAt" = now(),
+                "Version" = "Version" + 1
+            WHERE "ProjectId" = @projectId
+              AND "Id" = ANY(@ids)
+            """;
+
+        var affected = await db.Database.ExecuteSqlRawAsync(
+            sql,
+            new NpgsqlParameter("iterationId", NpgsqlDbType.Uuid)
+            {
+                Value = iterationId.HasValue ? iterationId.Value : DBNull.Value,
+            },
+            new NpgsqlParameter("projectId", projectId),
+            new NpgsqlParameter("ids", NpgsqlDbType.Array | NpgsqlDbType.Uuid)
+            {
+                Value = workItemIds.ToArray(),
+            });
+
+        await tx.CommitAsync();
+        return affected;
+    }
+
     public async Task<WorkItemEntity?> GetByKeyAsync(string key)
     {
         if (string.IsNullOrWhiteSpace(key))
@@ -1255,5 +1435,11 @@ public class WorkItemRepository(
     private sealed class WorkItemSubtreeSqlRow : WorkItemRollupSqlRow
     {
         public int Depth { get; set; }
+    }
+
+    private sealed class BoardItemSqlRow : WorkItemRollupSqlRow
+    {
+        public string GroupKey { get; set; } = "";
+        public int GroupTotal { get; set; }
     }
 }

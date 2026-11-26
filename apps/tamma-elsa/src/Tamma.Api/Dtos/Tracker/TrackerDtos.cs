@@ -1,5 +1,6 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Tamma.Api.Services.Tracker;
 
 namespace Tamma.Api.Dtos.Tracker;
 
@@ -336,27 +337,118 @@ public sealed record WorkItemSubtreeResponse(
 public sealed record ApplyOrderingRequest(
     [property: JsonPropertyName("documentId")] Guid? DocumentId);
 
-/// <summary>
-/// Per-entry outcome returned by <c>POST /api/projects/{projectId}/apply-ordering</c>
-/// (Story 44-3 AC7 / D8): <c>outcome</c> is <c>applied</c>, <c>not-found</c>, or
-/// <c>wrong-project</c>.
-/// </summary>
-public sealed record ApplyOrderingItemOutcome(
-    [property: JsonPropertyName("itemId")] string ItemId,
-    [property: JsonPropertyName("documentRank")] int? DocumentRank,
-    [property: JsonPropertyName("outcome")] string Outcome,
-    [property: JsonPropertyName("workItemId")] Guid? WorkItemId,
-    [property: JsonPropertyName("workItemKey")] string? WorkItemKey,
-    [property: JsonPropertyName("newRank")] string? NewRank);
-
-/// <summary>POST /api/projects/{projectId}/apply-ordering response (Story 44-3 AC7/AC8).</summary>
+/// <summary>POST /api/projects/{projectId}/apply-ordering response (Story 44-3 AC7/AC8; shared <see cref="ApplyOutcome"/> from 44-4).</summary>
 public sealed record ApplyOrderingResponse(
     [property: JsonPropertyName("documentId")] Guid DocumentId,
     [property: JsonPropertyName("revision")] int Revision,
     [property: JsonPropertyName("appliedCount")] int AppliedCount,
     [property: JsonPropertyName("notFoundCount")] int NotFoundCount,
     [property: JsonPropertyName("wrongProjectCount")] int WrongProjectCount,
-    [property: JsonPropertyName("outcomes")] IReadOnlyList<ApplyOrderingItemOutcome> Outcomes);
+    [property: JsonPropertyName("outcomes")] IReadOnlyList<ApplyOutcome> Outcomes);
+
+// ── Story 44-4 — Iterations, Board Read Projection & SprintPlan Apply Seam ──
+
+/// <summary>An iteration returned by <c>/api/projects/{projectId}/iterations</c> or <c>/api/iterations/{id}</c>.</summary>
+public sealed record IterationResponse(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("startsOn")] DateOnly? StartsOn,
+    [property: JsonPropertyName("endsOn")] DateOnly? EndsOn,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("capacityPoints")] decimal? CapacityPoints,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("carryOverMovedCount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CarryOverMovedCount = null,
+    [property: JsonPropertyName("carryOverLeftCount"), JsonIgnore(Condition = JsonIgnoreCondition.WhenWritingNull)] int? CarryOverLeftCount = null);
+
+/// <summary>POST /api/projects/{projectId}/iterations body.</summary>
+public sealed record CreateIterationRequest(
+    [property: JsonPropertyName("name")] string? Name,
+    [property: JsonPropertyName("startsOn")] DateOnly? StartsOn,
+    [property: JsonPropertyName("endsOn")] DateOnly? EndsOn,
+    [property: JsonPropertyName("status")] string? Status,
+    [property: JsonPropertyName("capacityPoints")] decimal? CapacityPoints);
+
+/// <summary>
+/// PATCH /api/iterations/{id} body — tri-state metadata fields plus optional
+/// <c>carryOver</c> mode (<c>to-backlog</c> | <c>move-to</c> | <c>leave</c>)
+/// when transitioning <c>active → closed</c> (Story 44-4 AC4 / D2).
+/// </summary>
+public sealed class PatchIterationRequest
+{
+    [JsonPropertyName("name")] public Optional<string> Name { get; init; }
+    [JsonPropertyName("startsOn")] public Optional<DateOnly?> StartsOn { get; init; }
+    [JsonPropertyName("endsOn")] public Optional<DateOnly?> EndsOn { get; init; }
+    [JsonPropertyName("status")] public Optional<string> Status { get; init; }
+    [JsonPropertyName("capacityPoints")] public Optional<decimal?> CapacityPoints { get; init; }
+    [JsonPropertyName("carryOver")] public string? CarryOver { get; init; }
+    [JsonPropertyName("carryOverTargetIterationId")] public Guid? CarryOverTargetIterationId { get; init; }
+}
+
+/// <summary>POST /api/iterations/{id}/items body (Story 44-4 AC3).</summary>
+public sealed record CommitIterationItemsRequest(
+    [property: JsonPropertyName("workItemIds")] IReadOnlyList<Guid>? WorkItemIds);
+
+/// <summary>POST /api/iterations/{id}/items response.</summary>
+public sealed record CommitIterationItemsResponse(
+    [property: JsonPropertyName("iterationId")] Guid IterationId,
+    [property: JsonPropertyName("committedCount")] int CommittedCount,
+    [property: JsonPropertyName("workItemIds")] IReadOnlyList<Guid> WorkItemIds);
+
+/// <summary>One status-category bucket in <c>GET /api/iterations/{id}/summary</c> (Story 44-4 AC8).</summary>
+public sealed record IterationSummaryCategoryResponse(
+    [property: JsonPropertyName("category")] string Category,
+    [property: JsonPropertyName("count")] int Count,
+    [property: JsonPropertyName("estimateSum")] decimal EstimateSum);
+
+/// <summary>GET /api/iterations/{id}/summary response (Story 44-4 AC8).</summary>
+public sealed record IterationSummaryResponse(
+    [property: JsonPropertyName("iterationId")] Guid IterationId,
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("name")] string Name,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("estimateScale")] string EstimateScale,
+    [property: JsonPropertyName("capacityPoints")] decimal? CapacityPoints,
+    [property: JsonPropertyName("committedCount")] int CommittedCount,
+    [property: JsonPropertyName("totalEstimate")] decimal TotalEstimate,
+    [property: JsonPropertyName("byCategory")] IReadOnlyList<IterationSummaryCategoryResponse> ByCategory);
+
+/// <summary>One column in <c>GET /api/projects/{projectId}/board</c> (Story 44-4 AC5–AC7).</summary>
+public sealed record BoardColumnResponse(
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("label")] string Label,
+    [property: JsonPropertyName("items")] IReadOnlyList<WorkItemResponse> Items,
+    [property: JsonPropertyName("totalCount")] int TotalCount,
+    [property: JsonPropertyName("hasMore")] bool HasMore,
+    [property: JsonPropertyName("nextCursor")] string? NextCursor);
+
+/// <summary>GET /api/projects/{projectId}/board response (Story 44-4 AC5–AC7).</summary>
+public sealed record BoardResponse(
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("groupBy")] string GroupBy,
+    [property: JsonPropertyName("perColumnLimit")] int PerColumnLimit,
+    [property: JsonPropertyName("columnCap")] int? ColumnCap,
+    [property: JsonPropertyName("foldedColumnCount")] int FoldedColumnCount,
+    [property: JsonPropertyName("columns")] IReadOnlyList<BoardColumnResponse> Columns);
+
+/// <summary>POST /api/iterations/{id}/apply-plan body (Story 44-4 AC9).</summary>
+public sealed record ApplySprintPlanRequest(
+    [property: JsonPropertyName("documentId")] Guid? DocumentId);
+
+/// <summary>POST /api/iterations/{id}/apply-plan response (Story 44-4 AC9).</summary>
+public sealed record ApplySprintPlanResponse(
+    [property: JsonPropertyName("documentId")] Guid DocumentId,
+    [property: JsonPropertyName("revision")] int Revision,
+    [property: JsonPropertyName("iterationId")] Guid IterationId,
+    [property: JsonPropertyName("sprintId")] string SprintId,
+    [property: JsonPropertyName("appliedCount")] int AppliedCount,
+    [property: JsonPropertyName("notFoundCount")] int NotFoundCount,
+    [property: JsonPropertyName("wrongProjectCount")] int WrongProjectCount,
+    [property: JsonPropertyName("alreadyCommittedElsewhereCount")] int AlreadyCommittedElsewhereCount,
+    [property: JsonPropertyName("carryOverCount")] int CarryOverCount,
+    [property: JsonPropertyName("outcomes")] IReadOnlyList<ApplyOutcome> Outcomes);
 
 /// <summary>
 /// GET /api/work-items envelope. <see cref="VisibilityMode"/> is AC7's honesty

@@ -413,6 +413,11 @@ builder.Services.AddScoped<Tamma.Api.Services.Tracker.TrackerAssigneeResolver>()
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.TrackerHierarchyService>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.IBacklogOrderingReader, Tamma.Api.Services.Tracker.DocumentBacklogOrderingReader>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.OrderingApplyService>();
+// Story 44-4 — iterations, single-statement board projection, and the SprintPlan apply seam.
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.IterationService>();
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.BoardProjectionService>();
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.ISprintPlanReader, Tamma.Api.Services.Tracker.DocumentSprintPlanReader>();
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.SprintPlanApplyService>();
 // Story 39-8 — the escalation disposition surface (appends ESCALATION.RESOLVED, FAIL-LOUD).
 builder.Services.AddScoped<Tamma.Api.Services.Documents.EscalationDispositionService>();
 // Story 39-8 / 39-18 (D7) — the shared document-decision submission path. BOTH the
@@ -3204,6 +3209,36 @@ tracker.MapDelete("/projects/{projectId:guid}", TrackerEndpoints.DeleteProject)
 tracker.MapPost("/projects/{projectId:guid}/apply-ordering", TrackerEndpoints.ApplyOrdering)
     .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
     .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerBacklogApplyOrdering.ToWire()));
+
+// Story 44-4 AC1–AC9, AC11/AC12 — iterations, single-statement board projection,
+// commitment endpoints, iteration summary, and the SprintPlan apply seam.
+// Every mutating route is born .Governs-bound (shrink-only ratchet).
+tracker.MapGet("/projects/{projectId:guid}/board", TrackerEndpoints.GetBoard)
+    .RequireAuthorization("TrackerView");
+tracker.MapGet("/projects/{projectId:guid}/iterations", TrackerEndpoints.ListIterations)
+    .RequireAuthorization("TrackerView");
+tracker.MapPost("/projects/{projectId:guid}/iterations", TrackerEndpoints.CreateIteration)
+    .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationCreate.ToWire()));
+tracker.MapGet("/iterations/{id:guid}", TrackerEndpoints.GetIteration)
+    .RequireAuthorization("TrackerView");
+tracker.MapGet("/iterations/{id:guid}/summary", TrackerEndpoints.GetIterationSummary)
+    .RequireAuthorization("TrackerView");
+tracker.MapPatch("/iterations/{id:guid}", TrackerEndpoints.PatchIteration)
+    .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationUpdate.ToWire()));
+tracker.MapDelete("/iterations/{id:guid}", TrackerEndpoints.DeleteIteration)
+    .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationDelete.ToWire()));
+tracker.MapPost("/iterations/{id:guid}/items", TrackerEndpoints.CommitIterationItems)
+    .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationCommit.ToWire()));
+tracker.MapDelete("/iterations/{id:guid}/items/{workItemId:guid}", TrackerEndpoints.UncommitIterationItem)
+    .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationUncommit.ToWire()));
+tracker.MapPost("/iterations/{id:guid}/apply-plan", TrackerEndpoints.ApplySprintPlan)
+    .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerIterationApplyPlan.ToWire()));
 
 // Work items — literal segments FIRST, then the parameterized ones.
 tracker.MapGet("/work-items/assignable", TrackerEndpoints.ListAssignable).RequireAuthorization("TrackerView");

@@ -20,26 +20,32 @@ namespace Tamma.Api.Tests.Tracker;
 [TestFixture]
 public class TrackerGovernanceBindingTests
 {
-    internal static readonly (string Method, string Pattern, ExternalEffect ExpectedEffect, string ExpectedHandler)[]
-        NewStory443Routes =
+    internal static readonly (string Method, string Pattern, ExternalEffect ExpectedEffect, string ExpectedHandler, ActionRisk ExpectedRisk, int ExpectedMinAutonomy)[]
+        NewStory443And444Routes =
         [
-            ("POST", "/api/work-items/{id:guid}/parent", ExternalEffect.TrackerWorkItemReparent, "TrackerEndpoints.SetParent"),
-            ("POST", "/api/work-items/{id:guid}/move", ExternalEffect.TrackerWorkItemMove, "TrackerEndpoints.MoveWorkItem"),
-            ("POST", "/api/projects/{projectId:guid}/apply-ordering", ExternalEffect.TrackerBacklogApplyOrdering, "TrackerEndpoints.ApplyOrdering"),
+            ("POST", "/api/work-items/{id:guid}/parent", ExternalEffect.TrackerWorkItemReparent, "TrackerEndpoints.SetParent", ActionRisk.Mutating, 20),
+            ("POST", "/api/work-items/{id:guid}/move", ExternalEffect.TrackerWorkItemMove, "TrackerEndpoints.MoveWorkItem", ActionRisk.Mutating, 20),
+            ("POST", "/api/projects/{projectId:guid}/apply-ordering", ExternalEffect.TrackerBacklogApplyOrdering, "TrackerEndpoints.ApplyOrdering", ActionRisk.Mutating, 20),
+            ("POST", "/api/projects/{projectId:guid}/iterations", ExternalEffect.TrackerIterationCreate, "TrackerEndpoints.CreateIteration", ActionRisk.Mutating, 20),
+            ("PATCH", "/api/iterations/{id:guid}", ExternalEffect.TrackerIterationUpdate, "TrackerEndpoints.PatchIteration", ActionRisk.Mutating, 20),
+            ("DELETE", "/api/iterations/{id:guid}", ExternalEffect.TrackerIterationDelete, "TrackerEndpoints.DeleteIteration", ActionRisk.Destructive, 95),
+            ("POST", "/api/iterations/{id:guid}/items", ExternalEffect.TrackerIterationCommit, "TrackerEndpoints.CommitIterationItems", ActionRisk.Mutating, 20),
+            ("DELETE", "/api/iterations/{id:guid}/items/{workItemId:guid}", ExternalEffect.TrackerIterationUncommit, "TrackerEndpoints.UncommitIterationItem", ActionRisk.Mutating, 20),
+            ("POST", "/api/iterations/{id:guid}/apply-plan", ExternalEffect.TrackerIterationApplyPlan, "TrackerEndpoints.ApplySprintPlan", ActionRisk.Mutating, 20),
         ];
 
     [Test]
-    public void New_44_3_routes_are_not_in_KnownUngovernedEndpoints_and_ratchet_is_unmodified()
+    public void New_44_3_and_44_4_routes_are_not_in_KnownUngovernedEndpoints_and_ratchet_is_unmodified()
     {
-        foreach (var (method, pattern, _, _) in NewStory443Routes)
+        foreach (var (method, pattern, _, _, _, _) in NewStory443And444Routes)
         {
             KnownUngovernedEndpoints.All.Should().NotContain(
                 e => e.Method == method && e.Pattern == pattern,
-                $"AC11: '{method} {pattern}' must be born .Governs-bound, never baselined");
+                $"'{method} {pattern}' must be born .Governs-bound, never baselined");
         }
 
         KnownUngovernedEndpoints.PinnedCount.Should().Be(207,
-            "AC11: 44-3 must NOT modify PinnedCount (shrink-only ratchet)");
+            "44-3/44-4 must NOT modify PinnedCount (shrink-only ratchet)");
         KnownUngovernedEndpoints.PinHistory[^1].Should().Be(KnownUngovernedEndpoints.PinnedCount);
         for (var i = 1; i < KnownUngovernedEndpoints.PinHistory.Length; i++)
         {
@@ -49,16 +55,16 @@ public class TrackerGovernanceBindingTests
     }
 
     [Test]
-    public void New_44_3_descriptors_have_exact_SiteKeys_and_issue_tracking_group()
+    public void New_44_3_and_44_4_descriptors_have_exact_SiteKeys_and_issue_tracking_group()
     {
-        foreach (var (method, pattern, effect, handler) in NewStory443Routes)
+        foreach (var (method, pattern, effect, handler, expectedRisk, expectedMin) in NewStory443And444Routes)
         {
             var key = new ActionKey(ActionNamespace.Effect, effect.ToWire());
             ActionCatalog.ByKey.Should().ContainKey(key);
             var descriptor = ActionCatalog.ByKey[key];
             descriptor.Group.Should().Be(ActionGroup.IssueTracking);
-            descriptor.Risk.Should().Be(ActionRisk.Mutating);
-            descriptor.DefaultMinAutonomy.Should().Be(20);
+            descriptor.Risk.Should().Be(expectedRisk);
+            descriptor.DefaultMinAutonomy.Should().Be(expectedMin);
             descriptor.SiteKey.Should().Be($"{method} {pattern} — {handler}");
         }
     }

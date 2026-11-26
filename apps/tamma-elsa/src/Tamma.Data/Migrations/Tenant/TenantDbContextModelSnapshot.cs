@@ -1432,11 +1432,17 @@ namespace Tamma.Data.Migrations.Tenant
                         .HasDefaultValueSql("now()");
 
                     b.Property<int>("Version")
+                        .IsConcurrencyToken()
                         .ValueGeneratedOnAdd()
                         .HasColumnType("integer")
                         .HasDefaultValue(1);
 
                     b.HasKey("Id");
+
+                    b.HasIndex("ProjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_iterations_one_active")
+                        .HasFilter("\"Status\" = 'active'");
 
                     b.HasIndex("ProjectId", "Name")
                         .IsUnique()

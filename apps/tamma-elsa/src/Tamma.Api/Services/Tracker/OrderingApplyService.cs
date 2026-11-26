@@ -21,9 +21,9 @@ public sealed class OrderingApplyService(
     IBacklogOrderingReader orderingReader,
     ITenantContext tenantContext)
 {
-    public const string OutcomeApplied = "applied";
-    public const string OutcomeNotFound = "not-found";
-    public const string OutcomeWrongProject = "wrong-project";
+    public const string OutcomeApplied = ApplyOutcomeCodes.Applied;
+    public const string OutcomeNotFound = ApplyOutcomeCodes.NotFound;
+    public const string OutcomeWrongProject = ApplyOutcomeCodes.WrongProject;
 
     public async Task<ApplyOrderingResponse> ApplyAsync(
         Guid projectId, Guid documentId, CancellationToken ct = default)
@@ -133,7 +133,7 @@ public sealed class OrderingApplyService(
         var appliedCount = 0;
         var notFoundCount = 0;
         var wrongProjectCount = 0;
-        var outcomes = new List<ApplyOrderingItemOutcome>(pendingOutcomes.Count);
+        var outcomes = new List<ApplyOutcome>(pendingOutcomes.Count);
 
         foreach (var (itemId, docRank, outcome, resolved) in pendingOutcomes)
         {
@@ -141,18 +141,18 @@ public sealed class OrderingApplyService(
             {
                 case OutcomeApplied:
                     appliedCount++;
-                    outcomes.Add(new ApplyOrderingItemOutcome(
-                        itemId, docRank, outcome, resolved!.Id, resolved.Key, targetRanks[resolved.Id]));
+                    outcomes.Add(new ApplyOutcome(
+                        itemId, outcome, resolved!.Id, resolved.Key, DocumentRank: docRank, NewRank: targetRanks[resolved.Id]));
                     break;
                 case OutcomeWrongProject:
                     wrongProjectCount++;
-                    outcomes.Add(new ApplyOrderingItemOutcome(
-                        itemId, docRank, outcome, resolved?.Id, resolved?.Key, null));
+                    outcomes.Add(new ApplyOutcome(
+                        itemId, outcome, resolved?.Id, resolved?.Key, DocumentRank: docRank));
                     break;
                 default:
                     notFoundCount++;
-                    outcomes.Add(new ApplyOrderingItemOutcome(
-                        itemId, docRank, outcome, null, null, null));
+                    outcomes.Add(new ApplyOutcome(
+                        itemId, outcome, null, null, DocumentRank: docRank));
                     break;
             }
         }

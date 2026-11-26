@@ -462,6 +462,42 @@ public enum ExternalEffect
     /// <c>backlog-ordering</c> document to a project's backlog ranks in one
     /// idempotent transaction.</summary>
     [Wire("tracker.backlog.apply-ordering")] TrackerBacklogApplyOrdering,
+
+    // ── Story 44-4 — iterations, commitment, and the SprintPlan apply seam ──
+    // Appended at the END so the existing wire-pin order is untouched.
+    // All six carry the `tracker.` wire prefix and are born `.Governs`-bound
+    // in Program.cs (Story 44-4 AC11/AC12).
+
+    /// <summary><c>POST /api/projects/{projectId:guid}/iterations</c> —
+    /// <c>TrackerEndpoints.CreateIteration</c>. Creates a time-boxed iteration
+    /// in a project.</summary>
+    [Wire("tracker.iteration.create")] TrackerIterationCreate,
+
+    /// <summary><c>PATCH /api/iterations/{id:guid}</c> —
+    /// <c>TrackerEndpoints.PatchIteration</c>. Updates an iteration's metadata
+    /// or transitions its lifecycle (<c>planned → active → closed</c> with carry-over).</summary>
+    [Wire("tracker.iteration.update")] TrackerIterationUpdate,
+
+    /// <summary><c>DELETE /api/iterations/{id:guid}</c> —
+    /// <c>TrackerEndpoints.DeleteIteration</c>. Permanently deletes an iteration
+    /// (work items survive with <c>IterationId = NULL</c> via FK <c>SET NULL</c>).</summary>
+    [Wire("tracker.iteration.delete")] TrackerIterationDelete,
+
+    /// <summary><c>POST /api/iterations/{id:guid}/items</c> —
+    /// <c>TrackerEndpoints.CommitIterationItems</c>. Bulk-commits work items
+    /// into an iteration.</summary>
+    [Wire("tracker.iteration.commit")] TrackerIterationCommit,
+
+    /// <summary><c>DELETE /api/iterations/{id:guid}/items/{workItemId:guid}</c> —
+    /// <c>TrackerEndpoints.UncommitIterationItem</c>. Removes a work item from
+    /// an iteration (returns it to backlog).</summary>
+    [Wire("tracker.iteration.uncommit")] TrackerIterationUncommit,
+
+    /// <summary><c>POST /api/iterations/{id:guid}/apply-plan</c> —
+    /// <c>TrackerEndpoints.ApplySprintPlan</c>. Applies an accepted
+    /// <c>sprint-plan</c> document's committed items to an iteration in one
+    /// idempotent transaction.</summary>
+    [Wire("tracker.iteration.apply-plan")] TrackerIterationApplyPlan,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

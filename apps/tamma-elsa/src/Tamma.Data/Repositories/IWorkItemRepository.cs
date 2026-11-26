@@ -87,6 +87,36 @@ public sealed record WorkItemSubtreeNode(
     IReadOnlyDictionary<string, int> ChildCountByStatus);
 
 /// <summary>
+/// Story 44-4 AC5/AC6 (D4/D5) — query parameters for the single-statement
+/// window-function board read projection.
+/// </summary>
+public sealed record BoardQuery
+{
+    public required Guid ProjectId { get; init; }
+    public required BoardGroupBy GroupBy { get; init; }
+    public Guid? IterationId { get; init; }
+    public Guid? AssigneeUserId { get; init; }
+    public IReadOnlyCollection<string>? Kinds { get; init; }
+    public int PerColumnLimit { get; init; } = 50;
+
+    /// <summary>Optional single-column scope when paging a column's <c>nextCursor</c>.</summary>
+    public string? ColumnKey { get; init; }
+    public string? AfterRank { get; init; }
+    public Guid? AfterId { get; init; }
+}
+
+/// <summary>
+/// One work item row returned by <see cref="IWorkItemRepository.BoardQueryAsync"/>,
+/// carrying its partitioned column key, total column item count, and direct-child roll-ups.
+/// </summary>
+public sealed record BoardItemRow(
+    WorkItemEntity Item,
+    string GroupKey,
+    int GroupTotal,
+    int ChildCount,
+    IReadOnlyDictionary<string, int> ChildCountByStatus);
+
+/// <summary>
 /// Persistence seam for <c>work_items</c> + <c>work_item_relations</c>
 /// (Story 44-1). Tenant-schema resident; <b>no mode split</b> (story AC7 /
 /// epic D6 — a work item is content, and no method here filters on a
@@ -112,6 +142,25 @@ public sealed record WorkItemSubtreeNode(
 public interface IWorkItemRepository
 {
     Task<WorkItemEntity?> GetAsync(Guid id);
+
+    /// <summary>Story 44-4 AC3 — batch load work items by id in one query.</summary>
+    Task<List<WorkItemEntity>> GetByIdsAsync(IReadOnlyCollection<Guid> ids);
+
+    /// <summary>
+    /// Story 44-4 AC5/AC6 (D4) — single-statement window-function board query
+    /// partitioned by <see cref="BoardQuery.GroupBy"/>, ordered by <c>(Rank, Id)</c>
+    /// inside Postgres, capped at <c>PerColumnLimit + 1</c> per column (the +1
+    /// sentinel computes exact <c>hasMore</c> even under cursor paging).
+    /// </summary>
+    Task<List<BoardItemRow>> BoardQueryAsync(BoardQuery query);
+
+    /// <summary>
+    /// Story 44-4 AC3/AC9 — set <c>IterationId</c> (or clear when null) on a batch
+    /// of work items in <paramref name="projectId"/> in ONE SQL <c>UPDATE</c> inside
+    /// ONE transaction.
+    /// </summary>
+    Task<int> BulkSetIterationAsync(
+        Guid projectId, IReadOnlyList<Guid> workItemIds, Guid? iterationId);
 
     /// <summary>
     /// Resolve a wire key (<c>TAM-142</c>) to its item — the CURRENT key or
