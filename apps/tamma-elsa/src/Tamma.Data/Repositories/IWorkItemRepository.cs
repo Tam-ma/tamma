@@ -4,11 +4,14 @@ using Tamma.Data.Entities;
 namespace Tamma.Data.Repositories;
 
 /// <summary>
-/// Filter + keyset-paging query for <see cref="IWorkItemRepository.ListAsync"/>.
-/// Ordering is always <c>(Rank, Key)</c> ascending — the DB's <c>COLLATE "C"</c>
-/// rank order IS the API order (Story 44-1 AC4); there is no application-side
-/// sort. <see cref="AfterRank"/>/<see cref="AfterKey"/> are the keyset cursor
-/// (the last row of the previous page); both-null = first page.
+/// Filter + keyset-paging query for <see cref="IWorkItemRepository.ListAsync"/>
+/// and <see cref="IWorkItemRepository.ListWithRollupsAsync"/>.
+/// Ordering is always <c>(Rank, Id)</c> ascending — the DB's <c>COLLATE "C"</c>
+/// rank order IS the API order (Story 44-1 AC4), with immutable UUIDv7 <c>Id</c>
+/// as the tie-break so sanctioned <see cref="IWorkItemRepository.RekeyAsync"/>
+/// mutations never duplicate or skip rows across pages (Story 44-3 AC12 / D13).
+/// <see cref="AfterRank"/>/<see cref="AfterId"/> are the keyset cursor (the last
+/// row of the previous page); both-null = first page.
 ///
 /// <para><b>Deliberately carries NO principal plane</b> — no <c>UserId</c> /
 /// <c>TenantId</c> ownership filter exists on any work-item surface (story
@@ -58,9 +61,30 @@ public sealed record WorkItemQuery
     public bool? HasEstimate { get; init; }
 
     public string? AfterRank { get; init; }
-    public string? AfterKey { get; init; }
+    public Guid? AfterId { get; init; }
     public int Limit { get; init; } = 100;
 }
+
+/// <summary>
+/// Story 44-3 AC6 — one work item paired with its SQL-aggregated direct-child
+/// roll-up counts (computed in the same query via <c>LEFT JOIN LATERAL</c>,
+/// never N+1).
+/// </summary>
+public sealed record WorkItemWithRollup(
+    WorkItemEntity Item,
+    int ChildCount,
+    IReadOnlyDictionary<string, int> ChildCountByStatus);
+
+/// <summary>
+/// Story 44-3 AC5/AC6 — one node of a work-item subtree returned in DFS
+/// pre-order by a single recursive CTE query, including depth (1 = root) and
+/// direct-child roll-up counts.
+/// </summary>
+public sealed record WorkItemSubtreeNode(
+    WorkItemEntity Item,
+    int Depth,
+    int ChildCount,
+    IReadOnlyDictionary<string, int> ChildCountByStatus);
 
 /// <summary>
 /// Persistence seam for <c>work_items</c> + <c>work_item_relations</c>
@@ -95,8 +119,39 @@ public interface IWorkItemRepository
     /// </summary>
     Task<WorkItemEntity?> GetByKeyAsync(string key);
 
-    /// <summary>List per <see cref="WorkItemQuery"/>, ordered <c>(Rank, Key)</c>, keyset-paged.</summary>
+    /// <summary>List per <see cref="WorkItemQuery"/>, ordered <c>(Rank, Id)</c>, keyset-paged.</summary>
     Task<List<WorkItemEntity>> ListAsync(WorkItemQuery query);
+
+    /// <summary>
+    /// Story 44-3 AC6 — list per <see cref="WorkItemQuery"/>, ordered <c>(Rank, Id)</c>,
+    /// keyset-paged, with direct-child roll-up counts (<c>ChildCount</c>,
+    /// <c>ChildCountByStatus</c>) computed in the SAME SQL statement via
+    /// <c>LEFT JOIN LATERAL</c> (constant query count regardless of page size).
+    /// </summary>
+    Task<List<WorkItemWithRollup>> ListWithRollupsAsync(WorkItemQuery query);
+
+    /// <summary>
+    /// Story 44-3 AC7/AC8 — all work items in a project ordered <c>(Rank, Id)</c>,
+    /// unbounded, used by the <c>BacklogOrdering</c> apply seam so unreferenced
+    /// items beyond page 1 are never truncated when re-ranking a full project.
+    /// </summary>
+    Task<List<WorkItemEntity>> ListAllForProjectAsync(Guid projectId);
+
+    /// <summary>
+    /// Story 44-3 AC5/AC6 — return the work item and all descendants up to
+    /// <paramref name="maxDepth"/> (always <see cref="TrackerHierarchy.MaxDepth"/>)
+    /// in ONE recursive CTE query with SQL-computed roll-up counts, ordered in
+    /// DFS pre-order by <c>(SiblingRank, Id)</c> so a client renders a tree
+    /// without a second sort. Empty list when <paramref name="id"/> does not exist.
+    /// </summary>
+    Task<List<WorkItemSubtreeNode>> GetSubtreeAsync(Guid id, int maxDepth);
+
+    /// <summary>
+    /// Story 44-3 AC3 — current maximum <c>Rank</c> in <paramref name="projectId"/>
+    /// (optionally excluding <paramref name="excludeWorkItemId"/>), or null when
+    /// none exists. Used to place an item at the end of a project backlog.
+    /// </summary>
+    Task<string?> GetMaxRankAsync(Guid projectId, Guid? excludeWorkItemId = null);
 
     /// <summary>
     /// Create a work item. Mints <c>Number</c>/<c>Key</c> under the project
@@ -134,18 +189,43 @@ public interface IWorkItemRepository
     Task<WorkItemEntity?> SetStatusAsync(Guid id, string statusWire, int? expectedVersion = null);
 
     /// <summary>
-    /// Move the item in either ordering axis. A drag is ONE UPDATE (44-0 D7).
-    /// Null leaves that axis unchanged; ranks are validated canonical
+    /// Move the item in either ordering axis. A drag is ONE UPDATE (44-0 D7 /
+    /// 44-3 AC3). Null leaves that axis unchanged; ranks are validated canonical
     /// (<c>Rank.IsValid</c>).
     /// </summary>
-    Task<WorkItemEntity?> SetRanksAsync(Guid id, string? rank, string? siblingRank);
+    /// <param name="expectedVersion">See <see cref="UpdateAsync"/>.</param>
+    Task<WorkItemEntity?> SetRanksAsync(
+        Guid id, string? rank, string? siblingRank, int? expectedVersion = null);
+
+    /// <summary>
+    /// Story 44-3 AC7/AC8 — update <c>Rank</c> for many items in
+    /// <paramref name="projectId"/> in ONE bulk SQL <c>UPDATE</c> inside ONE
+    /// transaction. Validates every rank via <c>Rank.IsValid</c> before touching
+    /// the database. Returns the number of rows updated.
+    /// </summary>
+    Task<int> BulkSetRanksAsync(Guid projectId, IReadOnlyList<(Guid Id, string Rank)> updates);
 
     /// <summary>
     /// Reparent (null = make top-level) and place among the new siblings.
     /// Structural validation (cycles, depth, the Epic kind rule) is Story
-    /// 44-3's service — this is the storage seam only.
+    /// 44-3's transactional seam (<see cref="ReparentTransactionalAsync"/>) —
+    /// this is the bare storage seam kept for low-level callers.
     /// </summary>
     Task<WorkItemEntity?> SetParentAsync(Guid id, Guid? parentId, string? siblingRank = null);
+
+    /// <summary>
+    /// Story 44-3 AC1/AC2 (D1/D2) — validate and apply a reparent inside ONE
+    /// Postgres transaction under a <c>SELECT ... FOR UPDATE</c> lock over the
+    /// project row (serializing concurrent reparents with zero deadlocks so two
+    /// simultaneous reparents can never jointly form a cycle). Checks:
+    /// <c>CROSS_PROJECT_PARENT</c>, <c>KIND_NOT_PERMITTED</c>,
+    /// <c>WOULD_CREATE_CYCLE</c>, and <c>MAX_DEPTH_EXCEEDED</c> against
+    /// persisted state inside the write transaction, and honours
+    /// <paramref name="expectedVersion"/> atomically. Returns null when
+    /// <paramref name="id"/> does not exist.
+    /// </summary>
+    Task<WorkItemEntity?> ReparentTransactionalAsync(
+        Guid id, Guid? parentId, int? expectedVersion = null);
 
     /// <summary>
     /// The one sanctioned key change (44-0 AC8): a deliberate operator

@@ -409,6 +409,10 @@ builder.Services.AddScoped<Tamma.Api.Services.AcceptanceRules.GetAcceptanceRules
 // tests construct it directly.
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.ITrackerService, Tamma.Api.Services.Tracker.TrackerService>();
 builder.Services.AddScoped<Tamma.Api.Services.Tracker.TrackerAssigneeResolver>();
+// Story 44-3 — hierarchy enforcement, ranking moves, subtree reads, and the BacklogOrdering apply seam.
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.TrackerHierarchyService>();
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.IBacklogOrderingReader, Tamma.Api.Services.Tracker.DocumentBacklogOrderingReader>();
+builder.Services.AddScoped<Tamma.Api.Services.Tracker.OrderingApplyService>();
 // Story 39-8 — the escalation disposition surface (appends ESCALATION.RESOLVED, FAIL-LOUD).
 builder.Services.AddScoped<Tamma.Api.Services.Documents.EscalationDispositionService>();
 // Story 39-8 / 39-18 (D7) — the shared document-decision submission path. BOTH the
@@ -3195,6 +3199,11 @@ tracker.MapPatch("/projects/{projectId:guid}", TrackerEndpoints.PatchProject)
     .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite");
 tracker.MapDelete("/projects/{projectId:guid}", TrackerEndpoints.DeleteProject)
     .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite");
+// Story 44-3 AC7/AC11 — apply an accepted BacklogOrdering document to the project's backlog.
+// Born .Governs-bound (43-8's shrink-only ungoverned-route ratchet forbids baselining new routes).
+tracker.MapPost("/projects/{projectId:guid}/apply-ordering", TrackerEndpoints.ApplyOrdering)
+    .RequireAuthorization("TrackerManage").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerBacklogApplyOrdering.ToWire()));
 
 // Work items — literal segments FIRST, then the parameterized ones.
 tracker.MapGet("/work-items/assignable", TrackerEndpoints.ListAssignable).RequireAuthorization("TrackerView");
@@ -3213,6 +3222,15 @@ tracker.MapPost("/work-items/{id:guid}/assign", TrackerEndpoints.AssignWorkItem)
     .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite");
 tracker.MapPost("/work-items/{id:guid}/status", TrackerEndpoints.SetWorkItemStatus)
     .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite");
+// Story 44-3 AC1/AC3/AC5/AC11 — subtree read + governed reparent & neighbour-addressed move.
+tracker.MapGet("/work-items/{id:guid}/subtree", TrackerEndpoints.GetSubtree)
+    .RequireAuthorization("TrackerView");
+tracker.MapPost("/work-items/{id:guid}/parent", TrackerEndpoints.SetParent)
+    .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerWorkItemReparent.ToWire()));
+tracker.MapPost("/work-items/{id:guid}/move", TrackerEndpoints.MoveWorkItem)
+    .RequireAuthorization("TrackerView").RequireRateLimiting("ConfigWrite")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.TrackerWorkItemMove.ToWire()));
 
 // Preferences — per-principal configuration; the ONE mode-branching handler set
 // and the ONE surviving PUT (the body genuinely IS the whole resource).

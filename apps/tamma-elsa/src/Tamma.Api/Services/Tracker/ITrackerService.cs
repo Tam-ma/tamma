@@ -39,13 +39,23 @@ public static class TrackerPreferenceDefaults
 }
 
 /// <summary>
-/// Result of one work-item list query — the page plus the honest visibility
+/// Direct-child roll-up counts attached to one work item in a list response
+/// (Story 44-3 AC6 — computed in SQL via <c>LEFT JOIN LATERAL</c>, never N+1).
+/// </summary>
+public sealed record WorkItemChildRollup(
+    int ChildCount,
+    IReadOnlyDictionary<string, int> ChildCountByStatus);
+
+/// <summary>
+/// Result of one work-item list query — the page, optional SQL-computed child
+/// roll-ups keyed by work-item id (AC6), plus the honest visibility
 /// discriminator (AC7).
 /// </summary>
 public sealed record WorkItemPage(
     IReadOnlyList<WorkItemEntity> Items,
     string? NextCursor,
-    string VisibilityMode);
+    string VisibilityMode,
+    IReadOnlyDictionary<Guid, WorkItemChildRollup>? Rollups = null);
 
 /// <summary>
 /// Story 44-2 — the tracker's application service: vocabulary validation at the

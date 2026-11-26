@@ -202,7 +202,10 @@ public sealed record WorkItemResponse(
     [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
     [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
     [property: JsonPropertyName("closedAt")] DateTime? ClosedAt,
-    [property: JsonPropertyName("version")] int Version);
+    [property: JsonPropertyName("version")] int Version,
+    // Story 44-3 AC6 — direct-child roll-ups computed in SQL (LEFT JOIN LATERAL).
+    [property: JsonPropertyName("childCount")] int ChildCount = 0,
+    [property: JsonPropertyName("childCountByStatus")] IReadOnlyDictionary<string, int>? ChildCountByStatus = null);
 
 /// <summary>
 /// POST /api/work-items body. <c>status</c> is optional and lands on
@@ -256,6 +259,104 @@ public sealed class AssignRequest
 /// <summary>POST /api/work-items/{id}/status body — the wire status string.</summary>
 public sealed record SetStatusRequest(
     [property: JsonPropertyName("status")] string? Status);
+
+// ── Story 44-3 — Hierarchy, ranking, subtree & BacklogOrdering apply seam ──
+
+/// <summary>
+/// POST /api/work-items/{id}/parent body (Story 44-3 AC1) — tri-state
+/// required-nullable field: absent <c>parentId</c> is a 400 (never a silent
+/// detach), explicit <c>null</c> detaches to top-level.
+/// </summary>
+public sealed class SetParentRequest
+{
+    [JsonPropertyName("parentId")] public Optional<Guid?> ParentId { get; init; }
+}
+
+/// <summary>
+/// POST /api/work-items/{id}/move body (Story 44-3 AC3 / D3) — neighbour-addressed
+/// placement in the project backlog. Both null moves to the end; <c>afterId</c>
+/// alone places after it; <c>beforeId</c> alone places before it; both places
+/// strictly between them via <c>Rank.Between</c>.
+/// </summary>
+public sealed record MoveWorkItemRequest(
+    [property: JsonPropertyName("afterId")] Guid? AfterId,
+    [property: JsonPropertyName("beforeId")] Guid? BeforeId);
+
+/// <summary>One violating hierarchy edge surfaced on a rejected kind change (Story 44-3 AC4 / D4).</summary>
+public sealed record HierarchyViolation(
+    [property: JsonPropertyName("direction")] string Direction,
+    [property: JsonPropertyName("relatedItemId")] Guid RelatedItemId,
+    [property: JsonPropertyName("relatedItemKey")] string RelatedItemKey,
+    [property: JsonPropertyName("parentKind")] string ParentKind,
+    [property: JsonPropertyName("childKind")] string ChildKind,
+    [property: JsonPropertyName("rule")] string Rule,
+    [property: JsonPropertyName("message")] string Message);
+
+/// <summary>
+/// One node in <c>GET /api/work-items/{id}/subtree</c> (Story 44-3 AC5/AC6),
+/// carrying the work-item fields, tree <see cref="Depth"/> (1 = root), and
+/// SQL-aggregated direct-child roll-ups.
+/// </summary>
+public sealed record WorkItemSubtreeNodeResponse(
+    [property: JsonPropertyName("id")] Guid Id,
+    [property: JsonPropertyName("projectId")] Guid ProjectId,
+    [property: JsonPropertyName("key")] string Key,
+    [property: JsonPropertyName("previousKeys")] IReadOnlyList<string> PreviousKeys,
+    [property: JsonPropertyName("number")] int Number,
+    [property: JsonPropertyName("kind")] string Kind,
+    [property: JsonPropertyName("status")] string Status,
+    [property: JsonPropertyName("statusCategory")] string StatusCategory,
+    [property: JsonPropertyName("priority")] string? Priority,
+    [property: JsonPropertyName("issueType")] string? IssueType,
+    [property: JsonPropertyName("title")] string Title,
+    [property: JsonPropertyName("description")] string? Description,
+    [property: JsonPropertyName("parentId")] Guid? ParentId,
+    [property: JsonPropertyName("iterationId")] Guid? IterationId,
+    [property: JsonPropertyName("rank")] string Rank,
+    [property: JsonPropertyName("siblingRank")] string SiblingRank,
+    [property: JsonPropertyName("assigneeUserId")] Guid? AssigneeUserId,
+    [property: JsonPropertyName("createdByUserId")] Guid? CreatedByUserId,
+    [property: JsonPropertyName("estimate")] decimal? Estimate,
+    [property: JsonPropertyName("externalRef")] JsonElement? ExternalRef,
+    [property: JsonPropertyName("createdAt")] DateTime CreatedAt,
+    [property: JsonPropertyName("updatedAt")] DateTime UpdatedAt,
+    [property: JsonPropertyName("closedAt")] DateTime? ClosedAt,
+    [property: JsonPropertyName("version")] int Version,
+    [property: JsonPropertyName("depth")] int Depth,
+    [property: JsonPropertyName("childCount")] int ChildCount,
+    [property: JsonPropertyName("childCountByStatus")] IReadOnlyDictionary<string, int> ChildCountByStatus);
+
+/// <summary>GET /api/work-items/{id}/subtree envelope (Story 44-3 AC5).</summary>
+public sealed record WorkItemSubtreeResponse(
+    [property: JsonPropertyName("rootId")] Guid RootId,
+    [property: JsonPropertyName("maxDepth")] int MaxDepth,
+    [property: JsonPropertyName("items")] IReadOnlyList<WorkItemSubtreeNodeResponse> Items);
+
+/// <summary>POST /api/projects/{projectId}/apply-ordering body (Story 44-3 AC7).</summary>
+public sealed record ApplyOrderingRequest(
+    [property: JsonPropertyName("documentId")] Guid? DocumentId);
+
+/// <summary>
+/// Per-entry outcome returned by <c>POST /api/projects/{projectId}/apply-ordering</c>
+/// (Story 44-3 AC7 / D8): <c>outcome</c> is <c>applied</c>, <c>not-found</c>, or
+/// <c>wrong-project</c>.
+/// </summary>
+public sealed record ApplyOrderingItemOutcome(
+    [property: JsonPropertyName("itemId")] string ItemId,
+    [property: JsonPropertyName("documentRank")] int? DocumentRank,
+    [property: JsonPropertyName("outcome")] string Outcome,
+    [property: JsonPropertyName("workItemId")] Guid? WorkItemId,
+    [property: JsonPropertyName("workItemKey")] string? WorkItemKey,
+    [property: JsonPropertyName("newRank")] string? NewRank);
+
+/// <summary>POST /api/projects/{projectId}/apply-ordering response (Story 44-3 AC7/AC8).</summary>
+public sealed record ApplyOrderingResponse(
+    [property: JsonPropertyName("documentId")] Guid DocumentId,
+    [property: JsonPropertyName("revision")] int Revision,
+    [property: JsonPropertyName("appliedCount")] int AppliedCount,
+    [property: JsonPropertyName("notFoundCount")] int NotFoundCount,
+    [property: JsonPropertyName("wrongProjectCount")] int WrongProjectCount,
+    [property: JsonPropertyName("outcomes")] IReadOnlyList<ApplyOrderingItemOutcome> Outcomes);
 
 /// <summary>
 /// GET /api/work-items envelope. <see cref="VisibilityMode"/> is AC7's honesty

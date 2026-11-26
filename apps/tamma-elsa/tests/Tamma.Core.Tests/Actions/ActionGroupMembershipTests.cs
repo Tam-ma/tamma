@@ -199,6 +199,9 @@ public class ActionGroupMembershipTests
             "effect:tracker.work-item.delete", "effect:tracker.work-item.assign",
             "effect:tracker.work-item.set-status",
             "effect:tracker.preferences.set", "effect:tracker.preferences.delete",
+            // 16 → 19 (Story 44-3 AC10): hierarchy, ranking, and BacklogOrdering apply seam.
+            "effect:tracker.work-item.reparent", "effect:tracker.work-item.move",
+            "effect:tracker.backlog.apply-ordering",
             "effect:git.issue.create", "effect:git.issue.comment",
             "effect:git.issue.labels.set", "effect:git.issue.labels.remove",
         });
@@ -347,7 +350,7 @@ public class ActionGroupMembershipTests
             [ActionGroup.CiAndTest] = 4,
             [ActionGroup.SourceControlRead] = 1,
             [ActionGroup.SourceControlWrite] = 18,
-            [ActionGroup.IssueTracking] = 16,
+            [ActionGroup.IssueTracking] = 19,
             [ActionGroup.DeployControl] = 10,
             [ActionGroup.ExternalComms] = 2,
             [ActionGroup.ModelInvocation] = 8,
@@ -372,7 +375,8 @@ public class ActionGroupMembershipTests
         // 226 → 227 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
         // 227 → 228 (Story 43-6, 2026-11-07): platform-automation 50 → 51 (+effect:governance.policy.group-enforce.set, machinery).
         // 228 → 230 (Story 43-18): platform-automation 51 → 53 (+effect:governance.action-level.{set,delete}, machinery).
-        counts.Values.Sum().Should().Be(230);
+        // 230 → 233 (Story 44-3 AC10): issue-tracking 16 → 19 (+effect:tracker.work-item.{reparent,move}, +effect:tracker.backlog.apply-ordering).
+        counts.Values.Sum().Should().Be(233);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

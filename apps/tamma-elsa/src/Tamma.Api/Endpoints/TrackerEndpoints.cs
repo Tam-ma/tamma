@@ -9,6 +9,7 @@ using Tamma.Core;
 using Tamma.Core.Tracking;
 using Tamma.Data;
 using Tamma.Data.Entities;
+using Tamma.Data.Repositories;
 
 namespace Tamma.Api.Endpoints;
 
@@ -231,7 +232,14 @@ public static class TrackerEndpoints
             }, principal.GetUserId());
 
             return Results.Ok(new WorkItemListResponse(
-                page.Items.Select(Map).ToList(), page.NextCursor, page.VisibilityMode));
+                page.Items.Select(w =>
+                {
+                    if (page.Rollups is not null && page.Rollups.TryGetValue(w.Id, out var r))
+                        return Map(w, r.ChildCount, r.ChildCountByStatus);
+                    return Map(w);
+                }).ToList(),
+                page.NextCursor,
+                page.VisibilityMode));
         }
         catch (TammaError te)
         {
@@ -443,6 +451,127 @@ public static class TrackerEndpoints
         }
     }
 
+    // ══════════ Story 44-3 — Hierarchy, ranking, subtree & apply seam ════════
+
+    /// <summary>
+    /// Story 44-3 AC1/AC2 — reparent a work item (null detaches to top-level)
+    /// inside one serialized transaction against persisted state.
+    /// </summary>
+    public static async Task<IResult> SetParent(
+        Guid id,
+        SetParentRequest request,
+        TrackerHierarchyService hierarchy,
+        HttpContext http)
+    {
+        if (!TryReadIfMatch(http, out var ifMatch, out var precondition))
+            return precondition!;
+
+        if (request is null || !request.ParentId.IsSet)
+        {
+            return Results.BadRequest(new
+            {
+                error = "Body field 'parentId' is required (send null to make top-level). "
+                    + "A missing field is never defaulted — Story 44-2 AC3.",
+                code = "TRACKER.MISSING_FIELD",
+            });
+        }
+
+        try
+        {
+            var item = await hierarchy.ReparentAsync(id, request.ParentId.Value, ifMatch);
+            if (item is null)
+                return NotFound("work item", id);
+            SetETag(http, item.Version);
+            return Results.Ok(Map(item));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    /// <summary>
+    /// Story 44-3 AC3 — neighbour-addressed move writing exactly one row
+    /// (<c>Rank = Rank.Between(after, before)</c>).
+    /// </summary>
+    public static async Task<IResult> MoveWorkItem(
+        Guid id,
+        MoveWorkItemRequest? request,
+        TrackerHierarchyService hierarchy,
+        HttpContext http)
+    {
+        if (!TryReadIfMatch(http, out var ifMatch, out var precondition))
+            return precondition!;
+
+        try
+        {
+            var item = await hierarchy.MoveAsync(id, request?.AfterId, request?.BeforeId, ifMatch);
+            if (item is null)
+                return NotFound("work item", id);
+            SetETag(http, item.Version);
+            return Results.Ok(Map(item));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    /// <summary>
+    /// Story 44-3 AC5/AC6 — return the work item and all descendants up to
+    /// <see cref="TrackerHierarchy.MaxDepth"/> in ONE recursive CTE query with
+    /// SQL-computed direct-child roll-up counts, ordered in DFS pre-order.
+    /// </summary>
+    public static async Task<IResult> GetSubtree(
+        Guid id,
+        TrackerHierarchyService hierarchy)
+    {
+        try
+        {
+            var nodes = await hierarchy.GetSubtreeAsync(id);
+            if (nodes.Count == 0)
+                return NotFound("work item", id);
+            return Results.Ok(new WorkItemSubtreeResponse(
+                id,
+                TrackerHierarchy.MaxDepth,
+                nodes.Select(MapSubtreeNode).ToList()));
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
+    /// <summary>
+    /// Story 44-3 AC7/AC8 — apply an accepted <c>BacklogOrdering</c> document to
+    /// a project's backlog order in one idempotent transaction.
+    /// </summary>
+    public static async Task<IResult> ApplyOrdering(
+        Guid projectId,
+        ApplyOrderingRequest? request,
+        OrderingApplyService orderingApply,
+        CancellationToken ct)
+    {
+        if (request is null || request.DocumentId is not Guid documentId || documentId == Guid.Empty)
+        {
+            return Results.BadRequest(new
+            {
+                error = "Body field 'documentId' is required.",
+                code = "TRACKER.MISSING_FIELD",
+            });
+        }
+
+        try
+        {
+            var result = await orderingApply.ApplyAsync(projectId, documentId, ct);
+            return Results.Ok(result);
+        }
+        catch (TammaError te)
+        {
+            return MapError(te);
+        }
+    }
+
     // ═══════════════════════════ Preferences ════════════════════════════════
     // The ONE place a mode branch appears (plan D4): the preference row is
     // per-principal configuration, keyed on user_id in single-user and
@@ -557,14 +686,35 @@ public static class TrackerEndpoints
         p.Id, p.Key, p.Name, p.Description, p.RepositoryId, p.EstimateScale, p.NextNumber,
         p.ArchivedAt, p.CreatedByUserId, p.CreatedAt, p.UpdatedAt, p.Version);
 
-    private static WorkItemResponse Map(WorkItemEntity w) => new(
+    private static readonly IReadOnlyDictionary<string, int> EmptyStatusCounts =
+        new Dictionary<string, int>();
+
+    private static WorkItemResponse Map(WorkItemEntity w) =>
+        Map(w, 0, EmptyStatusCounts);
+
+    private static WorkItemResponse Map(
+        WorkItemEntity w, int childCount, IReadOnlyDictionary<string, int> childCountByStatus) => new(
         w.Id, w.ProjectId, w.Key, w.PreviousKeys, w.Number, w.Kind, w.Status,
         // Derived ONCE, by the Core extension — never a set literal here (44-0 AC3).
         WorkItemStatusExtensions.Parse(w.Status).Category().ToWire(),
         w.Priority, w.IssueType, w.Title, w.Description, w.ParentId, w.IterationId,
         w.Rank, w.SiblingRank, w.AssigneeUserId, w.CreatedByUserId, w.Estimate,
         TrackerService.ParseExternalRef(w.ExternalRefJson),
-        w.CreatedAt, w.UpdatedAt, w.ClosedAt, w.Version);
+        w.CreatedAt, w.UpdatedAt, w.ClosedAt, w.Version,
+        childCount, childCountByStatus);
+
+    private static WorkItemSubtreeNodeResponse MapSubtreeNode(WorkItemSubtreeNode n)
+    {
+        var w = n.Item;
+        return new WorkItemSubtreeNodeResponse(
+            w.Id, w.ProjectId, w.Key, w.PreviousKeys, w.Number, w.Kind, w.Status,
+            WorkItemStatusExtensions.Parse(w.Status).Category().ToWire(),
+            w.Priority, w.IssueType, w.Title, w.Description, w.ParentId, w.IterationId,
+            w.Rank, w.SiblingRank, w.AssigneeUserId, w.CreatedByUserId, w.Estimate,
+            TrackerService.ParseExternalRef(w.ExternalRefJson),
+            w.CreatedAt, w.UpdatedAt, w.ClosedAt, w.Version,
+            n.Depth, n.ChildCount, n.ChildCountByStatus);
+    }
 
     private static TrackerPreferencesResponse Map(ResolvedTrackerPreferences r) => new(
         r.DefaultProjectId, r.DefaultKind, r.BoardGroupBy,
@@ -646,6 +796,19 @@ public static class TrackerEndpoints
     /// </summary>
     private static IResult MapError(TammaError te)
     {
+        if (te.Code == "KIND_NOT_PERMITTED"
+            && te.Context is not null
+            && te.Context.TryGetValue("violations", out var violations))
+        {
+            return Results.BadRequest(new
+            {
+                error = te.Message,
+                code = te.Code,
+                retryable = te.Retryable,
+                violations,
+            });
+        }
+
         var body = new
         {
             error = te.Message,
@@ -660,14 +823,22 @@ public static class TrackerEndpoints
             "TRACKER.CONCURRENCY_CONFLICT" => Results.Conflict(body),
             "TRACKER.KEY_CONFLICT" => Results.Conflict(body),
             "TRACKER.CROSS_PROJECT_REKEY" => Results.Conflict(body),
+            // Story 44-3 AC7 / D7: well-formed & authorized, but the document is
+            // not in a state the system will act on → 409.
+            "DOCUMENT_NOT_BACKLOG_ORDERING" => Results.Conflict(body),
+            "DOCUMENT_NOT_ACCEPTED" => Results.Conflict(body),
             "TRACKER.PROJECT_NOT_FOUND" => Results.NotFound(body),
+            "TRACKER.DOCUMENT_NOT_FOUND" => Results.NotFound(body),
+            "TRACKER.PARENT_NOT_FOUND" => Results.NotFound(body),
             "TRACKER.PRINCIPAL_UNRESOLVED" => Results.Conflict(body),
             // Authenticated and well-formed, but there is no tenant to answer
             // for — 409, never an unhandled 500 out of a repository.
             "TRACKER.TENANT_UNRESOLVED" => Results.Conflict(body),
             "GOVERNANCE.PRINCIPAL.NO_SOLE_USER" => Results.Conflict(body),
-            // Every remaining TRACKER.* is a caller error: unknown vocabulary,
-            // missing field, bad key, bad rank, incoherent estimate, bad cursor.
+            // Every remaining TRACKER.* / hierarchy code (KIND_NOT_PERMITTED,
+            // MAX_DEPTH_EXCEEDED, WOULD_CREATE_CYCLE, CROSS_PROJECT_PARENT,
+            // TRACKER.CROSS_PROJECT_RELATION, TRACKER.INVALID_MOVE_NEIGHBOR, …)
+            // is a caller error → 400.
             _ => Results.BadRequest(body),
         };
     }

@@ -373,7 +373,7 @@ public class WorkItemRepositoryTests
             ProjectId = project.Id,
             Limit = 100,
             AfterRank = page1[^1].Rank,
-            AfterKey = page1[^1].Key,
+            AfterId = page1[^1].Id,
         });
 
         var paged = page1.Concat(page2).Select(w => w.Id).ToList();

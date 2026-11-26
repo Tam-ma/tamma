@@ -308,6 +308,10 @@ public class ActionPerformerCoverageSweepTests
             (ExternalEffect.TrackerWorkItemSetStatus, typeof(TrackerEndpoints), nameof(TrackerEndpoints.SetWorkItemStatus)),
             (ExternalEffect.TrackerPreferencesSet, typeof(TrackerEndpoints), nameof(TrackerEndpoints.PutPreferences)),
             (ExternalEffect.TrackerPreferencesDelete, typeof(TrackerEndpoints), nameof(TrackerEndpoints.DeletePreferences)),
+            // Story 44-3 AC10 — hierarchy, ranking, and BacklogOrdering apply seam.
+            (ExternalEffect.TrackerWorkItemReparent, typeof(TrackerEndpoints), nameof(TrackerEndpoints.SetParent)),
+            (ExternalEffect.TrackerWorkItemMove, typeof(TrackerEndpoints), nameof(TrackerEndpoints.MoveWorkItem)),
+            (ExternalEffect.TrackerBacklogApplyOrdering, typeof(TrackerEndpoints), nameof(TrackerEndpoints.ApplyOrdering)),
         };
         foreach (var (effect, handlerType, methodName) in humanRoutePerformers)
         {

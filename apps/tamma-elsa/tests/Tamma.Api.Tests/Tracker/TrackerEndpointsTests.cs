@@ -657,16 +657,16 @@ public class TrackerEndpointsTests
         var collided = await _workItems.SetRanksAsync(b.Id, a.Rank, null);
         collided.Should().NotBeNull();
         collided!.Rank.Should().Be(a.Rank,
-            "rank uniqueness within a project is an UNENFORCED invariant — the "
-            + "(Rank, Key) keyset tie-break rests on it (amendment A1). 44-3 must "
-            + "either enforce it or move the cursor to an immutable tie-break; "
-            + "when it does, this test is the one to flip.");
+            "duplicate ranks within a project stay accepted deliberately — Story 44-3 AC12 "
+            + "(D13 / RankTieBreakTests) moved the keyset tie-break to immutable UUIDv7 Id, "
+            + "making duplicate ranks harmless across RekeyAsync with no schema migration.");
 
-        // The tie-break still yields a deterministic order today, because Key is
-        // unique and the SQL ORDER BY carries it.
+        // The tie-break yields a deterministic order by immutable UUIDv7 Id, which
+        // never shifts under RekeyAsync (pinned by RankTieBreakTests).
+        var expectedOrder = new[] { a, b }.OrderBy(i => i.Id).Select(i => i.Id).ToArray();
         var page = await Service().ListWorkItemsAsync(new WorkItemListQuery { Limit = 10 }, null);
-        page.Items.Select(i => i.Key).Should().BeEquivalentTo(
-            [a.Key, b.Key], o => o.WithStrictOrdering());
+        page.Items.Select(i => i.Id).Should().BeEquivalentTo(
+            expectedOrder, o => o.WithStrictOrdering());
     }
 
     [Test]

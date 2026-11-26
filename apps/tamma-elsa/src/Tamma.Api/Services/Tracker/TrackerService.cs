@@ -187,7 +187,7 @@ public sealed class TrackerService(
         ArgumentNullException.ThrowIfNull(query);
         EnsureTenant();
 
-        var (afterRank, afterKey) = DecodeCursor(query.Cursor);
+        var (afterRank, afterId) = DecodeCursor(query.Cursor);
         var limit = query.Limit is > 0 and <= 500 ? query.Limit : 100;
 
         // Vocabulary filters are parsed, not passed through: a typo'd status in
@@ -197,7 +197,9 @@ public sealed class TrackerService(
         foreach (var kind in query.Kinds ?? [])
             _ = ParseKind(kind);
 
-        var page = await workItems.ListAsync(new WorkItemQuery
+        // Story 44-3 AC6/AC12: single SQL query with keyset (Rank, Id) paging
+        // AND LEFT JOIN LATERAL direct-child roll-up counts.
+        var pageWithRollups = await workItems.ListWithRollupsAsync(new WorkItemQuery
         {
             ProjectId = query.ProjectId,
             Statuses = query.Statuses,
@@ -209,15 +211,21 @@ public sealed class TrackerService(
             ExternalLinked = query.ExternalLinked,
             TitleContains = query.TitleContains,
             AfterRank = afterRank,
-            AfterKey = afterKey,
+            AfterId = afterId,
             Limit = limit,
         });
+
+        var page = pageWithRollups.Select(r => r.Item).ToList();
+        var rollups = pageWithRollups.ToDictionary(
+            r => r.Item.Id,
+            r => new WorkItemChildRollup(r.ChildCount, r.ChildCountByStatus));
 
         // The cursor is computed from the LAST FETCHED row, before any
         // visibility narrowing — otherwise a fully-filtered page would return a
         // null cursor and truncate the caller's iteration at an arbitrary point.
+        // Uses immutable UUIDv7 Id as the tie-break (Story 44-3 AC12 / D13).
         var nextCursor = page.Count == limit
-            ? EncodeCursor(page[^1].Rank, page[^1].Key)
+            ? EncodeCursor(page[^1].Rank, page[^1].Id)
             : null;
 
         // ── AC7 / plan D6 — capability check, NOT a mode check or a flag ──
@@ -229,7 +237,7 @@ public sealed class TrackerService(
         // registered TYPE, so it self-clears the moment Story 39-20 swaps the DI
         // registration — no code change here.
         if (IsStubResolver || modeProvider.Mode != TammaMode.SaaS || viewerUserId is not Guid viewer)
-            return new WorkItemPage(page, nextCursor, VisibilityTenant);
+            return new WorkItemPage(page, nextCursor, VisibilityTenant, rollups);
 
         var tenantId = tenantContext.TenantId ?? Guid.Empty;
         var visible = new List<WorkItemEntity>(page.Count);
@@ -251,7 +259,7 @@ public sealed class TrackerService(
             if (await audienceResolver.CanSeeAsync(viewer, task))
                 visible.Add(item);
         }
-        return new WorkItemPage(visible, nextCursor, VisibilityPerUser);
+        return new WorkItemPage(visible, nextCursor, VisibilityPerUser, rollups);
     }
 
     /// <summary>
@@ -323,7 +331,11 @@ public sealed class TrackerService(
         if (request.Kind.TryGet(out var kind))
         {
             RequireField(kind, "kind");
-            _ = ParseKind(kind!);
+            var parsedKind = ParseKind(kind!);
+            // Story 44-3 AC4 / D4 — changing kind is a validated hierarchy
+            // transition against BOTH the current parent and ALL direct children.
+            if (!string.Equals(existing.Kind, kind, StringComparison.Ordinal))
+                await TrackerHierarchyService.ValidateKindChangeAsync(workItems, existing, parsedKind);
             existing.Kind = kind!;
         }
         if (request.Priority.TryGet(out var priority))
@@ -481,16 +493,21 @@ public sealed class TrackerService(
 
     // ═══════════════════════════ Helpers ════════════════════════════════════
 
-    /// <summary>Opaque (base64url) so the tuple shape can change without a wire break.</summary>
-    public static string EncodeCursor(string rank, string key) =>
-        Convert.ToBase64String(Encoding.UTF8.GetBytes($"{rank}{CursorSeparator}{key}"))
+    /// <summary>
+    /// Opaque (base64url) keyset cursor carrying <c>(rank, id)</c> (Story 44-3
+    /// AC12 / D13 — immutable UUIDv7 <c>Id</c> tie-break so sanctioned rekeys
+    /// across duplicate ranks never duplicate or skip rows).
+    /// </summary>
+    public static string EncodeCursor(string rank, Guid id) =>
+        Convert.ToBase64String(Encoding.UTF8.GetBytes($"{rank}{CursorSeparator}{id:D}"))
             .TrimEnd('=').Replace('+', '-').Replace('/', '_');
 
     /// <summary>
-    /// Decode a cursor. A malformed cursor is a caller error and fails loud —
-    /// silently restarting at page 1 would duplicate every row already seen.
+    /// Decode a cursor. A malformed cursor — including a pre-44-3
+    /// <c>(rank, key)</c> cursor whose second field is not a <see cref="Guid"/>
+    /// — is a caller error and fails loud (<c>TRACKER.INVALID_CURSOR</c>).
     /// </summary>
-    public static (string? Rank, string? Key) DecodeCursor(string? cursor)
+    public static (string? Rank, Guid? Id) DecodeCursor(string? cursor)
     {
         if (string.IsNullOrWhiteSpace(cursor))
             return (null, null);
@@ -500,8 +517,8 @@ public sealed class TrackerService(
             padded += new string('=', (4 - (padded.Length % 4)) % 4);
             var parts = Encoding.UTF8.GetString(Convert.FromBase64String(padded))
                 .Split(CursorSeparator, 2);
-            if (parts.Length == 2 && parts[0].Length > 0 && parts[1].Length > 0)
-                return (parts[0], parts[1]);
+            if (parts.Length == 2 && parts[0].Length > 0 && Guid.TryParse(parts[1], out var id))
+                return (parts[0], id);
         }
         catch (FormatException)
         {

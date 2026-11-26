@@ -1,6 +1,6 @@
 # Story 44-3: Hierarchy, Ranking, and the `BacklogOrdering` Apply Seam
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

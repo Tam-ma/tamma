@@ -295,7 +295,11 @@ internal static class KnownUngovernedEndpoints
     // Story 42-6 Part A — 249 → 248: POST /api/kb/mcp/tools/invoke was DELETED from the
     // host, so the in-scope mutating surface has one fewer endpoint AND the backlog
     // shrinks 208 → 207. New state: 207 baselined + 2 exceptions + 39 bound = 248.
-    internal const int PinnedInScopeCount = 248;
+    // Story 44-3 AC11 — 248 → 251: POST /api/work-items/{id:guid}/parent,
+    // POST /api/work-items/{id:guid}/move, and POST /api/projects/{projectId:guid}/apply-ordering
+    // are three NEW in-scope mutating endpoints, ALL BORN .Governs-BOUND — PinnedCount (207)
+    // and PinHistory are unmodified. New state: 207 baselined + 2 exceptions + 42 bound = 251.
+    internal const int PinnedInScopeCount = 251;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

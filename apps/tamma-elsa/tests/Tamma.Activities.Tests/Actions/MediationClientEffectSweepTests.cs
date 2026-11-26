@@ -209,6 +209,13 @@ public class MediationClientEffectSweepTests
                 "native tracker route (Story 44-2); tenant tracker configuration written from the UI"),
             [ExternalEffect.TrackerPreferencesDelete] = new(SiteKind.RouteOnly, null,
                 "native tracker route (Story 44-2); tenant tracker configuration written from the UI"),
+            // ── Story 44-3 — hierarchy, ranking, and BacklogOrdering apply seam ──
+            [ExternalEffect.TrackerWorkItemReparent] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-3); work-item reparenting reached from the UI, not the mediation client"),
+            [ExternalEffect.TrackerWorkItemMove] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-3); neighbour-addressed rank move reached from the UI, not the mediation client"),
+            [ExternalEffect.TrackerBacklogApplyOrdering] = new(SiteKind.RouteOnly, null,
+                "native tracker route (Story 44-3); applying an accepted BacklogOrdering document is reached from the UI, not the mediation client"),
 
             // ── Story 31-13 — PR operations (step 8: now client-backed) ──
             // The 7 PR verbs are performed by the engine's mediation client — each is
