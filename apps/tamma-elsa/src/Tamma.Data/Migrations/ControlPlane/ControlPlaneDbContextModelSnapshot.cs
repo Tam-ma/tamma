@@ -2740,6 +2740,46 @@ namespace Tamma.Data.Migrations.ControlPlane
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.QuotaNotification", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Level")
+                        .IsRequired()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("WhichQuota")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "WhichQuota", "PeriodStart", "Level")
+                        .IsUnique()
+                        .HasDatabaseName("IX_quota_notifications_dedup");
+
+                    b.ToTable("quota_notifications", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_quota_notifications_level", "\"Level\" IN ('warn','exceeded')");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.RefreshToken", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4073,6 +4113,17 @@ namespace Tamma.Data.Migrations.ControlPlane
                         .HasPrincipalKey("Key")
                         .OnDelete(DeleteBehavior.Restrict)
                         .IsRequired();
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.QuotaNotification", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.RefreshToken", b =>

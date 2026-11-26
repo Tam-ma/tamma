@@ -67,6 +67,18 @@ public record BudgetStatus(
 );
 
 /// <summary>
+/// Story 35-6 (AC4) — response for <c>GET /api/v1/billing/quota/{tenantId}/token</c>.
+/// </summary>
+public record TokenQuotaStatus(
+    [property: JsonPropertyName("allowed")] bool Allowed,
+    [property: JsonPropertyName("which_quota")] string? WhichQuota,
+    [property: JsonPropertyName("limit")] long Limit,
+    [property: JsonPropertyName("used")] long Used,
+    [property: JsonPropertyName("reset_at")] string? ResetAt,
+    [property: JsonPropertyName("http_status")] int HttpStatus
+);
+
+/// <summary>
 /// POST body for <c>/api/providers/diagnostics</c>.
 /// </summary>
 public record DiagnosticsIngestRequest(

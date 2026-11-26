@@ -33,7 +33,8 @@ public sealed record ChatResponse(
     int CompletionTokens,
     int TotalTokens,
     decimal CostUsd,
-    string? ErrorReason);
+    string? ErrorReason,
+    Tamma.Api.Services.Billing.QuotaDecision? QuotaDenial = null);
 
 /// <summary>
 /// Proxies chat requests to the configured LLM provider and records per-call

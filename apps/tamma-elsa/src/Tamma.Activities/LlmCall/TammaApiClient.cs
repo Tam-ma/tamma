@@ -771,6 +771,19 @@ public class TammaApiClient
         return GetAsync<BudgetStatus>(url, tenantId, ct);
     }
 
+    /// <summary>
+    /// Story 35-6 (AC4) — queries the central token-quota gate
+    /// (<c>GET /api/v1/billing/quota/{tenantId}/token</c>) so engine activities
+    /// enforce plan token allowances alongside the absolute USD budget ceiling.
+    /// </summary>
+    public virtual Task<TokenQuotaStatus?> GetTokenQuotaAsync(
+        string tenantId,
+        CancellationToken ct = default)
+    {
+        var url = $"{_baseUrl}/api/v1/billing/quota/{Uri.EscapeDataString(tenantId)}/token";
+        return GetAsync<TokenQuotaStatus>(url, tenantId, ct);
+    }
+
     // ----- Provider Sessions (create/execute/dispose) ------------------
 
     public Task<ProviderSessionResult?> CreateProviderAsync(

@@ -702,6 +702,13 @@ public class ControlPlaneDbContext : DbContext
     public DbSet<BillingMeterEventBuffer> BillingMeterEventBuffers => Set<BillingMeterEventBuffer>();
 
     /// <summary>
+    /// Story 35-6 (AC13) — per-(tenant, dimension, period, level) dedup ledger
+    /// capping <c>BILLING.QUOTA.WARN</c> and <c>BILLING.QUOTA.EXCEEDED</c> DCB
+    /// events to at most one emission per period.
+    /// </summary>
+    public DbSet<QuotaNotification> QuotaNotifications => Set<QuotaNotification>();
+
+    /// <summary>
     /// Story 37-1 — platform-scope curated audit trail. Tenant-scope rows live
     /// in the per-tenant schema's <c>audit_records</c>; these are the
     /// platform/lifecycle rows (impersonation, tenant provision/move, etc.).

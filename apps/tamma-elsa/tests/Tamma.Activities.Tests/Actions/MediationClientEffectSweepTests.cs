@@ -629,13 +629,23 @@ public class MediationClientEffectSweepTests
             + "action's own governance would require clearing the gate to ask whether the gated "
             + "step should run at all, so the first denial would wedge every capability-degraded "
             + "workflow at its check node instead of routing to the alternative step."),
+
+        new("GetTokenQuotaAsync", "2026-11-26", "Story 35-6",
+            "read-only: pre-flight plan token-quota probe (GET /api/v1/billing/quota/{tenantId}/"
+            + "token) called by CheckLimitsActivity alongside GetBudgetAsync before dispatching "
+            + "an LLM-consuming cycle. It changes nothing outside Tamma; the actual LLM execution "
+            + "it gates is separately catalogued and bound (effect:llm.call). Mapping this quota "
+            + "read to an ExternalEffect would be circular: gating the pre-flight quota check "
+            + "would require clearing a governance gate just to ask whether the tenant's plan "
+            + "allowance permits running the next cycle, which would deadlock fail-closed limit "
+            + "checks whenever autonomy is tightened."),
     ];
 
-    /// <summary>The exception set's own count pin — RE-SEEDED 2026-08-07 (Epic 31
-    /// P2) at 2 when GetGitPlatformCapabilitiesAsync was admitted; a re-seed is a
-    /// two-file edit (this seed + the RatchetDisciplineTests registry) made
-    /// deliberately visible in the diff, per the D17 admission rule.</summary>
-    internal static readonly int[] NonEffectExceptionPinHistory = [2];
+    /// <summary>The exception set's own count pin — RE-SEEDED 2026-11-26 (Story 35-6)
+    /// at 3 when GetTokenQuotaAsync was admitted; a re-seed is a two-file edit (this
+    /// seed + the RatchetDisciplineTests registry) made deliberately visible in the
+    /// diff, per the D17 admission rule.</summary>
+    internal static readonly int[] NonEffectExceptionPinHistory = [3];
 
     /// <summary>
     /// The value <see cref="NonEffectExceptionPinHistory"/> was SEEDED at, and the
@@ -644,7 +654,7 @@ public class MediationClientEffectSweepTests
     /// named seed rather than an invisible edit to the array's first element
     /// (review F3).
     /// </summary>
-    internal const int NonEffectExceptionPinSeed = 2;
+    internal const int NonEffectExceptionPinSeed = 3;
 
     /// <summary>See <see cref="NonEffectExceptionPinSeed"/>.</summary>
     internal const int NonEffectPinSeed = 19;
@@ -848,9 +858,12 @@ public class MediationClientEffectSweepTests
         // reviewed exception (see ReviewedNonEffectExceptions — the probe is the
         // QUESTION whose answer decides which workflow branch runs; cataloguing the
         // question as an effect would be the EvaluateGovernanceAsync circularity again).
-        discovered.Should().HaveCount(45,
+        // 45 → 46 (Story 35-6, 2026-11-26): + GetTokenQuotaAsync, the pre-flight
+        // plan token-quota probe called by CheckLimitsActivity alongside GetBudgetAsync.
+        // Accounted for by a third D17 reviewed exception.
+        discovered.Should().HaveCount(46,
             "the mediation surface is pinned exactly: 24 effect-performing + 19 baselined "
-            + "non-effect + 2 reviewed-exception methods. A change here is a new (or removed) "
+            + "non-effect + 3 reviewed-exception methods. A change here is a new (or removed) "
             + "mediation method — decide whether it is a governed effect, then move this number "
             + "in the same commit.");
     }
@@ -1037,10 +1050,11 @@ public class MediationClientEffectSweepTests
         // the MEMBERSHIP makes admitting a method a sentence a reviewer reads.
         ReviewedNonEffectExceptions.Select(e => e.Method)
             .Should().BeEquivalentTo(
-                new[] { "EvaluateGovernanceAsync", "GetGitPlatformCapabilitiesAsync" },
+                new[] { "EvaluateGovernanceAsync", "GetGitPlatformCapabilitiesAsync", "GetTokenQuotaAsync" },
                 "these methods, and only these methods, are D17 reviewed exceptions "
                 + "(EvaluateGovernanceAsync: Story 43-9; GetGitPlatformCapabilitiesAsync: Epic 31 "
-                + "P2's §4 capability probe). Admitting another is a governance decision: name it "
+                + "P2's §4 capability probe; GetTokenQuotaAsync: Story 35-6's pre-flight plan "
+                + "token-quota probe). Admitting another is a governance decision: name it "
                 + "here, argue the circularity in its justification, and do NOT pay for it by "
                 + "dropping the baseline pin.");
     }

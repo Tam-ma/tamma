@@ -1,6 +1,6 @@
 # Story 35-6: Plan Quota & Usage-Limit Enforcement (BYOK-Aware)
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

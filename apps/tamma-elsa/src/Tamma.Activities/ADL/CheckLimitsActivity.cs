@@ -228,6 +228,45 @@ public class CheckLimitsActivity : TammaOutcomeActivity
             }
 
             var decision = AdlSpendCeiling.Evaluate(budget.Spent, budget.Limit, ceiling);
+            if (decision.Stop)
+            {
+                return (budget.Spent, ceiling > 0m || budget.Limit > 0m, decision);
+            }
+
+            // Story 35-6 (AC4): Plan token quota check alongside the absolute USD budget ceiling.
+            // Fails closed on denial, null response, or transport error so an unreachable quota
+            // endpoint never silently lets an exhausted tenant continue dispatching LLM cycles.
+            try
+            {
+                var quota = await apiClient
+                    .GetTokenQuotaAsync(ownerId, context.CancellationToken)
+                    .ConfigureAwait(false);
+
+                if (quota is null)
+                {
+                    Logger?.LogWarning(
+                        "Plan token quota endpoint returned no status for owner {OwnerId}; failing closed",
+                        ownerId);
+                    return (budget.Spent, true, new AdlSpendCeiling.Decision(
+                        true,
+                        "Plan token quota unavailable (quota endpoint returned no status) — failing closed"));
+                }
+
+                if (!quota.Allowed)
+                {
+                    return (budget.Spent, true, new AdlSpendCeiling.Decision(
+                        true,
+                        $"Plan token quota exhausted ({quota.Used}/{quota.Limit})"));
+                }
+            }
+            catch (Exception ex)
+            {
+                Logger?.LogWarning(ex, "Plan token quota check failed for owner {OwnerId}; failing closed", ownerId);
+                return (budget.Spent, true, new AdlSpendCeiling.Decision(
+                    true,
+                    $"Plan token quota check failed ({ex.GetType().Name}) — failing closed"));
+            }
+
             return (budget.Spent, ceiling > 0m || budget.Limit > 0m, decision);
         }
         catch (Exception ex)

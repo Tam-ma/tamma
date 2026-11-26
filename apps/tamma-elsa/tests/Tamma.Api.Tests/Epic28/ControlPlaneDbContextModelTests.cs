@@ -138,6 +138,9 @@ public class ControlPlaneDbContextModelTests
             // CP-resident so flush & reconciliation workers iterate across tenants.
             "billing_usage_rollup",
             "billing_meter_event_buffer",
+            // Story 35-6 — per-(tenant, dimension, period, level) dedup ledger
+            // capping BILLING.QUOTA.WARN/EXCEEDED emissions to once per period.
+            "quota_notifications",
             // Story 37-1 — curated audit-record read-model + the per-(projector,
             // tenant) cursor. audit_records is mapped on BOTH contexts (the CP
             // build materializes platform-scope + single-user rows); the cursor
@@ -217,6 +220,7 @@ public class ControlPlaneDbContextModelTests
             + "Story 35-5 adds billing_webhook_events. "
             + "Story 35-4 adds billing_subscriptions. "
             + "Story 35-3 adds billing_usage_rollup + billing_meter_event_buffer. "
+            + "Story 35-6 adds quota_notifications. "
             + "Story 37-1 adds audit_records + audit_projector_cursor. "
             + "Story 34-11 adds providers + provider_model_prices. "
             + "Story 34-5 adds margin_policies. "

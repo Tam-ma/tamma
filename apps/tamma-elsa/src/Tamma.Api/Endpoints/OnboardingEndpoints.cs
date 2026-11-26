@@ -3,6 +3,7 @@ using System.Security.Claims;
 using System.Security.Cryptography;
 using System.Text.Json;
 using Microsoft.AspNetCore.Mvc;
+using Tamma.Api.Services.Billing;
 using Tamma.Data;
 using Tamma.Data.Entities;
 using Tamma.Data.Repositories;
@@ -193,7 +194,9 @@ public static class OnboardingEndpoints
         IInstallationRepository installations,
         IEventRepository events,
         ITenantContext tenantContext,
-        ClaimsPrincipal principal)
+        ClaimsPrincipal principal,
+        IQuotaService? quota = null,
+        CancellationToken ct = default)
     {
         // Fail closed (Story 23-6 / #283): a null-or-empty ambient tenant on
         // this tenant-scoped write must NOT touch another tenant's installs.
@@ -229,6 +232,19 @@ public static class OnboardingEndpoints
         {
             if (active)
             {
+                // Story 35-6 (AC5): enforce the connected-repo cap before activating
+                // another repository for this tenant.
+                if (quota is not null)
+                {
+                    var quotaDecision = await quota.CheckConnectedRepoQuotaAsync(tenantId, ct);
+                    if (!quotaDecision.Allowed)
+                    {
+                        return Results.Json(
+                            QuotaResponse.From(quotaDecision),
+                            statusCode: quotaDecision.HttpStatus);
+                    }
+                }
+
                 // AddRepoAsync reactivates the existing row (IsActive = true);
                 // idempotent and preserves the stored full name.
                 await installations.AddRepoAsync(install.Id, repoId, repo.RepoFullName);

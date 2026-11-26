@@ -1654,6 +1654,11 @@ builder.Services.AddBillingWebhookIngestion(builder.Configuration);
 // leaves GET /api/v1/billing/usage unmapped (zero Stripe surface — AC12).
 builder.Services.AddBillingUsageMetering(builder.Configuration);
 
+// Story 35-6 — BYOK-aware plan quota & usage-limit enforcement. Registers
+// QuotaService (EF-backed + singleton QuotaCache) in SaaS and NullQuotaService
+// (always Allowed, zero DB/Stripe calls) in single-user mode (AC10).
+builder.Services.AddTammaQuota(builder.Configuration);
+
 // Unified-tenancy Phase 4 — `tenant.move` platform-task handler. Drives
 // ITenantMoveService.MoveAsync for tasks enqueued by
 // POST /api/admin/tenants/{tenantId}/move; on failure it stamps the
@@ -3764,7 +3769,16 @@ if (app.Services.GetRequiredService<Tamma.Api.Services.PromptStore.ITammaModePro
     // GET /api/v1/billing/usage reads from local control-plane BillingUsageRollup
     // for the caller's ambient ITenantContext (MemberAccess; single-user unmapped).
     Tamma.Api.Endpoints.Billing.BillingUsageEndpoints.MapBillingUsageEndpoints(app);
+
+    // ── Story 35-6 — read-only quota observability (SaaS only) ──
+    // GET /api/v1/admin/quota/{tenantId} (PlatformOwnerAccess) and
+    // GET /api/v1/orgs/{tenantId}/quota (MemberAccess + RequireTenantMembershipFilter).
+    Tamma.Api.Endpoints.Billing.QuotaEndpoints.MapQuotaEndpoints(app);
 }
+
+// Story 35-6 (AC4) — engine-callable token-quota gate (GET /api/v1/billing/quota/{tenantId}/token).
+// Mapped in both modes; in single-user NullQuotaService returns Allowed=true.
+Tamma.Api.Endpoints.Billing.QuotaEndpoints.MapEngineTokenQuotaEndpoint(app);
 
 // ── SaaS (API key auth) ──
 app.MapPost("/api/v1/llm/chat", SaaSEndpoints.LlmChat).RequireAuthorization();
@@ -4126,6 +4140,7 @@ using (var scope = app.Services.CreateScope())
                     billing_customers, billing_plan_prices,
                     billing_webhook_events, billing_subscriptions,
                     billing_usage_rollup, billing_meter_event_buffer,
+                    quota_notifications,
                     alert_delivery_attempts, alert_channels, alerts,
                     alert_evaluator_cursor, alert_rules,
                     api_keys, agent_configs, budget_configs, domain_events,
