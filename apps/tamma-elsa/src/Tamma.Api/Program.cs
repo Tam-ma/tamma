@@ -459,6 +459,18 @@ builder.Services.AddScoped<Tamma.Api.Services.Access.IWorkflowInitiationAuthoriz
     Tamma.Api.Services.Access.WorkflowInitiationAuthorizer>();
 builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.ITaskAssignmentService,
     Tamma.Api.Services.Tasks.TaskAssignmentService>();
+// Story 39-17 — Orchestrator Agent (long-running per-tenant LLM process + config + host).
+builder.Services.Configure<Tamma.Api.Services.Orchestrator.OrchestratorHostOptions>(
+    builder.Configuration.GetSection(Tamma.Api.Services.Orchestrator.OrchestratorHostOptions.SectionName));
+builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IOrchestratorConfigService,
+    Tamma.Api.Services.Orchestrator.OrchestratorConfigService>();
+builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorInbox,
+    Tamma.Api.Services.Orchestrator.InMemoryOrchestratorInbox>();
+builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IOrchestratorTurnRunner,
+    Tamma.Api.Services.Orchestrator.ToolLoopTurnRunner>();
+builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorAgentRegistry,
+    Tamma.Api.Services.Orchestrator.OrchestratorAgentRegistry>();
+builder.Services.AddHostedService<Tamma.Api.Services.Orchestrator.OrchestratorAgentHost>();
 // D8 — chat relay is OFF until 39-19's OrchestratorChatService lands: the stand-in
 // refuses every message with an agent-offline result and records nothing.
 builder.Services.AddScoped<Tamma.Api.Services.Channels.IOrchestratorChatRelay,
@@ -1823,6 +1835,14 @@ if (!string.IsNullOrEmpty(jwtSecret))
             p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, "ApiKey");
             p.AddRequirements(new PermissionRequirement("acceptance-rules:manage"));
         });
+        // Story 39-17 — Orchestrator Agent configuration writes. Mirrors
+        // AcceptanceRulesManage: tenant_owner or tenant_admin in multi-tenant
+        // mode (member -> 403); sole user in single-user mode is owner.
+        options.AddPolicy("OrchestratorManage", p =>
+        {
+            p.AddAuthenticationSchemes(JwtBearerDefaults.AuthenticationScheme, "ApiKey");
+            p.AddRequirements(new PermissionRequirement("orchestrator:manage"));
+        });
         // Story 41-30 (D8) — scheduled-trigger writes. Mirrors PromptManage:
         // a tenant's schedule mutations must be reachable by tenant_owner OR
         // tenant_admin (member → 403 at the policy); the owner-only
@@ -1979,7 +1999,7 @@ else if (builder.Environment.IsDevelopment())
             .Build();
         // Register all named policies with permissive default
         foreach (var name in new[] { "AdminAccess", "OwnerAccess", "PlatformOwnerAccess", "ActionLevelsAdmin", "MemberAccess", "SettingsView",
-            "SettingsManage", "PromptManage", "ConventionManage", "PlatformsManage", "AgentManage", "PricingManage", "AcceptanceRulesManage", "ScheduleManage", "ActionsManage",
+            "SettingsManage", "PromptManage", "ConventionManage", "PlatformsManage", "AgentManage", "PricingManage", "AcceptanceRulesManage", "OrchestratorManage", "ScheduleManage", "ActionsManage",
             // Story 44-2 — the tracker pair. THIS array is the third of the
             // three RBAC places (Permissions.Matrix, the AddAuthorization block,
             // and here); it is the one that gets forgotten, and a policy missing
@@ -3150,6 +3170,21 @@ acceptanceRules.MapGet("/defaults", AcceptanceRulesEndpoints.GetDefaults);
 acceptanceRules.MapGet("/{documentTypeKey}", AcceptanceRulesEndpoints.GetResolved);
 acceptanceRules.MapPut("/{documentTypeKey}", AcceptanceRulesEndpoints.Upsert).RequireAuthorization("AcceptanceRulesManage");
 acceptanceRules.MapDelete("/{documentTypeKey}", AcceptanceRulesEndpoints.Delete).RequireAuthorization("AcceptanceRulesManage");
+
+// ── Orchestrator Agent Configuration (Story 39-17) ──
+// Effective config read is AuthenticatedAny (parity with acceptance-rules);
+// PUT/DELETE require OrchestratorManage (tenant_owner/tenant_admin; member -> 403)
+// and are bound to machinery ExternalEffects so 43-9's ungoverned-route ratchet stays intact.
+app.MapGet("/api/orchestrator/config", OrchestratorConfigEndpoints.GetEffective)
+    .RequireAuthorization("AuthenticatedAny");
+app.MapGet("/api/orchestrator/config/defaults", OrchestratorConfigEndpoints.GetDefaults)
+    .RequireAuthorization("AuthenticatedAny");
+app.MapPut("/api/orchestrator/config", OrchestratorConfigEndpoints.Upsert)
+    .RequireAuthorization("OrchestratorManage")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.OrchestratorConfigSet.ToWire()));
+app.MapDelete("/api/orchestrator/config", OrchestratorConfigEndpoints.Delete)
+    .RequireAuthorization("OrchestratorManage")
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.OrchestratorConfigDelete.ToWire()));
 
 // ── Story 43-5/43-6 — the Action Catalog policy surface ──
 // Reads ride AuthenticatedAny for the acceptance-rules reason (every

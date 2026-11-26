@@ -58,6 +58,7 @@ public class TenantDbContextModelTests
             "mentorship_events",
             "junior_developers",
             "stories",
+            "orchestrator_agent_configs",
         });
     }
 

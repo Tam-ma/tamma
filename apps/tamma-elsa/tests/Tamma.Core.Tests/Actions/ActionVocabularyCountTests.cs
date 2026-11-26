@@ -42,12 +42,12 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void ToolAction_has_8_members()
+    public void ToolAction_has_17_members()
     {
-        // Derivation: grep -rn ': IToolExecutor' src --include=*.cs | grep -v Registry
-        // → 7 implementations (6 DI-registered + the deliberately-unregistered
-        // GetAcceptanceRulesTool), with git_operations split read/write → 8.
-        Enum.GetValues<ToolAction>().Should().HaveCount(8);
+        // Derivation: 6 DI-registered + 10 principal-scoped executors (Story 39-5's
+        // GetAcceptanceRulesTool + Story 39-17's 9 orchestrator tools) = 16 classes,
+        // with git_operations split read/write → 17.
+        Enum.GetValues<ToolAction>().Should().HaveCount(17);
     }
 
     [Test]
@@ -107,7 +107,8 @@ public class ActionVocabularyCountTests
         // 65 -> 68 (Story 44-3 AC10: + effect:tracker.work-item.{reparent,move} and effect:tracker.backlog.apply-ordering — the three new mutating native tracker routes, all born .Governs-bound).
         // 68 -> 74 (Story 44-4 AC11: + effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan} — the six new mutating iteration routes, all born .Governs-bound).
         // 74 -> 85 (Story 39-20: + effect:access.{team,repo}.* — the eleven new tenant-admin team & repo-access routes, all born .Governs-bound as machinery).
-        Enum.GetValues<ExternalEffect>().Should().HaveCount(85);
+        // 85 -> 87 (Story 39-17: + effect:orchestrator.config.{set,delete} — principal orchestrator config upsert/delete routes, born .Governs-bound as machinery).
+        Enum.GetValues<ExternalEffect>().Should().HaveCount(87);
     }
 
     [Test]
@@ -138,7 +139,8 @@ public class ActionVocabularyCountTests
         // them by type name). +1 (Story 41-30): TenantScheduledTriggerService.
         // 33 → 35 (2026-08-18: + AdlLoopWatchdogService and OrphanedCycleRecoveryService, the autonomous-loop watchdog and the orphaned-cycle sweeper. Both are IHostedService classes in Tamma.ElsaServer, and every hosted service is catalogued.)
         // 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        Enum.GetValues<BackgroundActor>().Should().HaveCount(36);
+        // 36 → 37 (Story 39-17, 2026-11-26: + OrchestratorAgentHost (Tamma.Api), the per-tenant orchestrator agent host.)
+        Enum.GetValues<BackgroundActor>().Should().HaveCount(37);
     }
 
     [Test]
@@ -213,7 +215,8 @@ public class ActionVocabularyCountTests
         // 230 → 233 — effect 65 → 68 (Story 44-3 AC10: + effect:tracker.work-item.{reparent,move} and effect:tracker.backlog.apply-ordering).
         // 233 → 239 — effect 68 → 74 (Story 44-4 AC11: + effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}).
         // 239 → 250 — effect 74 → 85 (Story 39-20: + effect:access.{team,repo}.*, machinery).
-        ActionCatalog.All.Should().HaveCount(250);
-        ActionCatalog.ByKey.Should().HaveCount(250);
+        // 250 → 262 — tool 8 → 17 (+9 orchestrator tools), effect 85 → 87 (+orchestrator.config.{set,delete}), automation 36 → 37 (+orchestrator-agent-host) (Story 39-17).
+        ActionCatalog.All.Should().HaveCount(262);
+        ActionCatalog.ByKey.Should().HaveCount(262);
     }
 }

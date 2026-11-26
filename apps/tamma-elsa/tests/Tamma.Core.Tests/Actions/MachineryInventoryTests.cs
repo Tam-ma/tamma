@@ -69,6 +69,9 @@ public class MachineryInventoryTests
         "effect:access.repo.grant.upsert",
         "effect:access.repo.grant.revoke-by-id",
         "effect:access.repo.grant.revoke-by-grantee",
+        // Story 39-17: principal orchestrator agent config writes (machinery).
+        "effect:orchestrator.config.set",
+        "effect:orchestrator.config.delete",
 
         // ── Background services — all 32 automation:* ─────────────────────
         "automation:action-catalog-startup-validator",
@@ -114,6 +117,8 @@ public class MachineryInventoryTests
         // Epic 31 P4 M3 (2026-08-08): the single-user startup webhook
         // registration pass — background service, machinery by class.
         "automation:webhook-registration-startup",
+        // Story 39-17: per-tenant orchestrator agent host — background service, machinery by class.
+        "automation:orchestrator-agent-host",
 
         // ── Task handlers — all 8 platform-task:* ──────────────────────────
         "platform-task:RETIRE_SECRET_VERSION",
@@ -164,7 +169,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(64, "20 + 36 + 8 = 64 (43-11's count check, amended by Epic 31 P2: +2 automation; Epic 31 P3 2026-08-08: +1 automation, the DG-5 CI completion poller; Epic 31 P4 M3 2026-08-08: +1 effect — git.webhook.register live as provisioning machinery per its 43-12 note — and +1 automation, the startup registration pass; 2026-08-18: +2 automation — the autonomous-loop watchdog and the orphaned-cycle sweeper; Story 40-3b 2026-11-07: +1 automation — the agent-run wait reconciler; Story 43-6 2026-11-07: +1 effect — governance.policy.group-enforce.set; Story 43-18: +2 effects — governance.action-level.{set,delete}; Story 39-20: +11 effects — access.{team,repo}.*)");
+        MachineryInventory.Should().HaveCount(67, "22 + 37 + 8 = 67 (43-11's count check, amended through Story 39-20 [64] and Story 39-17 [+2 effects orchestrator.config.{set,delete} + 1 automation orchestrator-agent-host])");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(

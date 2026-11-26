@@ -1,4 +1,5 @@
 using Tamma.Activities.LlmCall.Models;
+using Tamma.Activities.LlmCall.Tools;
 using Tamma.Core.Documents;
 
 namespace Tamma.Api.Services.Agents;
@@ -89,6 +90,29 @@ public interface IInlineToolLoopRunner
         ToolLoopConfig loopConfig,
         string correlationId,
         RepairRingPlan? repair,
+        AgentTrailContext? trailContext,
+        CancellationToken ct);
+
+    /// <summary>
+    /// Story 39-17 (D3) — persistent-conversation overload of the single agentic
+    /// tool loop. Runs over a caller-owned <paramref name="messages"/> transcript
+    /// (appending assistant and tool messages in-place so session state survives
+    /// across turns) and dispatches tool calls through
+    /// <paramref name="registryOverride"/> (or the DI registry when <c>null</c>).
+    /// Never forks the loop — <see cref="RunAsync"/> forwards directly to the same
+    /// core with a fresh 2-message list and <c>registryOverride: null</c>.
+    /// </summary>
+    Task<InlineToolLoopResult> RunConversationAsync(
+        string provider,
+        LlmProviderConfig providerConfig,
+        string model,
+        List<ConversationMessage> messages,
+        int maxTokens,
+        double temperature,
+        IReadOnlyList<ResolvedTool>? tools,
+        ToolLoopConfig loopConfig,
+        IToolExecutorRegistry? registryOverride,
+        string correlationId,
         AgentTrailContext? trailContext,
         CancellationToken ct);
 

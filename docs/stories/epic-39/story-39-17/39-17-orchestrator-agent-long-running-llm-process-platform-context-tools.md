@@ -1,6 +1,6 @@
 # Story 39-17: Orchestrator Agent — long-running LLM process with platform context and tools
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
@@ -76,3 +76,16 @@ P0 — This story defines WHO routes and decides every 39-5 `AcceptanceRequest`.
 | 2026-07-20 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-20 | 1.1.0   | Routing duty per review: the agent is the single routing point for every `AcceptanceRequest` — decide itself vs assign to a 39-20-eligible user per the autonomy level (70–100); chat duty (39-19) with per-user tool attenuation | Claude |
 | 2026-07-21 | 1.2.0   | Per-tenant boundary made explicit: one orchestrator agent instance per tenant (own session/context/channel binding, hard tool scoping, per-tenant lifecycle + spend), forming the tenant triad with the automation config (39-5) and channels (39-18) | Claude |
+| 2026-11-26 | 2.0.0   | Implemented Story 39-17 end-to-end (hosted per-tenant OrchestratorAgentHost + registry + instance, closed 10-tool AuditedToolRegistry, IOrchestratorInbox, IChatTranscriptRecorder, orchestrator_agent_configs migration + /api/orchestrator/config endpoints, 13 test suites). | Antigravity |
+
+## Completion Notes & Known Interim Gaps (2026-11-26)
+
+- **Hosting ADR:** Recorded in `.dev/decisions/story-39-17-orchestrator-agent-hosting.md` (hosted `BackgroundService` in `Tamma.Api`, shipping with `OrchestratorAgent:Enabled = false` by default).
+- **Mediation allowlist (D2):** `IInlineToolLoopRunner` extended with `RunConversationAsync(..., registryOverride)` so persistent sessions reuse the existing tool loop without bypassing provider gates, budget guards, or BYOK credential resolution. `OrchestratorMediationPinTests` pins `Tamma.Api` constructors consuming `IInlineToolLoopRunner` to `{ManagedAgent, ToolLoopTurnRunner}`.
+- **Unverified without a live LLM provider (AC7):** Real-provider prompt quality, multi-step tool-calling accuracy, and natural-language reasoning are unverified in CI without configured provider credentials. All deterministic contracts (tool loop plumbing, audited SHA-256 tool telemetry, model-driven routing vs server refusal re-routing, `AcceptanceGuardrails.PreGate`/`Clamp` override immunity, daily USD cap, compaction, restart redelivery, per-user chat attenuation, and multi-tenant Postgres isolation) are verified by `ScriptedTurnRunner` and Testcontainers Postgres suites.
+- **Interim tool gaps (explicitly fail-closed):**
+  - `kb_search` / `rag_query` (D6): Fail closed with an explicit error referencing Story 39-21 until the C# per-tenant RAG pipeline lands.
+  - `log_search` (D7): Queries tenant-scoped DCB error/diagnostic events and `IDiagnosticsService` until a dedicated structured log store is wired.
+- **Downstream handoffs unblocked:**
+  - **Story 39-18:** Can now swap `InMemoryOrchestratorInbox` for `PersistedOrchestratorInbox : IOrchestratorInbox` over `channel_outbox`.
+  - **Story 39-19:** Can now implement `IChatTranscriptRecorder` and wire `OrchestratorChatService` into `OrchestratorAgentInstance.HandleConversationAsync`.

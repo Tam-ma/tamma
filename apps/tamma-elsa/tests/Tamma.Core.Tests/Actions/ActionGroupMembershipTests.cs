@@ -107,11 +107,14 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void CodeRead_has_the_3_expected_members()
+    public void CodeRead_has_the_10_expected_members()
     {
         WiresIn(ActionGroup.CodeRead).Should().BeEquivalentTo(new[]
         {
             "tool:file_read", "tool:search_code", "tool:get_acceptance_rules",
+            // Story 39-17: orchestrator read-only context tools.
+            "tool:event_store_query", "tool:log_search", "tool:document_get",
+            "tool:document_lineage", "tool:kb_search", "tool:rag_query", "tool:issue_read",
         });
     }
 
@@ -145,9 +148,14 @@ public class ActionGroupMembershipTests
     }
 
     [Test]
-    public void SourceControlRead_has_the_1_expected_member()
+    public void SourceControlRead_has_the_2_expected_members()
     {
-        WiresIn(ActionGroup.SourceControlRead).Should().BeEquivalentTo(new[] { "tool:git_operations.read" });
+        WiresIn(ActionGroup.SourceControlRead).Should().BeEquivalentTo(new[]
+        {
+            "tool:git_operations.read",
+            // Story 39-17: orchestrator read-only git tool.
+            "tool:git_read",
+        });
     }
 
     [Test]
@@ -301,6 +309,10 @@ public class ActionGroupMembershipTests
             "effect:access.repo.grant.upsert",
             "effect:access.repo.grant.revoke-by-id",
             "effect:access.repo.grant.revoke-by-grantee",
+            // Story 39-17 — orchestrator workflow control tool + config writes (machinery).
+            "tool:workflow_control",
+            "effect:orchestrator.config.set",
+            "effect:orchestrator.config.delete",
         };
         // The 29 automation members outside the secrets group (Epic 31 P2 added
         // the driver-cache invalidator + the installation-bridge backfill; 41-30 added
@@ -322,7 +334,8 @@ public class ActionGroupMembershipTests
         // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
         // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key}).
         // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, eleven machinery members for tenant-admin team & repo-access routes).
-        expected.Should().HaveCount(64, "5 engine effects + 3 schedule effects + 3 policy/level effects + 11 access-admin effects + 34 automation + 8 platform tasks");
+        // 64 → 68 (Story 39-17: + tool:workflow_control, + effect:orchestrator.config.{set,delete}, + automation:orchestrator-agent-host).
+        expected.Should().HaveCount(68, "1 tool + 5 engine effects + 3 schedule effects + 3 policy/level effects + 11 access-admin effects + 2 orchestrator-config effects + 35 automation + 8 platform tasks");
         WiresIn(ActionGroup.PlatformAutomation).Should().BeEquivalentTo(expected);
     }
 
@@ -361,11 +374,11 @@ public class ActionGroupMembershipTests
             [ActionGroup.Authoring] = 23,
             [ActionGroup.ReviewAndAcceptance] = 34,
             [ActionGroup.Docs] = 13,
-            [ActionGroup.CodeRead] = 3,
+            [ActionGroup.CodeRead] = 10,
             [ActionGroup.CodeWrite] = 1,
             [ActionGroup.CommandExecution] = 2,
             [ActionGroup.CiAndTest] = 4,
-            [ActionGroup.SourceControlRead] = 1,
+            [ActionGroup.SourceControlRead] = 2,
             [ActionGroup.SourceControlWrite] = 18,
             [ActionGroup.IssueTracking] = 25,
             [ActionGroup.DeployControl] = 10,
@@ -377,7 +390,8 @@ public class ActionGroupMembershipTests
             // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to).
             // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key}).
             // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery).
-            [ActionGroup.PlatformAutomation] = 64,
+            // 64 → 68 (Story 39-17: + tool:workflow_control, + effect:orchestrator.config.{set,delete}, + automation:orchestrator-agent-host).
+            [ActionGroup.PlatformAutomation] = 68,
         };
 
         // 223 → 225 (2026-08-18): platform-automation 47 → 49 (+AdlLoopWatchdogService
@@ -396,7 +410,8 @@ public class ActionGroupMembershipTests
         // 230 → 233 (Story 44-3 AC10): issue-tracking 16 → 19 (+effect:tracker.work-item.{reparent,move}, +effect:tracker.backlog.apply-ordering).
         // 233 → 239 (Story 44-4 AC11): issue-tracking 19 → 25 (+effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}).
         // 239 → 250 (Story 39-20): platform-automation 53 → 64 (+effect:access.{team,repo}.*, machinery).
-        counts.Values.Sum().Should().Be(250);
+        // 250 → 262 (Story 39-17): code-read 3 → 10, source-control-read 1 → 2, platform-automation 64 → 68.
+        counts.Values.Sum().Should().Be(262);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

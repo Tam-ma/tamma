@@ -305,7 +305,10 @@ internal static class KnownUngovernedEndpoints
     // Story 39-20 — 257 → 268: eleven NEW tenant-admin team & repo-access mutating endpoints,
     // ALL BORN .Governs-BOUND to machinery members effect:access.{team,repo}.* — PinnedCount (207)
     // and PinHistory are unmodified. New state: 207 baselined + 2 exceptions + 59 bound = 268.
-    internal const int PinnedInScopeCount = 268;
+    // Story 39-17 — 268 → 270: two NEW orchestrator-config mutating endpoints (PUT/DELETE /api/orchestrator/config),
+    // ALL BORN .Governs-BOUND to machinery members effect:orchestrator.config.{set,delete} — PinnedCount (207)
+    // and PinHistory are unmodified. New state: 207 baselined + 2 exceptions + 61 bound = 270.
+    internal const int PinnedInScopeCount = 270;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

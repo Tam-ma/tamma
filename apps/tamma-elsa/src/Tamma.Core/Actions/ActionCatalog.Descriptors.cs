@@ -330,6 +330,25 @@ public static partial class ActionCatalog
             "Tamma.Activities.LlmCall.Tools.GitOperationsTool (read-graded GitSubcommand members)", min: 5),
         Tool(ToolAction.GitOperationsWrite, ActionGroup.SourceControlWrite, ActionRisk.Mutating, "Git write operations", "Write-graded git subcommands (add/commit/push/checkout/stash/pull) — includes push.",
             "Tamma.Activities.LlmCall.Tools.GitOperationsTool (write-graded GitSubcommand members)", min: 25),
+        // Story 39-17 — Orchestrator Agent closed, typed, principal-scoped tools.
+        Tool(ToolAction.GitRead, ActionGroup.SourceControlRead, ActionRisk.ReadOnly, "Orchestrator git read", "Read repository metadata, branches, pull requests, and CI checks via IPlatformResolver (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.GitReadTool", min: 5),
+        Tool(ToolAction.EventStoreQuery, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Query DCB event store", "Query tenant-scoped DCB domain events by type, tags, and time range (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.EventStoreQueryTool", min: 5),
+        Tool(ToolAction.LogSearch, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Search workflow logs", "Search tenant-scoped workflow execution logs and recent diagnostics (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.LogSearchTool", min: 5),
+        Tool(ToolAction.WorkflowControl, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Control workflows", "Inspect, dispatch, resume, or cancel tenant-scoped Elsa workflow instances via allowlisted verbs (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.WorkflowControlTool", min: 50),
+        Tool(ToolAction.DocumentGet, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Read document envelope", "Fetch a tenant-scoped document envelope by documentId, enforcing repo-access attenuation when serving a user (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.DocumentGetTool", min: 5),
+        Tool(ToolAction.DocumentLineage, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Read document lineage", "Assemble bounded parent/child lineage around a tenant-scoped documentId (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.DocumentLineageTool", min: 5),
+        Tool(ToolAction.KbSearch, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Search knowledge base", "Search the tenant knowledge base; fails closed until Story 39-21 lands the KB backend (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.KbSearchTool", min: 5),
+        Tool(ToolAction.RagQuery, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Query semantic index", "Query the tenant RAG vector index; fails closed until Story 39-21 lands the RAG backend (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.RagQueryTool", min: 5),
+        Tool(ToolAction.IssueRead, ActionGroup.CodeRead, ActionRisk.ReadOnly, "Read issue", "Read an issue or issue list from the configured platform driver, enforcing repo-access attenuation when serving a user (principal-scoped orchestrator tool — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.Tools.IssueReadTool", min: 5),
 
         // ── effect (59) — 48 + 11 (Story 31-13: 7 PR ops + 4 issue callbacks) ─
 
@@ -733,6 +752,14 @@ public static partial class ActionCatalog
         Effect(ExternalEffect.AccessRepoGrantRevokeByGrantee, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Revoke repository access grant by grantee", "Revoke a repository access grant by userId or teamId (access-control administration — machinery, never dial-governed).",
             "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — RepoAccessEndpoints.RevokeGrantByGrantee", machinery: true),
 
+        // Story 39-17 (2026-11-26) — orchestrator agent configuration writes.
+        // Machinery (43-13): human-operated principal configuration is never dial-governed;
+        // bound so 43-9's shrink-only ungoverned-route ratchet stays intact.
+        Effect(ExternalEffect.OrchestratorConfigSet, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Set orchestrator configuration", "Create or update the principal's orchestrator agent configuration (model, provider, budgets, idle eviction, system prompt).",
+            "PUT /api/orchestrator/config — OrchestratorConfigEndpoints.Upsert", machinery: true),
+        Effect(ExternalEffect.OrchestratorConfigDelete, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Reset orchestrator configuration", "Delete the principal's custom orchestrator agent configuration so shipped defaults apply again.",
+            "DELETE /api/orchestrator/config — OrchestratorConfigEndpoints.Delete", machinery: true),
+
         // ── automation (27) — EscalatableToHuman=false for the whole plane ────
 
         Automation(BackgroundActor.HourlyAnalyticsRollupScheduler, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Hourly analytics rollup", "Rolls up analytics hourly.",
@@ -843,6 +870,9 @@ public static partial class ActionCatalog
         // event, never a startup failure.
         Automation(BackgroundActor.WebhookRegistrationStartup, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Webhook registration startup validator", "Single-user-mode startup pass that registers the platform webhook (Tamma:PublicBaseUrl + configured secret) on the config-tier installation's accessible repos; skips-with-audit when registration cannot proceed (Epic 31 P4 M3).",
             "Tamma.Api.Services.Webhooks.Registration.WebhookRegistrationStartupService"),
+        // Story 39-17 — Orchestrator Agent host (Enabled=false by default until explicitly turned on).
+        Automation(BackgroundActor.OrchestratorAgentHost, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Orchestrator agent host", "Manages long-running per-tenant orchestrator agent instances (start-on-demand, idle eviction, graceful shutdown; ships Enabled=false by default — Story 39-17).",
+            "Tamma.Api.Services.Orchestrator.OrchestratorAgentHost"),
 
         // ── platform-task (8) — all platform-automation ──────────────────────
 

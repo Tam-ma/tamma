@@ -165,10 +165,17 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
         // we discard the redundant scalar and surface the split counts below.
         // Story 39-9 — the loop also runs the deterministic repair ring (when
         // `repair` is supplied) inside the SAME conversation before returning.
+        var messages = new List<ConversationMessage>
+        {
+            new() { Role = "system", Content = systemPrompt },
+            new() { Role = "user", Content = userPrompt }
+        };
+
         var (response, _, turns, exhausted, contentValid, repairTurns, repairHistory) =
             await AgenticToolLoop(
-                provider, providerConfig, model, systemPrompt, userPrompt,
-                maxTokens, temperature, tools, loopConfig, correlationId, repair, trailContext, ct);
+                provider, providerConfig, model, messages,
+                maxTokens, temperature, tools, loopConfig, registryOverride: null,
+                correlationId, repair, trailContext, ct);
 
         return new InlineToolLoopResult
         {
@@ -181,6 +188,53 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
             Exhausted = exhausted,
             // Story 39-9 (D1) — repair-ring outcome. All default (ContentValid == null)
             // when no validator was supplied ⇒ behaviour byte-identical to before.
+            ContentValid = contentValid,
+            RepairTurns = repairTurns,
+            RepairHistory = repairHistory,
+        };
+    }
+
+    /// <inheritdoc />
+    public async Task<InlineToolLoopResult> RunConversationAsync(
+        string provider,
+        LlmProviderConfig providerConfig,
+        string model,
+        List<ConversationMessage> messages,
+        int maxTokens,
+        double temperature,
+        IReadOnlyList<ResolvedTool>? tools,
+        ToolLoopConfig loopConfig,
+        IToolExecutorRegistry? registryOverride,
+        string correlationId,
+        AgentTrailContext? trailContext,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(messages);
+
+        var (response, _, turns, exhausted, contentValid, repairTurns, repairHistory) =
+            await AgenticToolLoop(
+                provider, providerConfig, model, messages,
+                maxTokens, temperature, tools, loopConfig, registryOverride,
+                correlationId, repair: null, trailContext, ct);
+
+        // Append the final assistant text turn so the caller-owned persistent
+        // session transcript retains the agent's answer across turns.
+        if (response.Success && !string.IsNullOrEmpty(response.ResponseText))
+        {
+            messages.Add(new ConversationMessage
+            {
+                Role = "assistant",
+                Content = response.ResponseText,
+            });
+        }
+
+        return new InlineToolLoopResult
+        {
+            Response = response,
+            InputTokens = response.PromptTokens,
+            OutputTokens = response.CompletionTokens,
+            Turns = turns,
+            Exhausted = exhausted,
             ContentValid = contentValid,
             RepairTurns = repairTurns,
             RepairHistory = repairHistory,
@@ -272,22 +326,18 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
             string providerName,
             LlmProviderConfig providerConfig,
             string model,
-            string systemPrompt,
-            string userPrompt,
+            List<ConversationMessage> messages,
             int maxTokens,
             double temperature,
             IReadOnlyList<ResolvedTool>? tools,
             ToolLoopConfig loopConfig,
+            IToolExecutorRegistry? registryOverride,
             string workflowInstanceId,
             RepairRingPlan? repair,
             AgentTrailContext? trailContext,
             CancellationToken cancellationToken)
     {
-        var messages = new List<ConversationMessage>
-        {
-            new() { Role = "system", Content = systemPrompt },
-            new() { Role = "user", Content = userPrompt }
-        };
+        var activeRegistry = registryOverride ?? _toolRegistry;
 
         var httpClient = _httpClientFactory?.CreateClient(RunnerHttpClientName)
                        ?? new HttpClient();
@@ -353,7 +403,10 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
 
                 if (wasCompacted)
                 {
-                    messages = compactedMessages;
+                    // Update in-place so caller-owned conversation lists (D3)
+                    // observe compaction rather than keeping an uncompacted ref.
+                    messages.Clear();
+                    messages.AddRange(compactedMessages);
                     totalPromptTokens += compactionTokens;
                 }
             }
@@ -588,7 +641,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
 
                     // Story 42-5 (D2) — audit pre-execution rejections (validator / Seam B) as
                     // TOOL.INVOKED + TOOL.FAILED so refused model calls stay visible in the trail.
-                    var rejDescriptor = _toolRegistry?.GetExecutor(toolCall.ToolName)?.Descriptor;
+                    var rejDescriptor = activeRegistry?.GetExecutor(toolCall.ToolName)?.Descriptor;
                     await EmitToolAuditInvokedAsync(turnTrailCtx, toolCall, rejDescriptor, cancellationToken)
                         .ConfigureAwait(false);
                     await EmitToolAuditOutcomeAsync(turnTrailCtx, rejResult, cancellationToken)
@@ -618,14 +671,14 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                 .ToList();
 
             // ---- Parallel execution path (Story 12.4) ----
-            if (loopConfig.EnableParallelTools && _parallelExecutor != null && _toolRegistry != null
+            if (loopConfig.EnableParallelTools && _parallelExecutor != null && activeRegistry != null
                 && executableToolCalls.Count > 0)
             {
                 // Pre-filter: check allowlist and registry availability before sending to parallel executor
                 var validForExecution = new List<LlmToolCall>();
                 foreach (var toolCall in executableToolCalls)
                 {
-                    if (!_toolRegistry.IsAllowed(toolCall.ToolName, loopConfig.AllowedTools))
+                    if (!activeRegistry.IsAllowed(toolCall.ToolName, loopConfig.AllowedTools))
                     {
                         _logger?.LogWarning(
                             "Tool call rejected (not allowed): WorkflowInstanceId={WorkflowInstanceId}, TurnNumber={TurnNumber}, ToolCallId={ToolCallId}, ToolName={ToolName}",
@@ -638,7 +691,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                         toolsExecuted++;
 
                         await EmitToolAuditInvokedAsync(
-                            turnTrailCtx, toolCall, _toolRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
+                            turnTrailCtx, toolCall, activeRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
                             .ConfigureAwait(false);
                         await EmitToolAuditOutcomeAsync(turnTrailCtx, notAllowedResult, cancellationToken)
                             .ConfigureAwait(false);
@@ -668,12 +721,12 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                     foreach (var tc in validForExecution)
                     {
                         await EmitToolAuditInvokedAsync(
-                            turnTrailCtx, tc, _toolRegistry.GetExecutor(tc.ToolName)?.Descriptor, cancellationToken)
+                            turnTrailCtx, tc, activeRegistry.GetExecutor(tc.ToolName)?.Descriptor, cancellationToken)
                             .ConfigureAwait(false);
                     }
 
                     var parallelResults = await _parallelExecutor.ExecuteToolsInParallelAsync(
-                        validForExecution.ToArray(), _toolRegistry, loopConfig.ToolTimeoutMs,
+                        validForExecution.ToArray(), activeRegistry, loopConfig.ToolTimeoutMs,
                         workflowInstanceId, step,
                         loopConfig.EnableStreaming ? _eventEmitter : null,
                         cancellationToken);
@@ -714,7 +767,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                 {
                     ToolExecutionResult result;
 
-                    if (_toolRegistry == null)
+                    if (activeRegistry == null)
                     {
                         result = new ToolExecutionResult(toolCall.Id, toolCall.ToolName, false,
                             "Tool execution not available (registry not configured)", 0);
@@ -724,7 +777,7 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                         await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
                             .ConfigureAwait(false);
                     }
-                    else if (!_toolRegistry.IsAllowed(toolCall.ToolName, loopConfig.AllowedTools))
+                    else if (!activeRegistry.IsAllowed(toolCall.ToolName, loopConfig.AllowedTools))
                     {
                         _logger?.LogWarning(
                             "Tool call rejected (not allowed): WorkflowInstanceId={WorkflowInstanceId}, TurnNumber={TurnNumber}, ToolCallId={ToolCallId}, ToolName={ToolName}",
@@ -734,14 +787,14 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                             0);
                         toolsFailed++;
                         await EmitToolAuditInvokedAsync(
-                            turnTrailCtx, toolCall, _toolRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
+                            turnTrailCtx, toolCall, activeRegistry.GetExecutor(toolCall.ToolName)?.Descriptor, cancellationToken)
                             .ConfigureAwait(false);
                         await EmitToolAuditOutcomeAsync(turnTrailCtx, result, cancellationToken)
                             .ConfigureAwait(false);
                     }
                     else
                     {
-                        var executor = _toolRegistry.GetExecutor(toolCall.ToolName);
+                        var executor = activeRegistry.GetExecutor(toolCall.ToolName);
                         if (executor == null)
                         {
                             _logger?.LogWarning(
@@ -780,8 +833,8 @@ public sealed class InlineToolLoopRunner : IInlineToolLoopRunner
                                     cancellationToken);
                                 toolCts.CancelAfter(loopConfig.ToolTimeoutMs);
 
-                                result = await executor.ExecuteAsync(
-                                    toolCall.Id, toolCall.ArgumentsJson, toolCts.Token);
+                                result = await activeRegistry.ExecuteAsync(
+                                    toolCall.Id, toolCall.ToolName, toolCall.ArgumentsJson, toolCts.Token);
                                 toolSw.Stop();
 
                                 _logger?.LogDebug(

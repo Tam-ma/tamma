@@ -1454,6 +1454,58 @@ namespace Tamma.Data.Migrations.Tenant
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.OrchestratorAgentConfigRow", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<string>("ConfigJson")
+                        .IsRequired()
+                        .HasColumnType("jsonb");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("CreatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<Guid?>("UpdatedBy")
+                        .HasColumnType("uuid");
+
+                    b.Property<Guid?>("UserId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("Version")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(1);
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("UserId", "TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_orchestrator_agent_configs_UserId_TenantId");
+
+                    NpgsqlIndexBuilderExtensions.AreNullsDistinct(b.HasIndex("UserId", "TenantId"), false);
+
+                    b.ToTable("orchestrator_agent_configs", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_orchestrator_agent_configs_principal_xor", "(\"UserId\" IS NOT NULL AND \"TenantId\" IS NULL) OR (\"UserId\" IS NULL AND \"TenantId\" IS NOT NULL)");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.ProjectEntity", b =>
                 {
                     b.Property<Guid>("Id")

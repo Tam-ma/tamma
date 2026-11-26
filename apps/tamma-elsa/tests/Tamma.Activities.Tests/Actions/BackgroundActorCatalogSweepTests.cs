@@ -109,6 +109,7 @@ public class BackgroundActorCatalogSweepTests
         // TryAddEnumerable in AddActionCatalogGovernance) +
         // PlatformTaskWorker = 29.
         // 35 → 36 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
-        HostedServiceTypes().Should().HaveCount(36);
+        // 36 → 37 (Story 39-17, 2026-11-26: + OrchestratorAgentHost (Tamma.Api), the per-tenant orchestrator agent host — an IHostedService, automation machinery like every hosted service.)
+        HostedServiceTypes().Should().HaveCount(37);
     }
 }

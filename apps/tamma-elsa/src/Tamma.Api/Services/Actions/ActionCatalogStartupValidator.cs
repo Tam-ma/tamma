@@ -270,9 +270,38 @@ internal sealed class ActionCatalogStartupValidator : Microsoft.Extensions.Hosti
         var allowlisted = ToolCatalogAllowlists.NotDiRegisteredTools
             .Select(e => e.Key)
             .ToHashSet(StringComparer.Ordinal);
+        // Story 42-1 / Story 39-17 — tools implementing IPrincipalScopedToolExecutor
+        // are structurally prohibited from platform-wide singleton DI registration
+        // (ToolExecutorRegistry.Register throws PrincipalScopedToolRegistrationException)
+        // because each instance is principal-bound per session. Recognize them here as
+        // structurally covered without growing NotDiRegisteredTools.
+        var principalScopedKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var type in inputs.ExecutorImplementations)
+        {
+            if (!typeof(IPrincipalScopedToolExecutor).IsAssignableFrom(type))
+                continue;
+            try
+            {
+                var name = (string?)typeof(IToolExecutor)
+                    .GetProperty(nameof(IToolExecutor.ToolName))!
+                    .GetValue(RuntimeHelpers.GetUninitializedObject(type));
+                if (!string.IsNullOrWhiteSpace(name)
+                    && ToolNameAliases.TryResolve(name!, out var resolvedKey)
+                    && resolvedKey.Ns == ActionNamespace.Tool)
+                {
+                    principalScopedKeys.Add(resolvedKey.Key);
+                }
+            }
+            catch
+            {
+                // Check 4 below reports unreadable ToolName.
+            }
+        }
         foreach (var key in catalogToolKeys.OrderBy(k => k, StringComparer.Ordinal))
         {
-            if (!coveredKeys.Contains(key) && !allowlisted.Contains($"tool:{key}"))
+            if (!coveredKeys.Contains(key)
+                && !allowlisted.Contains($"tool:{key}")
+                && !principalScopedKeys.Contains(key))
             {
                 violations.Add(new Violation(
                     "ACTION.CATALOG.CATALOG_TOOL_HAS_NO_EXECUTOR",

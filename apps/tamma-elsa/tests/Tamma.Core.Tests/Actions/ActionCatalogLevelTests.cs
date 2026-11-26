@@ -78,6 +78,15 @@ public class ActionCatalogLevelTests
         ["tool:get_acceptance_rules"] = 5,
         ["tool:git_operations.read"] = 5,
         ["tool:search_code"] = 5,
+        // Story 39-17 — orchestrator read-only context tools.
+        ["tool:git_read"] = 5,
+        ["tool:event_store_query"] = 5,
+        ["tool:log_search"] = 5,
+        ["tool:document_get"] = 5,
+        ["tool:document_lineage"] = 5,
+        ["tool:kb_search"] = 5,
+        ["tool:rag_query"] = 5,
+        ["tool:issue_read"] = 5,
         // ── Level 10 — sensitive metadata reads (1) ──
         ["agent-action:audit-secrets"] = 10,
         // ── Level 15 — write documentation (13) ──
@@ -210,10 +219,12 @@ public class ActionCatalogLevelTests
         ["document-type:review"] = 45,
         ["document-type:threat-model"] = 45,
         ["document-type:ux-spec"] = 45,
-        // ── Level 50 — bypass PR checks (2) ──
+        // ── Level 50 — bypass PR checks / workflow control (3) ──
         ["agent-action:configure-cicd"] = 50,
         // 43-12 — the reserved checks-bypass key (no performer in the tree yet).
         ["effect:git.checks.bypass"] = 50,
+        // Story 39-17 — orchestrator workflow control (inspect/dispatch/resume/cancel).
+        ["tool:workflow_control"] = 50,
         // ── Level 55 — merge to dev (1) — 43-12 per-target merge split ──
         ["effect:git.merge.dev"] = 55,
         // ── Level 60 — merge to qa (1) — 43-12 ──
@@ -300,7 +311,7 @@ public class ActionCatalogLevelTests
         missing.Should().BeEmpty("keys in the table with no catalog dial row");
         extra.Should().BeEmpty("catalog dial rows absent from the table");
         mismatched.Should().BeEmpty("a level moved without updating BOTH the descriptor and this table");
-        actual.Should().HaveCount(186, "186 = 250 catalog rows − 64 machinery (Story 39-20: +11 access-admin machinery rows, dial count unchanged; Story 44-4 AC11: +6 native tracker iteration effects — 5 at level 20 + iteration.delete at 95; was 180 = 233 − 53)");
+        actual.Should().HaveCount(195, "195 = 262 catalog rows − 67 machinery (Story 39-17: +9 orchestrator tools on the dial [8 read at level 5 + workflow_control at 50], +3 machinery rows [orchestrator.config.{set,delete} + orchestrator-agent-host]; Story 39-20: +11 access-admin machinery rows, dial count unchanged; was 186 = 250 − 64)");
     }
 
     [Test]
@@ -322,7 +333,8 @@ public class ActionCatalogLevelTests
         // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to — machinery, so the dial-row count stays 177).
         // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key} — dial-row count stays 177).
         // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery members for tenant-admin team & repo-access routes — dial-row count stays 186).
-        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(64);
+        // 64 → 67 (Story 39-17: + effect:orchestrator.config.{set,delete} + automation:orchestrator-agent-host — machinery).
+        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(67);
         ActionCatalog.All.Where(d => d.IsMachinery).Select(d => d.Key.ToWire())
             .Should().OnlyContain(k => !LevelTable.ContainsKey(k));
     }
