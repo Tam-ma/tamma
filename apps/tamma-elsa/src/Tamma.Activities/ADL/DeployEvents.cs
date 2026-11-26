@@ -57,6 +57,18 @@ public static class DeployEvents
     /// </summary>
     public const string ProductionRejected = "DEPLOY.PRODUCTION.REJECTED";
 
+    /// <summary>Story 43-19 — a non-prod stage (qa/uat) approval gate suspended on its stage-scoped bookmark.</summary>
+    public const string StageApprovalRequested = "DEPLOY.STAGE.APPROVAL_REQUESTED";
+
+    /// <summary>Story 43-19 — a human approved a non-prod stage (qa/uat) deploy at its gate.</summary>
+    public const string StageApproved = "DEPLOY.STAGE.APPROVED";
+
+    /// <summary>
+    /// Story 43-19 — a non-prod stage (qa/uat) deploy was rejected by a human, received
+    /// an invalid decision, or was denied by the autonomy gate. Loud (error-status).
+    /// </summary>
+    public const string StageRejected = "DEPLOY.STAGE.REJECTED";
+
     /// <summary>A production rollback began (revert to the previous release).</summary>
     public const string RollbackStarted = "DEPLOY.ROLLBACK.STARTED";
 
@@ -91,7 +103,7 @@ public static class DeployEvents
     /// success (no-silent-failure rule).
     /// </summary>
     public static bool IsFailureType(string type)
-        => type is StageFailed or PipelineFailed or ProductionRejected or RollbackFailed or ReleaseCreatedFailed;
+        => type is StageFailed or StageRejected or PipelineFailed or ProductionRejected or RollbackFailed or ReleaseCreatedFailed;
 
     /// <summary>
     /// Parse a tenant id from the loose string form threaded through the workflow

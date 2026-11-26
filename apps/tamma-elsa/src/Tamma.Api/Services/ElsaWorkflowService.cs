@@ -392,10 +392,11 @@ public partial class ElsaWorkflowService : IElsaWorkflowService
 
     /// <inheritdoc />
     public async Task<ApprovalGateLocation> LocateDeploymentApprovalGateAsync(
-        int issueNumber, string? tenantId, string? repository, string? mergeSha)
+        int issueNumber, string? tenantId, string? repository, string? mergeSha,
+        string? stage = null)
     {
         await EnsureHealthyAsync();
-        var payload = new { issueNumber, tenantId, repository, mergeSha, decision = "locate" };
+        var payload = new { issueNumber, tenantId, repository, mergeSha, stage, decision = "locate" };
         var response = await _httpClient.PostAsJsonAsync(
             "/elsa/api/adl/deploy-approval/locate", payload, JsonOptions);
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
@@ -411,31 +412,33 @@ public partial class ElsaWorkflowService : IElsaWorkflowService
     }
 
     /// <summary>
-    /// Completeness audit P0 item 3 — forward a deployment-pipeline
-    /// production-approval gate resume to the engine's in-process resume endpoint,
-    /// which looks up the tenant+repo+SHA-scoped
-    /// <c>adl-deploy-prod-approval-{tenant}-{repo}-{issue}-{mergeSha}</c> bookmark
+    /// Completeness audit P0 item 3 / Story 43-19 — forward a deployment-pipeline
+    /// stage-scoped approval gate resume to the engine's in-process resume endpoint,
+    /// which looks up the stage+tenant+repo+SHA-scoped
+    /// <c>adl-deploy-{stage}-approval-{tenant}-{repo}-{issue}-{mergeSha}</c> bookmark
     /// and runs the owning instance with <c>{decision, feedback, approver}</c>
     /// injected as input. A 404 (no gate waiting) is surfaced as
     /// <see cref="MergeApprovalResumeResult.GateNotFound"/> rather than thrown.
     /// </summary>
     public async Task<MergeApprovalResumeResult> ResumeDeploymentApprovalAsync(
         int issueNumber, string? tenantId, string? repository, string? mergeSha,
-        string decision, string? feedback, string? approver)
+        string decision, string? feedback, string? approver,
+        string? stage = null)
     {
         _logger.LogInformation(
-            "Resuming deploy-approval gate for issue #{Issue} (decision={Decision})",
-            issueNumber, SanitizeForLog(decision));
+            "Resuming {Stage} deploy-approval gate for issue #{Issue} (decision={Decision})",
+            SanitizeForLog(stage ?? "production"), issueNumber, SanitizeForLog(decision));
 
         await EnsureHealthyAsync();
 
         var payload = new
         {
             issueNumber,
-            // Tenant + repo + sha scope the engine's bookmark lookup.
+            // Tenant + repo + sha + stage scope the engine's bookmark lookup.
             tenantId,
             repository,
             mergeSha,
+            stage,
             decision,
             feedback,
             approver,
@@ -447,7 +450,8 @@ public partial class ElsaWorkflowService : IElsaWorkflowService
         if (response.StatusCode == System.Net.HttpStatusCode.NotFound)
         {
             _logger.LogWarning(
-                "No deploy-approval gate waiting for issue #{Issue}", issueNumber);
+                "No {Stage} deploy-approval gate waiting for issue #{Issue}",
+                SanitizeForLog(stage ?? "production"), issueNumber);
             return new MergeApprovalResumeResult(Resumed: false, GateNotFound: true, WorkflowInstanceId: null);
         }
 

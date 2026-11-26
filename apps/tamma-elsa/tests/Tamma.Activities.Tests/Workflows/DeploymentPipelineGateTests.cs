@@ -57,11 +57,11 @@ public class DeploymentPipelineGateTests
         _flowchart.Connections.Any(c =>
             c.Source.Activity.Id == sourceId &&
             (port is null || c.Source.Port == port) &&
-            c.Target.Activity.Id == targetId);
+            WorkflowTestHelper.ResolvedTargetId(_flowchart, c) == targetId);
 
-    private CheckActionGateActivity Gate() =>
+    private CheckActionGateActivity Gate(string id = "CheckProdDeployGate") =>
         _flowchart.Activities.OfType<CheckActionGateActivity>()
-            .Single(a => a.Id == "CheckProdDeployGate");
+            .Single(a => a.Id == id);
 
     /// <summary>Everything reachable from one outcome port of one node.</summary>
     private HashSet<string> ReachableFromPort(string sourceId, string port)
@@ -89,12 +89,27 @@ public class DeploymentPipelineGateTests
     // ====================================================================
 
     [Test]
-    public void TheGateNode_existsExactlyOnce_andRunsBeforeTheApprovalDecision()
+    public void TheGateNode_existsOncePerStage_andRunsBeforeEachApprovalDecision()
     {
-        _flowchart.Activities.OfType<CheckActionGateActivity>().Should().ContainSingle(
-            "one gate check per pipeline run. A second would either double-count a ledger grant "
-            + "or disagree with the first.");
+        // Story 43-19: one stage-entry gate per live pipeline stage (QA, UAT, Prod).
+        var gates = _flowchart.Activities.OfType<CheckActionGateActivity>().ToList();
+        gates.Select(g => g.Id).Should().BeEquivalentTo(
+            new[] { "CheckQaDeployGate", "CheckUatDeployGate", "CheckProdDeployGate" },
+            "one gate check per live deploy stage (QA, UAT, Prod) — no more, no less");
 
+        // QA gate sits between Init and QaApprovalNeeded.
+        HasEdge("Init", null, "CheckQaDeployGate").Should().BeTrue();
+        HasEdge("CheckQaDeployGate", "Automated", "QaApprovalNeeded").Should().BeTrue();
+        HasEdge("CheckQaDeployGate", "RequiresHuman", "QaApprovalNeeded").Should().BeTrue();
+        HasEdge("CheckQaDeployGate", "Denied", "QaApprovalNeeded").Should().BeFalse();
+
+        // UAT gate sits between EmitQaSuccess and UatApprovalNeeded.
+        HasEdge("EmitQaSuccess", null, "CheckUatDeployGate").Should().BeTrue();
+        HasEdge("CheckUatDeployGate", "Automated", "UatApprovalNeeded").Should().BeTrue();
+        HasEdge("CheckUatDeployGate", "RequiresHuman", "UatApprovalNeeded").Should().BeTrue();
+        HasEdge("CheckUatDeployGate", "Denied", "UatApprovalNeeded").Should().BeFalse();
+
+        // Prod gate sits between UAT success and ProdApprovalNeeded (AC4 regression pin).
         HasEdge("EmitUatSuccess", null, "CheckProdDeployGate").Should().BeTrue(
             "the gate check sits between UAT success and the prod-approval decision, so the "
             + "decision reads a variable that has already been written");
@@ -117,25 +132,30 @@ public class DeploymentPipelineGateTests
     public void EveryGateOutcome_isWired_noDanglingEdge()
     {
         // F1's remedy for the objection that used to justify folding `denied` into
-        // `RequiresHuman`: "a third edge is one every adopting workflow must
-        // remember to wire, and an unrouted outcome silently falls through". True —
-        // so the wiring is a BUILD FAILURE rather than a comment. Every outcome the
-        // activity can complete with must leave the node.
-        var wired = _flowchart.Connections
-            .Where(c => c.Source.Activity is CheckActionGateActivity)
-            .Select(c => c.Source.Port)
-            .ToHashSet(StringComparer.Ordinal);
+        // `RequiresHuman`: every outcome on EVERY CheckActionGateActivity in the
+        // workflow must leave the node.
+        var gates = _flowchart.Activities.OfType<CheckActionGateActivity>().ToList();
+        gates.Should().HaveCount(3);
 
-        wired.Should().BeEquivalentTo(CheckActionGateActivity.Edges,
-            "a CheckActionGateActivity outcome with no edge is a governance decision the graph "
-            + "silently drops — which is the failure mode the single-edge design was trying to "
-            + "avoid and did not");
+        foreach (var gate in gates)
+        {
+            var wired = _flowchart.Connections
+                .Where(c => c.Source.Activity == gate)
+                .Select(c => c.Source.Port)
+                .ToHashSet(StringComparer.Ordinal);
+
+            wired.Should().BeEquivalentTo(CheckActionGateActivity.Edges,
+                $"gate '{gate.Id}' has an unwired outcome — a governance decision the graph "
+                + "would silently drop");
+        }
     }
 
     [Test]
     public void Gate_is_on_the_effect_not_the_shared_dispatch()
     {
-        Gate().ActionKey.Expression?.Value.Should().Be("effect:deploy.prod",
+        Gate("CheckQaDeployGate").ActionKey.Expression?.Value.Should().Be("effect:deploy.qa");
+        Gate("CheckUatDeployGate").ActionKey.Expression?.Value.Should().Be("effect:deploy.uat");
+        Gate("CheckProdDeployGate").ActionKey.Expression?.Value.Should().Be("effect:deploy.prod",
             "gating agent-action:deploy would gate the SHARED StageDeployDispatch, which cannot "
             + "distinguish qa / uat / production — the same member would gate a staging deploy as "
             + "though it were a production promotion");
@@ -156,6 +176,84 @@ public class DeploymentPipelineGateTests
         adjacentToADispatch.Should().BeEmpty(
             "the gate is on the stage TRANSITION, never on the shared dispatch:"
             + Environment.NewLine + string.Join(Environment.NewLine, adjacentToADispatch));
+    }
+
+    [Test]
+    public void DevAndStagingDeployKeys_RemainReserved_NeverReferencedByPipeline()
+    {
+        // Story 43-19 AC3 — deploy.dev (70) and deploy.staging (85) stay reserved;
+        // DeploymentPipelineWorkflow ships QA -> UAT -> Prod only.
+        var actionKeys = _flowchart.Activities.OfType<CheckActionGateActivity>()
+            .Select(g => g.ActionKey.Expression?.Value?.ToString())
+            .ToList();
+
+        actionKeys.Should().NotContain("effect:deploy.dev",
+            "deploy.dev stays reserved — no dev stage exists in DeploymentPipelineWorkflow");
+        actionKeys.Should().NotContain("effect:deploy.staging",
+            "deploy.staging stays reserved — no staging stage exists in DeploymentPipelineWorkflow");
+
+        var waitStages = _flowchart.Activities.OfType<WaitForDeploymentApprovalActivity>()
+            .Select(w => w.Stage.Expression?.Value?.ToString())
+            .ToList();
+        waitStages.Should().BeEquivalentTo(new[] { "qa", "uat", "production" });
+        waitStages.Should().NotContain("dev").And.NotContain("staging");
+    }
+
+    [Test]
+    public void Structural_EveryDeployStage_HasALiveGateBeforeItsStageEntry()
+    {
+        // Story 43-19 AC5 — every forward deploy stage (QADeploy, UATDeploy, ProdDeploy)
+        // must be preceded by its own CheckActionGateActivity + ApprovalNeeded +
+        // WaitForDeploymentApprovalActivity. If someone adds a 4th deploy stage without
+        // wiring a gate before it, this test fails loudly.
+        var deployDispatches = _flowchart.Activities.OfType<DispatchWorkflow>()
+            .Where(d => d.Id is not null && !d.Id.Contains("Rollback", StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        deployDispatches.Select(d => d.Id).Should().BeEquivalentTo(
+            new[] { "QADeploy", "UATDeploy", "ProdDeploy" });
+
+        // For each deploy dispatch, verify NO path from Init reaches it without passing
+        // through a CheckActionGateActivity dedicated to that stage.
+        var stageGateByDeploy = new Dictionary<string, string>(StringComparer.Ordinal)
+        {
+            ["QADeploy"] = "CheckQaDeployGate",
+            ["UATDeploy"] = "CheckUatDeployGate",
+            ["ProdDeploy"] = "CheckProdDeployGate",
+        };
+
+        foreach (var deploy in deployDispatches)
+        {
+            stageGateByDeploy.Should().ContainKey(deploy.Id!,
+                $"deploy stage '{deploy.Id}' has no declared stage-entry gate");
+
+            var gateId = stageGateByDeploy[deploy.Id!];
+            var reachableWithoutGate = ReachableFromStartExcluding(gateId);
+            reachableWithoutGate.Should().NotContain(deploy.Id!,
+                $"deploy stage '{deploy.Id}' is reachable from Init without passing through '{gateId}'");
+        }
+    }
+
+    private HashSet<string> ReachableFromStartExcluding(string blockedId)
+    {
+        var seen = new HashSet<string>(StringComparer.Ordinal);
+        var startId = _flowchart.Start?.Id;
+        if (startId is null || startId == blockedId) return seen;
+
+        var queue = new Queue<string>();
+        seen.Add(startId);
+        queue.Enqueue(startId);
+        while (queue.Count > 0)
+        {
+            var id = queue.Dequeue();
+            foreach (var c in _flowchart.Connections.Where(c => c.Source.Activity.Id == id))
+            {
+                var next = c.Target.Activity.Id;
+                if (next is not null && next != blockedId && seen.Add(next))
+                    queue.Enqueue(next);
+            }
+        }
+        return seen;
     }
 
     [Test]
@@ -508,17 +606,83 @@ public class DeploymentPipelineGateTests
     [Test]
     public void TheGate_routesIntoTheExistingHumanWait_andMintsNoNewSuspendActivity()
     {
-        // D11: no new suspend activity and no new bookmark prefix. Seam E reuses
-        // WaitForDeploymentApprovalActivity, which already has a resume path, a
-        // bookmark and a UI. A new wait would be a suspend nobody can resume.
-        _flowchart.Activities.OfType<WaitForDeploymentApprovalActivity>().Should().ContainSingle();
+        // D11 / Story 43-19: reuse WaitForDeploymentApprovalActivity across all three
+        // stages (QA, UAT, Production), each carrying its own Stage input so bookmarks
+        // never collide, without minting any new suspend activity type.
+        var waits = _flowchart.Activities.OfType<WaitForDeploymentApprovalActivity>().ToList();
+        waits.Select(w => (w.Id, Stage: w.Stage.Expression?.Value?.ToString())).Should().BeEquivalentTo(
+            new[]
+            {
+                ("WaitQaApproval", "qa"),
+                ("WaitUatApproval", "uat"),
+                ("WaitProdApproval", "production"),
+            });
 
+        HasEdge("QaApprovalNeeded", "True", "WaitQaApproval").Should().BeTrue();
+        HasEdge("QaApprovalNeeded", "False", "EmitQaStarted").Should().BeTrue();
+        HasEdge("UatApprovalNeeded", "True", "WaitUatApproval").Should().BeTrue();
+        HasEdge("UatApprovalNeeded", "False", "EmitUatStarted").Should().BeTrue();
         HasEdge("ProdApprovalNeeded", "True", "WaitProdApproval").Should().BeTrue();
         HasEdge("ProdApprovalNeeded", "False", "EmitProdStarted").Should().BeTrue();
 
         _flowchart.Activities.OfType<CheckActionGateActivity>()
-            .Should().OnlyContain(a => a.Id == "CheckProdDeployGate",
-                "the gate check is not a suspend activity and must never grow into one");
+            .Select(a => a.Id)
+            .Should().BeEquivalentTo(
+                new[] { "CheckQaDeployGate", "CheckUatDeployGate", "CheckProdDeployGate" },
+                "the gate checks are not suspend activities and only the three live stages are gated");
+    }
+
+    [TestCase("QaApprovalNeeded", "QaGateOutcome", "QaGateEnforced")]
+    [TestCase("UatApprovalNeeded", "UatGateOutcome", "UatGateEnforced")]
+    public void StageApprovalDecisions_FollowTheSameAutonomyRuleAsProd(
+        string decisionId, string outcomeVarName, string enforcedVarName)
+    {
+        // Story 43-19 AC1: QA and UAT FlowDecision delegates route on the gate answer
+        // with the exact same fail-closed / observe-only / monotone semantics as Prod.
+        bool Eval(string outcome, bool enforced = true)
+        {
+            var builder = WorkflowTestHelper.BuildWorkflow(new DeploymentPipelineWorkflow());
+            var flowchart = WorkflowTestHelper.GetFlowchart(builder);
+            var decision = flowchart.Activities.OfType<FlowDecision>()
+                .Single(a => a.Id == decisionId);
+
+            var outcomeVar = (Variable<string>)builder.Object.Variables.Single(v => v.Name == outcomeVarName);
+            var enforcedVar = (Variable<bool>)builder.Object.Variables.Single(v => v.Name == enforcedVarName);
+
+            var register = new MemoryRegister();
+            register.Declare(new MemoryBlockReference[] { outcomeVar, enforcedVar });
+            using var services = new ServiceCollection().BuildServiceProvider();
+            var ctx = new ExpressionExecutionContext(services, register);
+            outcomeVar.Set(ctx, outcome);
+            enforcedVar.Set(ctx, enforced);
+
+            var cond = decision.Condition.Expression?.Value
+                as Func<ExpressionExecutionContext, ValueTask<object>>;
+            cond.Should().NotBeNull();
+            return (bool)cond!(ctx).AsTask().GetAwaiter().GetResult()!;
+        }
+
+        Eval(GovernanceEvaluateResponse.OutcomeAutomated).Should().BeFalse("automated proceeds without human wait");
+        Eval(GovernanceEvaluateResponse.OutcomeRequiresHuman).Should().BeTrue("below-dial suspends on stage bookmark");
+        Eval(GovernanceEvaluateResponse.OutcomeDenied, enforced: true).Should().BeTrue("enforced denial never falls open");
+        Eval(GovernanceEvaluateResponse.OutcomeRequiresHuman, enforced: false).Should().BeFalse("observe-only passes through");
+        Eval(CheckActionGateActivity.OutcomeUnavailable, enforced: false).Should().BeTrue("unreadable gate fails closed");
+        Eval("").Should().BeTrue("unwritten outcome fails closed");
+    }
+
+    [TestCase("CheckQaDeployGate", "SetQaGateDenied", "EmitQaRejected", "WaitQaApproval", "QADeploy", "SetQAFailed")]
+    [TestCase("CheckUatDeployGate", "SetUatGateDenied", "EmitUatRejected", "WaitUatApproval", "UATDeploy", "SetUATFailed")]
+    public void StageDeniedOutcome_IsAHardStop_NotAnEscalation(
+        string gateId, string deniedSetId, string rejectedEmitId, string waitId, string deployId, string failId)
+    {
+        HasEdge(gateId, "Denied", deniedSetId).Should().BeTrue();
+        HasEdge(deniedSetId, null, rejectedEmitId).Should().BeTrue();
+
+        var reachable = ReachableFromPort(gateId, "Denied");
+        reachable.Should().NotContain(waitId);
+        reachable.Should().NotContain(deployId);
+        reachable.Should().Contain(failId);
+        reachable.Should().Contain("EmitPipelineFailed");
     }
 
     // ====================================================================

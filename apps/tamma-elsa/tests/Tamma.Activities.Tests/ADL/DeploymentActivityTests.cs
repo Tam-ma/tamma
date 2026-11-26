@@ -85,11 +85,48 @@ public class DeploymentActivityTests
     [Test]
     public void BookmarkName_MatchesEngineEndpointBuilder()
     {
-        // Suspend-side and resume-side must compute the SAME name byte-for-byte.
-        var activitySide = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 7, "deadbeef");
-        var endpointSide = Tamma.ElsaServer.Endpoints.DeploymentApprovalResumeEndpoint.BookmarkName(
-            "t", "acme/app", 7, "deadbeef");
-        endpointSide.Should().Be(activitySide);
+        // Suspend-side and resume-side must compute the SAME name byte-for-byte for every stage.
+        foreach (var stage in new[] { "qa", "uat", "production", null })
+        {
+            var activitySide = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 7, "deadbeef", stage);
+            var endpointSide = Tamma.ElsaServer.Endpoints.DeploymentApprovalResumeEndpoint.BookmarkName(
+                "t", "acme/app", 7, "deadbeef", stage);
+            endpointSide.Should().Be(activitySide);
+        }
+    }
+
+    [Test]
+    public void BookmarkName_DifferentStages_ProduceDistinctNames_AndProductionPreservesLegacyPrefix()
+    {
+        var qa = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 42, "sha1", "qa");
+        var uat = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 42, "sha1", "uat");
+        var prod = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 42, "sha1", "production");
+        var prodDefault = WaitForDeploymentApprovalActivity.BookmarkName("t", "acme/app", 42, "sha1");
+
+        qa.Should().StartWith("adl-deploy-qa-approval-");
+        uat.Should().StartWith("adl-deploy-uat-approval-");
+        prod.Should().StartWith("adl-deploy-prod-approval-");
+        prod.Should().Be(prodDefault, "omitting stage must stay byte-for-byte identical to production");
+
+        new[] { qa, uat, prod }.Should().OnlyHaveUniqueItems(
+            "QA, UAT, and production bookmarks in the same run must never collide");
+    }
+
+    [TestCase(null, true, "production")]
+    [TestCase("", true, "production")]
+    [TestCase("qa", true, "qa")]
+    [TestCase("QA", true, "qa")]
+    [TestCase("uat", true, "uat")]
+    [TestCase("production", true, "production")]
+    [TestCase("prod", true, "production")]
+    [TestCase("dev", false, "")]
+    [TestCase("staging", false, "")]
+    [TestCase("canary", false, "")]
+    public void TryNormalizeStage_AcceptsLiveStagesOnly_RejectsReservedAndUnknown(
+        string? raw, bool expectedOk, string expectedCanonical)
+    {
+        WaitForDeploymentApprovalActivity.TryNormalizeStage(raw, out var canonical).Should().Be(expectedOk);
+        canonical.Should().Be(expectedCanonical);
     }
 
     // ================================================================
@@ -97,11 +134,14 @@ public class DeploymentActivityTests
     // ================================================================
 
     [TestCase("DEPLOY.STAGE.FAILED", true)]
+    [TestCase("DEPLOY.STAGE.REJECTED", true)]
     [TestCase("DEPLOY.PIPELINE.FAILED", true)]
     [TestCase("DEPLOY.PRODUCTION.REJECTED", true)]
     [TestCase("DEPLOY.ROLLBACK.FAILED", true)]
     [TestCase("DEPLOY.STAGE.STARTED", false)]
     [TestCase("DEPLOY.STAGE.SUCCESS", false)]
+    [TestCase("DEPLOY.STAGE.APPROVED", false)]
+    [TestCase("DEPLOY.STAGE.APPROVAL_REQUESTED", false)]
     [TestCase("DEPLOY.PIPELINE.SUCCESS", false)]
     [TestCase("DEPLOY.PRODUCTION.APPROVED", false)]
     [TestCase("DEPLOY.PRODUCTION.APPROVAL_REQUESTED", false)]
