@@ -153,3 +153,36 @@ public sealed record TenantResourceSummary(
     public static TenantResourceSummary Empty { get; } =
         new(0, 0, 0, 0, 0, 0, 0m);
 }
+
+/// <summary>
+/// Story 36-7 (AC7) — per-tenant profitability row in the platform-owner
+/// <see cref="PlatformMarginReport"/> top-N list. Revenue is persisted
+/// <c>PlatformBilledUsd</c>, cost is persisted <c>CostUsd</c>, and margin is
+/// <c>revenue − cost</c>; nothing is recomputed.
+/// </summary>
+public sealed record TenantMarginRow(
+    Guid TenantId,
+    string Slug,
+    string Name,
+    string Plan,
+    decimal CostUsd,
+    decimal RevenueUsd,
+    decimal MarginUsd,
+    decimal MarginPct);
+
+/// <summary>
+/// Story 36-7 (AC7, AC8, AC11) — platform-owner-only fleet-wide profitability
+/// aggregate composed by summing each active tenant's persisted
+/// <c>PlatformBilledUsd</c> and <c>CostUsd</c>. Per-tenant read failures are
+/// skipped and counted in <see cref="TenantsSkipped"/> rather than aborting
+/// the fleet view.
+/// </summary>
+public sealed record PlatformMarginReport(
+    DateTime FromUtc,
+    DateTime ToUtc,
+    string Grain,
+    MarginSummary Summary,
+    int TenantsIncluded,
+    int TenantsSkipped,
+    IReadOnlyList<TenantMarginRow> TopTenantsByMargin,
+    IReadOnlyList<MarginTrendPoint> Trend);

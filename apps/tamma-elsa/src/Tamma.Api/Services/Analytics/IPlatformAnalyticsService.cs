@@ -54,4 +54,18 @@ public interface IPlatformAnalyticsService
     Task<TenantResourceSummary> GetTenantResourceSummaryAsync(
         Guid tenantId,
         CancellationToken ct = default);
+
+    /// <summary>
+    /// Story 36-7 (AC7, AC8, AC11) — platform-owner-only fleet-wide profitability
+    /// aggregate over <c>[fromUtc, toUtc)</c>. Sums persisted per-tenant
+    /// <c>PlatformBilledUsd</c> and <c>CostUsd</c> across active tenants (without
+    /// recomputing pricing), skipping and counting any individual tenant read
+    /// failure so one unhealthy tenant never aborts the fleet view.
+    /// </summary>
+    Task<PlatformMarginReport> GetPlatformMarginAsync(
+        DateTime fromUtc,
+        DateTime toUtc,
+        MarginGrain grain = MarginGrain.Day,
+        int topN = 25,
+        CancellationToken ct = default);
 }

@@ -1540,6 +1540,11 @@ builder.Services.AddScoped<
     Tamma.Api.Services.Analytics.ICostAnalyticsService,
     Tamma.Api.Services.Analytics.CostAnalyticsService>();
 
+// Story 36-7 — tenant-scoped cost-basis vs gross-margin analytics read view
+// (pure Σ PlatformBilledUsd − Σ CostUsd over per-tenant fact tables; ZERO
+// dependency on Story 34-5 pricing/markup engine).
+builder.Services.AddMarginAnalytics();
+
 // Story 34-11 — swap the frozen ProviderPricingService for the DB-backed
 // DbProviderPricingService behind the unchanged IProviderPricingService seam
 // (a one-line DI change; zero downstream consumer edits). Must run AFTER
@@ -2303,6 +2308,9 @@ admin.MapGet("/analytics/tenants", AdminAnalyticsEndpoints.GetTopTenants)
     .RequireAuthorization("PlatformOwnerAccess");
 admin.MapGet("/analytics/events", AdminAnalyticsEndpoints.GetEventHistogram)
     .RequireAuthorization("PlatformOwnerAccess");
+// Story 36-7 — platform-owner-only fleet-wide profitability aggregate.
+admin.MapGet("/analytics/margin", AdminAnalyticsEndpoints.GetMargin)
+    .RequireAuthorization("PlatformOwnerAccess");
 
 // Story 34-1 — read-only plan price-book endpoints. PlatformOwnerAccess: the
 // price book is platform-GLOBAL (incl. BYOK-vs-platform pricing) in both modes
@@ -2831,6 +2839,11 @@ orgs.MapGet("/{tenantId:guid}/analytics/usage/breakdown", TenantAnalyticsEndpoin
 // margin). Read-only aggregation + one deduped budget-exceeded DCB event.
 orgs.MapGet("/{tenantId:guid}/analytics/cost", TenantAnalyticsEndpoints.GetCost)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+
+// Story 36-7 — tenant-scoped gross-margin analytics view (MemberAccess;
+// resolves tenant strictly from ITenantContext, cross-tenant route -> 404).
+orgs.MapGet("/{tenantId:guid}/analytics/margin",
+    Tamma.Api.Endpoints.Analytics.MarginAnalyticsEndpoints.GetTenantMargin);
 
 // Story 5.6 / 1.5-37 (Wave C.3) — tenant-scope alert surface.
 // The path-tenant membership filter proves the caller is a member;

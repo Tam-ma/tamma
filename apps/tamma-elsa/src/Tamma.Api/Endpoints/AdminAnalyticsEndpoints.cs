@@ -68,4 +68,41 @@ public static class AdminAnalyticsEndpoints
         var buckets = await analytics.GetEventHistogramAsync(sinceUtc, limit ?? 20, ct);
         return Results.Ok(new { buckets });
     }
+
+    /// <summary>
+    /// Story 36-7 (AC7, AC8, AC9) — <c>GET /api/admin/analytics/margin</c>
+    /// (<c>PlatformOwnerAccess</c>). Returns the fleet-wide profitability aggregate
+    /// summed from per-tenant persisted <c>PlatformBilledUsd</c> and <c>CostUsd</c>
+    /// rows, plus top-N tenants by margin and fleet trend.
+    /// </summary>
+    public static async Task<IResult> GetMargin(
+        [FromQuery] DateTime? from,
+        [FromQuery] DateTime? to,
+        [FromQuery] string? grain,
+        [FromQuery] int? limit,
+        IPlatformAnalyticsService analytics,
+        TimeProvider timeProvider,
+        CancellationToken ct)
+    {
+        if (!MarginGrainExtensions.TryParse(grain, out var parsedGrain))
+        {
+            return Results.BadRequest(new { error = "grain must be one of: day, month" });
+        }
+
+        var (ok, fromUtc, toUtc, error) =
+            Endpoints.Analytics.MarginAnalyticsEndpoints.ResolveWindow(from, to, timeProvider);
+        if (!ok)
+        {
+            return Results.BadRequest(new { error });
+        }
+
+        var report = await analytics.GetPlatformMarginAsync(
+            fromUtc,
+            toUtc,
+            parsedGrain,
+            limit ?? 25,
+            ct);
+
+        return Results.Ok(report);
+    }
 }
