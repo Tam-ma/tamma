@@ -20,8 +20,6 @@ import type {
   RAGTestRequest,
   RAGTestResult,
   MCPServerInfo,
-  MCPTool,
-  MCPToolInvokeResult,
   MCPServerLog,
   ContextTestRequest,
   ContextTestResult,
@@ -148,15 +146,6 @@ export const mcpApi = {
     fetchJSON<{ message: string }>(`/kb/mcp/servers/${name}/restart`, {
       method: 'POST',
     }),
-
-  listTools: (serverName: string) =>
-    fetchJSON<MCPTool[]>(`/kb/mcp/servers/${serverName}/tools`),
-
-  invokeTool: (serverName: string, toolName: string, args: Record<string, unknown>) =>
-    fetchJSON<MCPToolInvokeResult>(
-      `/kb/mcp/servers/${serverName}/tools/${toolName}/invoke`,
-      { method: 'POST', body: JSON.stringify({ arguments: args }) },
-    ),
 
   getServerLogs: (name: string, limit = 100) =>
     fetchJSON<MCPServerLog[]>(`/kb/mcp/servers/${name}/logs?limit=${limit}`),

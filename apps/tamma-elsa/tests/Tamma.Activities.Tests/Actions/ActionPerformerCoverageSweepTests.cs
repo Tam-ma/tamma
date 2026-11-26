@@ -91,7 +91,7 @@ public class ActionPerformerCoverageSweepTests
     internal static readonly IReadOnlyDictionary<string, ReservedAction> ReservedActions =
         new Dictionary<string, ReservedAction>(StringComparer.Ordinal)
         {
-            // ── Effects reserved with no live pipeline/performer yet (3) ────
+            // ── Effects reserved with no live pipeline/performer yet (4) ────
             ["effect:deploy.dev"] = new(
                 "No dev stage exists in DeploymentPipelineWorkflow (shipped pipeline is QA -> UAT -> Prod only).",
                 "43-12"),
@@ -101,6 +101,9 @@ public class ActionPerformerCoverageSweepTests
             ["effect:git.checks.bypass"] = new(
                 "No code path in the tree bypasses required PR checks yet.",
                 "43-12"),
+            ["effect:mcp.tool.invoke"] = new(
+                "Story 42-6 Part A retired the ungoverned POST /api/kb/mcp/tools/invoke proxy; governed MCP tool invocation awaits Story 42-6 Part B.",
+                "42-6"),
 
             // ── Document types awaiting their producer workflow (4 — mirrors ContractBindingTests.PendingProducerCells) ──
             ["document-type:test-plan"] = new(
@@ -305,7 +308,6 @@ public class ActionPerformerCoverageSweepTests
             (ExternalEffect.TrackerWorkItemSetStatus, typeof(TrackerEndpoints), nameof(TrackerEndpoints.SetWorkItemStatus)),
             (ExternalEffect.TrackerPreferencesSet, typeof(TrackerEndpoints), nameof(TrackerEndpoints.PutPreferences)),
             (ExternalEffect.TrackerPreferencesDelete, typeof(TrackerEndpoints), nameof(TrackerEndpoints.DeletePreferences)),
-            (ExternalEffect.McpToolInvoke, typeof(KbEndpoints), nameof(KbEndpoints.InvokeMcpTool)),
         };
         foreach (var (effect, handlerType, methodName) in humanRoutePerformers)
         {

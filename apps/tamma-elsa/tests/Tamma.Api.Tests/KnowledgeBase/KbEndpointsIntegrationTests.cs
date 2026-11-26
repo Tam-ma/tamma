@@ -160,22 +160,6 @@ public class KbEndpointsIntegrationTests
     }
 
     [Test]
-    public async Task InvokeMcpTool_ForwardsBody()
-    {
-        _handler.Respond(
-            "/kb/mcp/tools/invoke",
-            HttpStatusCode.OK,
-            new { success = true, content = "result", durationMs = 5 });
-
-        var resp = await _client.PostAsJsonAsync(
-            "/api/kb/mcp/tools/invoke",
-            new { serverName = "github", toolName = "read_file", arguments = new { path = "README.md" } });
-
-        resp.StatusCode.Should().Be(HttpStatusCode.OK);
-        _handler.LastBody.Should().Contain("read_file");
-    }
-
-    [Test]
     public async Task GetContextHistory_IssuesGetWithLimit()
     {
         _handler.Respond(
@@ -271,8 +255,6 @@ public class KbEndpointsIntegrationTests
             ("POST",   "/api/kb/mcp/servers/github/stop",  "/kb/mcp/servers/github/stop",  JsonBody(new { })),
             ("GET",    "/api/kb/mcp/config",               "/kb/mcp/config",               null),
             ("PUT",    "/api/kb/mcp/config",               "/kb/mcp/config",               JsonBody(new { })),
-            ("GET",    "/api/kb/mcp/tools",                "/kb/mcp/tools",                null),
-            ("POST",   "/api/kb/mcp/tools/invoke",         "/kb/mcp/tools/invoke",         JsonBody(new { serverName = "s", toolName = "t" })),
 
             ("GET",    "/api/kb/context/history",  "/kb/context/history",  null),
             ("POST",   "/api/kb/context/feedback", "/kb/context/feedback", JsonBody(new { requestId = "r", helpful = true })),
@@ -283,7 +265,7 @@ public class KbEndpointsIntegrationTests
             ("GET",    "/api/kb/analytics/costs", "/kb/analytics/costs", null),
         };
 
-        expectations.Length.Should().Be(30);
+        expectations.Length.Should().Be(28);
 
         foreach (var e in expectations)
         {

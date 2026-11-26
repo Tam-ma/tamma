@@ -13,7 +13,7 @@ export interface MCPServerListProps {
   onStart: (name: string) => void;
   onStop: (name: string) => void;
   onRestart: (name: string) => void;
-  onViewTools: (name: string) => void;
+  onViewTools?: ((name: string) => void) | undefined;
   onViewLogs: (name: string) => void;
 }
 
@@ -42,7 +42,7 @@ export function MCPServerList({
           onStart={() => onStart(server.name)}
           onStop={() => onStop(server.name)}
           onRestart={() => onRestart(server.name)}
-          onViewTools={() => onViewTools(server.name)}
+          onViewTools={onViewTools ? () => onViewTools(server.name) : undefined}
           onViewLogs={() => onViewLogs(server.name)}
         />
       ))}

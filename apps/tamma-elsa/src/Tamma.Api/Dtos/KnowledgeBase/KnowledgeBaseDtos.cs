@@ -58,12 +58,6 @@ public sealed record McpServerConfig(
     bool Enabled,
     string? Url);
 
-/// <summary>Request body for POST /api/kb/mcp/tools/invoke.</summary>
-public sealed record McpInvokeRequest(
-    string ServerName,
-    string ToolName,
-    object? Arguments);
-
 /// <summary>Request body for POST /api/kb/context/feedback.</summary>
 public sealed record ContextFeedbackRequest(
     string RequestId,

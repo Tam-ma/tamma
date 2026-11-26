@@ -112,7 +112,7 @@ public static class KbEndpoints
         CancellationToken ct)
         => Results.Ok(await client.GetRagMetricsAsync(ct));
 
-    // ── MCP (8) ──────────────────────────────────────────────────────────
+    // ── MCP (6 — sidecar KB admin only; tool routes retired by Story 42-6 Part A) ──
 
     public static async Task<IResult> ListMcpServers(
         [FromServices] IIntelligenceHttpClient client,
@@ -147,18 +147,6 @@ public static class KbEndpoints
         [FromBody] UpdateMcpConfigRequest body,
         CancellationToken ct)
         => Results.Ok(await client.UpdateMcpConfigAsync(body, ct));
-
-    public static async Task<IResult> ListMcpTools(
-        [FromServices] IIntelligenceHttpClient client,
-        [FromQuery(Name = "serverName")] string? serverName,
-        CancellationToken ct)
-        => Results.Ok(await client.ListMcpToolsAsync(serverName, ct));
-
-    public static async Task<IResult> InvokeMcpTool(
-        [FromServices] IIntelligenceHttpClient client,
-        [FromBody] McpInvokeRequest body,
-        CancellationToken ct)
-        => Results.Ok(await client.InvokeMcpToolAsync(body, ct));
 
     // ── Context (3) ──────────────────────────────────────────────────────
 

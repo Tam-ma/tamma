@@ -88,7 +88,7 @@ public sealed class IntelligenceHttpClient : IIntelligenceHttpClient
     public Task<object> GetRagMetricsAsync(CancellationToken ct = default)
         => GetAsync("/kb/rag/metrics", ct);
 
-    // ── MCP (8) ──────────────────────────────────────────────────────────
+    // ── MCP (6 — sidecar KB admin only; tool routes retired by Story 42-6 Part A) ──
 
     public Task<object> ListMcpServersAsync(CancellationToken ct = default)
         => GetAsync("/kb/mcp/servers", ct);
@@ -107,17 +107,6 @@ public sealed class IntelligenceHttpClient : IIntelligenceHttpClient
 
     public Task<object> UpdateMcpConfigAsync(UpdateMcpConfigRequest body, CancellationToken ct = default)
         => PutAsync("/kb/mcp/config", body, ct);
-
-    public Task<object> ListMcpToolsAsync(string? serverName = null, CancellationToken ct = default)
-    {
-        var path = string.IsNullOrEmpty(serverName)
-            ? "/kb/mcp/tools"
-            : $"/kb/mcp/tools?serverName={Uri.EscapeDataString(serverName)}";
-        return GetAsync(path, ct);
-    }
-
-    public Task<object> InvokeMcpToolAsync(McpInvokeRequest body, CancellationToken ct = default)
-        => PostAsync("/kb/mcp/tools/invoke", body, ct);
 
     // ── Context (3) ──────────────────────────────────────────────────────
 
