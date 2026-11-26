@@ -55,7 +55,7 @@ P1 — Amendment 2-E state-machined 43-11's original toggle encoding (`min_auton
 
 ## Out of Scope
 
-- A platform-ceiling write path (still out per 43-6).
+- A platform-ceiling write path *(Amended by [Story 43-18](../story-43-18/43-18-configurable-action-levels-admin.md) §5 / AC10: the platform-ceiling write path already shipped under `PlatformOwnerAccess` at `/api/admin/actions/ceiling` in `apps/tamma-elsa/src/Tamma.Api/Endpoints/ActionPolicyEndpoints.cs` — out of scope to modify in 43-15, not absent.)*
 - Group-row UX beyond the bypass-closing predicate — group rows stay the admin bulk tool.
 - The telemetry emitters themselves (`.ALLOWED` count events, Seam B decision events, the actionKey index — Amendment 2-H's other ACs live with the seam work in 43-9's lane, not here; this story only reads what exists).
 

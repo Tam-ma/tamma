@@ -228,14 +228,15 @@ public sealed class CatalogDefaultToolLoopAutonomyGate : IToolLoopAutonomyGate
             var snapshot = _snapshots.GetSnapshotForAmbient(_tenantContext?.TenantId);
             var state = _breakGlass?.Current();
             var resolved = AutonomyGateEvaluator.ResolveEffectiveMinAutonomy(
-                descriptor, snapshot, state);
+                descriptor, snapshot, state, _snapshots as IShippedLevelResolver);
             if (resolved.Source == ActionAssignmentSource.BreakGlass)
             {
                 breakGlass = state;
             }
             return resolved;
         }
-        return (descriptor.DefaultMinAutonomy, ActionAssignmentSource.SystemDefault);
+        return (CatalogDefaultShippedLevelResolver.Instance.EffectiveShippedLevel(descriptor.Key),
+            ActionAssignmentSource.SystemDefault);
     }
 
     /// <summary>

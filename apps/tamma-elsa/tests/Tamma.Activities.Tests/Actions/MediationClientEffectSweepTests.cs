@@ -270,6 +270,16 @@ public class MediationClientEffectSweepTests
                 "PUT /api/actions/policy/groups/{group}/enforce — admin policy write (machinery member), "
                 + "no TammaApiClient method"),
 
+            // Story 43-18 — platform-scope shipped-level override writes. Reached by
+            // a platform owner (PlatformOwnerAccess), never through the engine's
+            // mediation client.
+            [ExternalEffect.GovernanceActionLevelSet] = new(SiteKind.RouteOnly, null,
+                "PUT /api/admin/actions/levels/{ns}/{key} — platform-owner shipped-level override write "
+                + "(machinery member), no TammaApiClient method"),
+            [ExternalEffect.GovernanceActionLevelDelete] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/admin/actions/levels/{ns}/{key} — platform-owner shipped-level override "
+                + "delete (machinery member), no TammaApiClient method"),
+
             // ── In-process: no HTTP hop, so no route sweep can ever see them ──
             [ExternalEffect.ProcessSpawn] = new(SiteKind.InProcess, null,
                 "ShellExecuteTool's ProcessStartInfo, inside the tool loop — invisible to any route sweep"),

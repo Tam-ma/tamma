@@ -45,6 +45,16 @@ public class ActionGovernanceResidencyTests
         return File.ReadAllText(path);
     }
 
+    private static string LevelOverridesMigrationText()
+    {
+        var path = Directory
+            .GetFiles(
+                Path.Combine(RepoRoot(), "src", "Tamma.Data", "Migrations", "ControlPlane"),
+                "*_AddActionLevelOverrides.cs")
+            .Single(f => !f.EndsWith(".Designer.cs", StringComparison.Ordinal));
+        return File.ReadAllText(path);
+    }
+
     [Test]
     public void Tables_AreNotInTheDestructiveDropList()
     {
@@ -56,11 +66,11 @@ public class ActionGovernanceResidencyTests
         match.Success.Should().BeTrue("the Epic 19 startup wipe literal must exist in Program.cs");
 
         var dropList = match.Groups["tables"].Value;
-        foreach (var table in new[] { "action_assignments", "action_authorizations" })
+        foreach (var table in new[] { "action_assignments", "action_authorizations", "action_level_overrides" })
         {
             dropList.Should().NotContain(table,
-                because: "Story 43-5 AC5 — {0} is SAFETY POLICY, not operational data: it is the "
-                + "only thing between an agent and a production deploy, and the DROP list runs on "
+                because: "Story 43-5 AC5 / Story 43-18 AC1 — {0} is SAFETY POLICY, not operational data: "
+                + "it is the only thing between an agent and a production deploy, and the DROP list runs on "
                 + "every restart. Putting it on the list would silently revert every admin "
                 + "tightening on the next deploy — a governance surface that lies. This exclusion "
                 + "is deliberate and tested; do NOT add the table 'for consistency'.", table);
@@ -85,6 +95,7 @@ public class ActionGovernanceResidencyTests
 
         tables.Should().Contain("action_assignments");
         tables.Should().Contain("action_authorizations");
+        tables.Should().Contain("action_level_overrides");
     }
 
     [Test]
@@ -122,6 +133,27 @@ public class ActionGovernanceResidencyTests
         text.Should().NotContain("REFERENCES tenants",
             "an FK to a wiped table would cascade the surviving policy rows away");
         text.Should().NotContain("REFERENCES users");
+    }
+
+    [Test]
+    public void LevelOverridesMigration_IsIdempotent_AndHasNoNumericCheckOnLevel()
+    {
+        // Story 43-18 AC1 — identical survival and no-numeric-CHECK posture to
+        // action_assignments: IF NOT EXISTS DDL, no FK to tenants/users, and no
+        // numeric CHECK on Level (validated domain-side by ActionLevelOverrideValidator).
+        var text = LevelOverridesMigrationText();
+
+        Regex.Matches(text, "CREATE TABLE IF NOT EXISTS").Count.Should().Be(1);
+        Regex.Matches(text, "CREATE UNIQUE INDEX IF NOT EXISTS").Count.Should().Be(1);
+        text.Should().NotContain("migrationBuilder.CreateTable(",
+            "the model-diff DDL is not idempotent; raw IF NOT EXISTS SQL is required");
+        text.Should().NotContain("REFERENCES tenants",
+            "an FK to a wiped table would cascade surviving level overrides away");
+        text.Should().NotContain("REFERENCES users");
+        text.Should().Contain("\"Level\" integer NOT NULL");
+        Regex.IsMatch(text, "\"Level\"\\s*(>=|<=|>|<|BETWEEN|%)", RegexOptions.IgnoreCase)
+            .Should().BeFalse(
+                "no numeric CHECK on Level may be frozen into the migration (43-18 AC1)");
     }
 
     [Test]

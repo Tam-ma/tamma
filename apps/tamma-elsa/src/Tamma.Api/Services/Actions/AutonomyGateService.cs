@@ -101,6 +101,7 @@ public sealed class AutonomyGateService : IAutonomyGate
     private readonly ActionGateEventsService _events;
     private readonly IGovernanceBreakGlass? _breakGlass;
     private readonly IActionAuthorizationLedger? _ledger;
+    private readonly IShippedLevelResolver? _shippedLevels;
     private readonly ILogger<AutonomyGateService>? _logger;
     private readonly TimeProvider _time;
 
@@ -112,7 +113,8 @@ public sealed class AutonomyGateService : IAutonomyGate
         IGovernanceBreakGlass? breakGlass = null,
         ILogger<AutonomyGateService>? logger = null,
         TimeProvider? timeProvider = null,
-        IActionAuthorizationLedger? ledger = null)
+        IActionAuthorizationLedger? ledger = null,
+        IShippedLevelResolver? shippedLevels = null)
     {
         _breakGlass = breakGlass;
         ArgumentNullException.ThrowIfNull(principals);
@@ -131,6 +133,7 @@ public sealed class AutonomyGateService : IAutonomyGate
         // assignment repository. A host without one has no grants to consult and
         // every RequiresHuman simply stays RequiresHuman — fail-closed.
         _ledger = ledger;
+        _shippedLevels = shippedLevels ?? snapshots as IShippedLevelResolver;
     }
 
     /// <inheritdoc />
@@ -156,7 +159,8 @@ public sealed class AutonomyGateService : IAutonomyGate
         {
             var snapshot = _snapshots.GetSnapshot(principal);
             var baseRules = await ResolveBaseRulesAsync(principal, ct).ConfigureAwait(false);
-            decision = AutonomyGateEvaluator.Evaluate(query, snapshot, baseRules, breakGlass);
+            decision = AutonomyGateEvaluator.Evaluate(
+                query, snapshot, baseRules, breakGlass, _shippedLevels);
         }
         catch (Exception ex)
         {

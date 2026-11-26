@@ -44,17 +44,26 @@ public static class ActionCatalogGovernanceServiceCollectionExtensions
         {
             services.TryAddSingleton<IActionAssignmentRepository, EfActionAssignmentRepository>();
             services.TryAddSingleton<IActionAuthorizationLedger, EfActionAuthorizationLedger>();
+            services.TryAddSingleton<IActionLevelOverrideRepository, EfActionLevelOverrideRepository>();
         }
 
         // The singleton snapshot store (the hardened ProviderSettingsStore
         // patterns: volatile whole-snapshot, 60 s TTL, version-gated installs,
         // invalidate-on-write) + its cold-start priming hosted service.
-        services.TryAddSingleton<IGovernancePolicySnapshotProvider>(sp =>
+        // Story 43-18: the same singleton serves both IGovernancePolicySnapshotProvider
+        // and IShippedLevelResolver so there is ONE authoritative snapshot of
+        // action_assignments + action_level_overrides in the host.
+        services.TryAddSingleton<GovernancePolicySnapshotStore>(sp =>
             new GovernancePolicySnapshotStore(
                 sp.GetService<IActionAssignmentRepository>(),
                 sp.GetRequiredService<Services.PromptStore.ITammaModeProvider>(),
                 sp.GetRequiredService<ILogger<GovernancePolicySnapshotStore>>(),
-                sp.GetService<TimeProvider>()));
+                sp.GetService<TimeProvider>(),
+                sp.GetService<IActionLevelOverrideRepository>()));
+        services.TryAddSingleton<IGovernancePolicySnapshotProvider>(sp =>
+            sp.GetRequiredService<GovernancePolicySnapshotStore>());
+        services.TryAddSingleton<IShippedLevelResolver>(sp =>
+            sp.GetRequiredService<GovernancePolicySnapshotStore>());
         services.TryAddEnumerable(
             ServiceDescriptor.Singleton<IHostedService, GovernancePolicySnapshotPrimingService>());
 

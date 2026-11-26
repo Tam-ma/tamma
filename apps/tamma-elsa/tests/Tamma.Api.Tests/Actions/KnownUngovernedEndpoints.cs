@@ -283,7 +283,12 @@ internal static class KnownUngovernedEndpoints
     // effect:governance.policy.group-enforce.set (not enforcing) — neither the backlog
     // (PinnedCount) nor the D17 exception set moves. New state: 208 baselined + 2
     // exceptions + 37 bound = 247.
-    internal const int PinnedInScopeCount = 247;
+    // Story 43-18 — 247 → 249: PUT/DELETE /api/admin/actions/levels/{ns}/{key} are two
+    // NEW in-scope mutating endpoints, BORN BOUND to the machinery members
+    // effect:governance.action-level.{set,delete} (not enforcing) — neither the backlog
+    // (PinnedCount) nor the D17 exception set moves. New state: 208 baselined + 2
+    // exceptions + 39 bound = 249.
+    internal const int PinnedInScopeCount = 249;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

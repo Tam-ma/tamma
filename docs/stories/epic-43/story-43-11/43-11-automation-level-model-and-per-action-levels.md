@@ -611,7 +611,7 @@ The resolution: **`AcceptorRequirement` stops being a per-type shipped constant 
 - **Changing `AcceptanceDefaults.DefaultAutonomyLevel`.** It stays 70. Whether a deployment should ship at a higher dial is AC9's decision, not a constant change here.
 - **Per-server / per-tool MCP catalog members.** `effect:mcp.tool.invoke` stays one coarse member (`ActionGroup.cs:149-154`); giving it granularity is epic open question 1.
 - **New enforcement seams.** Story 43-9. This story assigns levels; it does not widen what reads them.
-- **A platform-ceiling write path.** Still out of scope per 43-6 (`43-6-admin-api-and-rbac.md:216-218`); the ceiling is honoured by AC8's test, not authored.
+- **A platform-ceiling write path.** *(Amended by [Story 43-18](../story-43-18/43-18-configurable-action-levels-admin.md) §5 / AC10: the platform-ceiling write path already shipped under `PlatformOwnerAccess` at `/api/admin/actions/ceiling` in `apps/tamma-elsa/src/Tamma.Api/Endpoints/ActionPolicyEndpoints.cs` — it was out of scope to modify in 43-11, not absent from the codebase.)*
 - **The `mode`-scope assignment row** (`ActionAssignment.cs:60-62`). Untouched.
 - **Two-person approval for a toggle.** No such mechanism exists anywhere in the repo (43-6 Out of Scope).
 

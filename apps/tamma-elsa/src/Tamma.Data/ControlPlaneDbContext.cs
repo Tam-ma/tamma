@@ -789,6 +789,15 @@ public class ControlPlaneDbContext : DbContext
     /// </summary>
     public DbSet<ActionAuthorization> ActionAuthorizations => Set<ActionAuthorization>();
 
+    /// <summary>
+    /// Story 43-18 (AC1) — platform-scope overrides of the catalog's shipped
+    /// zone levels (<c>ActionDescriptor.DefaultMinAutonomy</c>). CP-resident,
+    /// platform-global, FK-free, and EXCLUDED from the destructive startup
+    /// DROP list (same safety-policy survival posture as
+    /// <see cref="ActionAssignments"/>).
+    /// </summary>
+    public DbSet<ActionLevelOverride> ActionLevelOverrides => Set<ActionLevelOverride>();
+
     // Story 28-1 PR D: the 11 + 4 mentorship tenant-resident entities
     // (AgentConfig, PromptOverride, ProviderHealth, ProviderDiagnostic,
     // SanitizationRule, WorkflowDefinition, WorkflowInstance, DomainEvent,

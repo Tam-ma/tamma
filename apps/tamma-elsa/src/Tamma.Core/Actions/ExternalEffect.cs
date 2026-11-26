@@ -419,6 +419,27 @@ public enum ExternalEffect
     /// can be BOUND — 43-9's ratchets forbid a new ungoverned mutating route —
     /// and so an admin can still switch it off with <c>enabled=false</c>.</para></summary>
     [Wire("governance.policy.group-enforce.set")] GovernancePolicyGroupEnforceSet,
+
+    // ── Story 43-18 (2026-11-26) — platform action-level override writes ──
+    // Appended at the END so the existing wire-pin order is untouched.
+
+    /// <summary><c>PUT /api/admin/actions/levels/{ns}/{key}</c> —
+    /// <c>ActionPolicyEndpoints.PutActionLevelOverride</c>. Sets a platform-scope
+    /// override for an action's shipped automation level.
+    ///
+    /// <para>MACHINERY (Story 43-13): platform-owner policy administration is
+    /// never dial-governed; bound so 43-9's shrink-only ungoverned-route ratchet
+    /// stays intact.</para></summary>
+    [Wire("governance.action-level.set")] GovernanceActionLevelSet,
+
+    /// <summary><c>DELETE /api/admin/actions/levels/{ns}/{key}</c> —
+    /// <c>ActionPolicyEndpoints.DeleteActionLevelOverride</c>. Removes a
+    /// platform-scope level override so the shipped catalog constant applies again.
+    ///
+    /// <para>MACHINERY (Story 43-13): platform-owner policy administration is
+    /// never dial-governed; bound so 43-9's shrink-only ungoverned-route ratchet
+    /// stays intact.</para></summary>
+    [Wire("governance.action-level.delete")] GovernanceActionLevelDelete,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>
