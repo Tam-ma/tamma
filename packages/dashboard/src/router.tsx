@@ -33,6 +33,11 @@ import { MyApiKeysPage } from './pages/MyApiKeysPage.js';
 import { ReposPage } from './pages/repos/ReposPage.js';
 import { RunsPage } from './pages/runs/RunsPage.js';
 import { RunDetailPage } from './pages/runs/RunDetailPage.js';
+// Story 44-6 — native work-item tracker UI (/work, never /tasks).
+import { WorkListPage } from './pages/work/WorkListPage.js';
+import { WorkBoardPage } from './pages/work/WorkBoardPage.js';
+import { WorkItemDetailPage } from './pages/work/WorkItemDetailPage.js';
+import { ProjectsAdminPage } from './pages/work/ProjectsAdminPage.js';
 import { OrganizationLayout } from './pages/organization/OrganizationLayout.js';
 import { TenantAdminGuard } from './guards/TenantAdminGuard.js';
 // Story 18-4: onboarding wizard. Lives outside AppLayout because new
@@ -113,6 +118,18 @@ export const router = createBrowserRouter([
       { path: '/repos', element: <ReposPage /> },
       { path: '/runs', element: <RunsPage /> },
       { path: '/runs/:runId', element: <RunDetailPage /> },
+      // Story 44-6 — native work-item tracker routes (literal before parameterized).
+      { path: '/work', element: <WorkListPage /> },
+      { path: '/work/board', element: <WorkBoardPage /> },
+      {
+        path: '/work/projects',
+        element: (
+          <TenantAdminGuard>
+            <ProjectsAdminPage />
+          </TenantAdminGuard>
+        ),
+      },
+      { path: '/work/:key', element: <WorkItemDetailPage /> },
       // Tenant-admin routes (Story 18-8) — gated by TenantAdminGuard which
       // reads the caller's role inside their currently-active tenant from
       // /auth/me, NOT the platform role.

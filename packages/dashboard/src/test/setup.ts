@@ -36,5 +36,36 @@ Object.defineProperty(navigator, 'clipboard', {
   },
 });
 
+// Node 25+ exposes a global localStorage stub without --localstorage-file whose
+// methods are not functions; ensure jsdom tests always have a working Storage.
+if (typeof window !== 'undefined' && typeof window.localStorage?.getItem !== 'function') {
+  const backing = new Map<string, string>();
+  const memoryStorage: Storage = {
+    get length() {
+      return backing.size;
+    },
+    clear() {
+      backing.clear();
+    },
+    getItem(key: string) {
+      return backing.has(key) ? backing.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(backing.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      backing.delete(key);
+    },
+    setItem(key: string, value: string) {
+      backing.set(key, String(value));
+    },
+  };
+  Object.defineProperty(window, 'localStorage', {
+    configurable: true,
+    writable: true,
+    value: memoryStorage,
+  });
+}
+
 // Vitest handles import.meta.env automatically; no need to set VITE_API_BASE_URL here.
 // The admin-api-client uses ?? '/api' as fallback.

@@ -30,10 +30,13 @@ const MEMBER_NAV_GROUPS: NavGroup[] = [
     ],
   },
   {
-    // Story 21-4: tenant-facing Repos & Workflow Runs. Member-visible — the
-    // API scopes every read to the caller's tenant.
+    // Story 21-4 & Story 44-6: tenant-facing Repos, Workflow Runs & Work Tracker.
+    // Member-visible — the API scopes every read to the caller's tenant.
     label: 'Workspace',
     items: [
+      { to: '/work', label: 'Work Items', end: true },
+      { to: '/work/board', label: 'Work Board' },
+      { to: '/work/projects', label: 'Work Projects' },
       { to: '/repos', label: 'Repositories' },
       { to: '/runs', label: 'Workflow Runs' },
     ],

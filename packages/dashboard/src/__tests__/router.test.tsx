@@ -9,6 +9,7 @@ import type { ReactElement } from 'react';
 import type { RouteObject } from 'react-router-dom';
 import { router } from '../router.js';
 import { AdminGuard } from '../guards/AdminGuard.js';
+import { TenantAdminGuard } from '../guards/TenantAdminGuard.js';
 
 function flatten(routes: RouteObject[]): RouteObject[] {
   return routes.flatMap((r) => [r, ...(r.children != null ? flatten(r.children) : [])]);
@@ -24,5 +25,21 @@ describe('router — /admin/providers (Story 46-2)', () => {
     // RBAC applies before anything of the page (even its Suspense) renders.
     const element = route?.element as ReactElement;
     expect(element.type).toBe(AdminGuard);
+  });
+});
+
+describe('router — /work tracker routes (Story 44-6)', () => {
+  it('registers /work, /work/board, /work/:key and /work/projects under TenantAdminGuard', () => {
+    const all = flatten(router.routes as RouteObject[]);
+    expect(all.find((r) => r.path === '/work')).toBeDefined();
+    expect(all.find((r) => r.path === '/work/board')).toBeDefined();
+    expect(all.find((r) => r.path === '/work/:key')).toBeDefined();
+
+    const projectsRoute = all.find((r) => r.path === '/work/projects');
+    expect(projectsRoute).toBeDefined();
+    expect((projectsRoute?.element as ReactElement).type).toBe(TenantAdminGuard);
+
+    // D2: never register a /tasks route in packages/dashboard.
+    expect(all.find((r) => r.path === '/tasks')).toBeUndefined();
   });
 });
