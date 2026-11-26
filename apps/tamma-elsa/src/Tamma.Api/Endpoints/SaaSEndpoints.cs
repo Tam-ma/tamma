@@ -65,6 +65,11 @@ public static class SaaSEndpoints
                 "budget_exceeded" => Results.Json(
                     new { error = "budget_exceeded", detail = "tenant budget exceeded" },
                     statusCode: StatusCodes.Status402PaymentRequired),
+                "quota_exceeded" => Results.Json(
+                    response.QuotaDenial is not null
+                        ? Services.Billing.QuotaResponse.From(response.QuotaDenial)
+                        : new Services.Billing.QuotaResponse("quota_exceeded", "platform_tokens", null, 0, 0),
+                    statusCode: StatusCodes.Status402PaymentRequired),
                 "invalid_request" => Results.BadRequest(new { error = response.ErrorReason }),
                 _ => Results.Json(
                     new { error = response.ErrorReason ?? "upstream_error" },

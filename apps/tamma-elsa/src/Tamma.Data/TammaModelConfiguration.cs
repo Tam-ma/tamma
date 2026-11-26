@@ -1773,6 +1773,34 @@ internal static class TammaModelConfiguration
                 .HasForeignKey(e => e.TenantId)
                 .OnDelete(DeleteBehavior.Cascade);
         });
+
+        // ── QuotaNotification (Story 35-6 — per-period WARN/EXCEEDED dedup ledger) ──
+        modelBuilder.Entity<QuotaNotification>(entity =>
+        {
+            entity.ToTable("quota_notifications", t =>
+            {
+                t.HasCheckConstraint(
+                    "ck_quota_notifications_level",
+                    "\"Level\" IN ('warn','exceeded')");
+            });
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.Id).HasDefaultValueSql("gen_random_uuid()");
+            entity.Property(e => e.WhichQuota).IsRequired().HasMaxLength(64);
+            entity.Property(e => e.PeriodStart).HasColumnType("timestamp with time zone");
+            entity.Property(e => e.Level).IsRequired().HasMaxLength(16);
+            entity.Property(e => e.CreatedAt).HasDefaultValueSql("now()");
+
+            // Authoritative single-emission dedup key per (tenant, dimension, period, level).
+            entity.HasIndex(e => new { e.TenantId, e.WhichQuota, e.PeriodStart, e.Level })
+                .HasDatabaseName("IX_quota_notifications_dedup")
+                .IsUnique();
+
+            // Tenant purge cascades its quota notification ledger rows.
+            entity.HasOne(e => e.Tenant)
+                .WithMany()
+                .HasForeignKey(e => e.TenantId)
+                .OnDelete(DeleteBehavior.Cascade);
+        });
     }
 
     /// <summary>

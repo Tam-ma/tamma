@@ -823,7 +823,8 @@ public static class EngineEndpoints
         TriggerCiRequest req,
         Services.Ci.ICiMediationService ci,
         ITenantContext tc,
-        CancellationToken ct)
+        CancellationToken ct,
+        Services.Billing.IQuotaService? quota = null)
     {
         if (string.IsNullOrEmpty(req.Repository))
             return Results.BadRequest(new { error = "repository is required" });
@@ -835,6 +836,18 @@ public static class EngineEndpoints
         var (owner, name) = ParseOwnerRepo(req.Repository);
         if (owner is null || name is null)
             return Results.BadRequest(new { error = "Invalid repo format" });
+
+        // Story 35-6 (AC5) — pre-dispatch concurrent-workflow quota gate.
+        if (quota is not null && tc.TenantId is Guid quotaTenantId && quotaTenantId != Guid.Empty)
+        {
+            var decision = await quota.CheckConcurrentWorkflowQuotaAsync(quotaTenantId, ct);
+            if (!decision.Allowed)
+            {
+                return Results.Json(
+                    Services.Billing.QuotaResponse.From(decision),
+                    statusCode: decision.HttpStatus);
+            }
+        }
 
         var result = await ci.TriggerTestsAsync(
             tc.TenantId,
@@ -891,10 +904,24 @@ public static class EngineEndpoints
     public static async Task<IResult> ExecuteTask(
         ExecuteTaskRequest req,
         IExecuteTaskService taskService,
-        ITenantContext tc)
+        ITenantContext tc,
+        Services.Billing.IQuotaService? quota = null,
+        CancellationToken ct = default)
     {
         if (string.IsNullOrWhiteSpace(req.Prompt))
             return Results.BadRequest(new { error = "prompt is required" });
+
+        // Story 35-6 (AC5) — pre-dispatch concurrent-workflow quota gate.
+        if (quota is not null && tc.TenantId is Guid quotaTenantId && quotaTenantId != Guid.Empty)
+        {
+            var decision = await quota.CheckConcurrentWorkflowQuotaAsync(quotaTenantId, ct);
+            if (!decision.Allowed)
+            {
+                return Results.Json(
+                    Services.Billing.QuotaResponse.From(decision),
+                    statusCode: decision.HttpStatus);
+            }
+        }
 
         var input = new ExecuteTaskInput(
             Prompt: req.Prompt,

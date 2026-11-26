@@ -67,13 +67,15 @@ public sealed class SubscriptionMirrorUpdater
     private readonly IEventRepository _events;
     private readonly TimeProvider _clock;
     private readonly ILogger<SubscriptionMirrorUpdater> _logger;
+    private readonly IQuotaService? _quotaService;
 
     public SubscriptionMirrorUpdater(
         ControlPlaneDbContext db,
         IBillingSubscriptionRepository repo,
         IEventRepository events,
         TimeProvider clock,
-        ILogger<SubscriptionMirrorUpdater> logger)
+        ILogger<SubscriptionMirrorUpdater> logger,
+        IQuotaService? quotaService = null)
     {
         ArgumentNullException.ThrowIfNull(db);
         ArgumentNullException.ThrowIfNull(repo);
@@ -86,6 +88,7 @@ public sealed class SubscriptionMirrorUpdater
         _events = events;
         _clock = clock;
         _logger = logger;
+        _quotaService = quotaService;
     }
 
     /// <summary>
@@ -170,6 +173,10 @@ public sealed class SubscriptionMirrorUpdater
 
         await ApplyTenantPlanLockstepAsync(tenantId, effectiveSlug, now, ct).ConfigureAwait(false);
         await _db.SaveChangesAsync(ct).ConfigureAwait(false);
+
+        // Story 35-6 (AC9) — immediately evict cached PlanQuota so upgrades
+        // (e.g. free → team) lift any HardBlock on the very next request.
+        _quotaService?.Invalidate(tenantId);
 
         // Emit the DCB event ONLY when the applied Stripe state changed the mirror
         // (a brand-new mirror always counts as a change). A pure replay (webhook

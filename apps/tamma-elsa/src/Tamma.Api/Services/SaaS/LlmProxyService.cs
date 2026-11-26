@@ -86,6 +86,7 @@ public sealed class LlmProxyService : ILlmProxyService
     private readonly IEventRepository _events;
     private readonly ILogger<LlmProxyService> _logger;
     private readonly Providers.IProviderSettingsStore? _settings;
+    private readonly IQuotaService? _quotaService;
 
     public LlmProxyService(
         IHttpClientFactory httpFactory,
@@ -93,7 +94,8 @@ public sealed class LlmProxyService : ILlmProxyService
         IBillingModeTagger billingModeTagger,
         IEventRepository events,
         ILogger<LlmProxyService> logger,
-        Providers.IProviderSettingsStore? settings = null)
+        Providers.IProviderSettingsStore? settings = null,
+        IQuotaService? quotaService = null)
     {
         _httpFactory = httpFactory;
         _diagnostics = diagnostics;
@@ -104,6 +106,9 @@ public sealed class LlmProxyService : ILlmProxyService
         // (null in pre-46 unit-test compositions): with no store, resolution
         // is request-model → DefaultModel const, byte-identical to before.
         _settings = settings;
+        // Story 35-6 (AC2/AC3) — BYOK-aware plan token-quota enforcement.
+        // OPTIONAL for pre-35-6 unit-test compositions; always injected in DI.
+        _quotaService = quotaService;
     }
 
     public async Task<ChatResponse> ChatAsync(ChatRequest request, Guid? tenantId, CancellationToken ct = default)
@@ -154,6 +159,35 @@ public sealed class LlmProxyService : ILlmProxyService
                     tenantId, model, billingMode, callId, success: false, reason: "budget_exceeded",
                     tokensUsed: 0, cost: 0m, durationMs: 0, ct);
                 return Error("budget_exceeded", "tenant budget exceeded");
+            }
+
+            // Story 35-6 (AC2/AC3) — BYOK-aware plan token-quota check (distinct
+            // from the absolute BudgetConfig USD ceiling above). BYOK short-circuits
+            // to Allowed inside IQuotaService; HardBlock over allowance returns
+            // "quota_exceeded" so SaaSEndpoints maps HTTP 402 with QuotaResponse.
+            if (_quotaService is not null)
+            {
+                var quotaDecision = await _quotaService
+                    .CheckTokenQuotaAsync(t, billingMode, projectedTokens: 0, ct);
+                if (!quotaDecision.Allowed)
+                {
+                    _logger.LogWarning(
+                        "LLM chat rejected: tenant {TenantId} over token quota (used={Used}, limit={Limit})",
+                        t, quotaDecision.Used, quotaDecision.Limit);
+                    await EmitUsageEventAsync(
+                        tenantId, model, billingMode, callId, success: false, reason: "quota_exceeded",
+                        tokensUsed: 0, cost: 0m, durationMs: 0, ct);
+                    return new ChatResponse(
+                        Success: false,
+                        Text: null,
+                        Model: null,
+                        PromptTokens: 0,
+                        CompletionTokens: 0,
+                        TotalTokens: 0,
+                        CostUsd: 0m,
+                        ErrorReason: "quota_exceeded",
+                        QuotaDenial: quotaDecision);
+                }
             }
         }
 

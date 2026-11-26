@@ -337,6 +337,19 @@ public static class OrgEndpoints
         if (tenant is null)
             return Results.NotFound(new { error = "Organization not found" });
 
+        // Story 35-6 (AC5) — enforce seat cap at the member-invite gate (429).
+        var quota = httpContext.RequestServices?.GetService<Services.Billing.IQuotaService>();
+        if (quota is not null)
+        {
+            var seatDecision = await quota.CheckSeatQuotaAsync(tenantId, httpContext.RequestAborted);
+            if (!seatDecision.Allowed)
+            {
+                return Results.Json(
+                    Services.Billing.QuotaResponse.From(seatDecision),
+                    statusCode: seatDecision.HttpStatus);
+            }
+        }
+
         // Strong token: 32 random bytes hex-encoded → 256 bits entropy
         // (finding 014).
         var rawToken = Convert.ToHexString(RandomNumberGenerator.GetBytes(32))
