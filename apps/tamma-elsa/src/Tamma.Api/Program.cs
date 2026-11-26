@@ -898,6 +898,32 @@ else
         Tamma.Platforms.Abstractions.IPlatformCredentialReader,
         Tamma.Api.Services.Platforms.NullPlatformCredentialReader>();
 }
+
+// Story 42-4 — tool credential / secret binding (Epic 42 Wave 1).
+// Lives wholly in Tamma.Api (outside Allowlist.IsEngineSurface). Conditional on the
+// Epic 29 SecretsDbContext factory exactly like SecretStorePlatformCredentialReader above;
+// when absent, NullToolSecretProvider fails closed with TOOL.SECRET_UNAVAILABLE.
+builder.Services.TryAddSingleton<
+    Tamma.Api.Services.Tools.Secrets.IToolSecretNameResolver,
+    Tamma.Api.Services.Tools.Secrets.DefaultToolSecretNameResolver>();
+builder.Services.TryAddSingleton<Tamma.Api.Services.Tools.Secrets.ToolSecretCache>();
+builder.Services.TryAddScoped<
+    Tamma.Api.Services.Tools.Secrets.IToolSecretAuditEmitter,
+    Tamma.Api.Services.Tools.Secrets.ToolSecretAuditEmitter>();
+if (builder.Services.Any(d => d.ServiceType ==
+    typeof(Microsoft.EntityFrameworkCore.IDbContextFactory<
+        Tamma.Api.Services.Secrets.Postgres.SecretsDbContext>)))
+{
+    builder.Services.TryAddScoped<
+        Tamma.Api.Services.Tools.Secrets.IToolSecretProvider,
+        Tamma.Api.Services.Tools.Secrets.ToolSecretProvider>();
+}
+else
+{
+    builder.Services.TryAddScoped<
+        Tamma.Api.Services.Tools.Secrets.IToolSecretProvider,
+        Tamma.Api.Services.Tools.Secrets.NullToolSecretProvider>();
+}
 // Epic 31 P2 — the Platform: config section (single-user activation; the SaaS
 // deployment-level system tier). Bound once at startup; when the section is
 // absent but a legacy GitHub:Token is configured, the options synthesize a
