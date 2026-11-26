@@ -1497,6 +1497,11 @@ builder.Services.AddEntitlementResolution();
 // IActivePlanAssignmentSource now reads the assignment table via this service.
 builder.Services.AddPlanAssignment();
 
+// Story 34-10 — published IPricingContract façade (single read-contract for
+// Billing/Enforcement) + idempotent pricing backfill service.
+builder.Services.AddPricingContract();
+builder.Services.AddPricingBackfill();
+
 // Wave C.4 §4 — per-process health monitor for TammaApiClient.
 // Singleton so the rolling 5-min failure window is shared across every
 // call site. Fires PLATFORM.API.UNHEALTHY via IAlertEventEmitter when
@@ -3785,6 +3790,10 @@ Tamma.Api.Endpoints.Billing.QuotaEndpoints.MapEngineTokenQuotaEndpoint(app);
 // Mapped in both modes; single-user short-circuits with "Billing is SaaS-only".
 Tamma.Api.Endpoints.Billing.InvoiceEndpoints.MapInvoiceEndpoints(app);
 
+// Story 34-10 (AC10, AC12) — platform-owner pricing backfill re-run trigger
+// (POST /api/admin/pricing/backfill, PlatformOwnerAccess, born .Governs-bound).
+Tamma.Api.Endpoints.Admin.AdminPricingBackfillEndpoint.MapAdminPricingBackfillEndpoint(app);
+
 // ── SaaS (API key auth) ──
 app.MapPost("/api/v1/llm/chat", SaaSEndpoints.LlmChat).RequireAuthorization();
 
@@ -4192,6 +4201,14 @@ using (var scope = app.Services.CreateScope())
         // doc contract says "invoked once at API startup after migrations
         // apply" — this is that call site.
         await Tamma.Data.Seeders.PlansSeeder.SeedAsync(dbContext);
+
+        // Story 34-10 — idempotent pricing backfill (legacy Plan.Quotas -> PlanEntitlement
+        // + one active TenantPlanAssignment per non-deleted tenant). Safe no-op on re-run.
+        var pricingBackfill = scope.ServiceProvider.GetService<Tamma.Api.Services.Pricing.IPricingBackfillService>();
+        if (pricingBackfill is not null)
+        {
+            await pricingBackfill.RunAsync(Tamma.Api.Services.Pricing.BackfillTrigger.Startup);
+        }
 
         // Story 34-11 — provider COST price-book. Ports the frozen
         // ProviderPricingService rate sheet into providers + provider_model_prices

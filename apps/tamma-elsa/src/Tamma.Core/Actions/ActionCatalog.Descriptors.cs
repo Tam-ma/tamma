@@ -760,6 +760,12 @@ public static partial class ActionCatalog
         Effect(ExternalEffect.OrchestratorConfigDelete, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Reset orchestrator configuration", "Delete the principal's custom orchestrator agent configuration so shipped defaults apply again.",
             "DELETE /api/orchestrator/config — OrchestratorConfigEndpoints.Delete", machinery: true),
 
+        // Story 34-10 (2026-11-26) — platform-owner pricing backfill re-run trigger.
+        // Machinery (43-13): human-operated admin ops trigger behind PlatformOwnerAccess;
+        // born .Governs-bound so 43-9's shrink-only ungoverned-route ratchet stays intact.
+        Effect(ExternalEffect.PricingBackfillRun, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Run pricing backfill", "Run the idempotent pricing catalog and tenant-plan-assignment backfill (Story 34-10).",
+            "POST /api/admin/pricing/backfill — AdminPricingBackfillEndpoint.Run", machinery: true),
+
         // ── automation (27) — EscalatableToHuman=false for the whole plane ────
 
         Automation(BackgroundActor.HourlyAnalyticsRollupScheduler, ActionGroup.PlatformAutomation, ActionRisk.Mutating, "Hourly analytics rollup", "Rolls up analytics hourly.",

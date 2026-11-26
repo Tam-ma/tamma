@@ -108,7 +108,8 @@ public class ActionVocabularyCountTests
         // 68 -> 74 (Story 44-4 AC11: + effect:tracker.iteration.{create,update,delete,commit,uncommit,apply-plan} — the six new mutating iteration routes, all born .Governs-bound).
         // 74 -> 85 (Story 39-20: + effect:access.{team,repo}.* — the eleven new tenant-admin team & repo-access routes, all born .Governs-bound as machinery).
         // 85 -> 87 (Story 39-17: + effect:orchestrator.config.{set,delete} — principal orchestrator config upsert/delete routes, born .Governs-bound as machinery).
-        Enum.GetValues<ExternalEffect>().Should().HaveCount(87);
+        // 87 -> 88 (Story 34-10: + effect:pricing.backfill.run — admin pricing backfill re-run trigger, born .Governs-bound as machinery).
+        Enum.GetValues<ExternalEffect>().Should().HaveCount(88);
     }
 
     [Test]
@@ -218,7 +219,8 @@ public class ActionVocabularyCountTests
         // 250 → 262 — tool 8 → 17 (+9 orchestrator tools), effect 85 → 87 (+orchestrator.config.{set,delete}), automation 36 → 37 (+orchestrator-agent-host) (Story 39-17).
         // 262 → 264 — platform-task 8 → 10 (+billing.meter_flush, +billing.usage_reconcile) (Story 35-3).
         // 264 → 265 — platform-task 10 → 11 (+billing.dunning.advance) (Story 35-8).
-        ActionCatalog.All.Should().HaveCount(265);
-        ActionCatalog.ByKey.Should().HaveCount(265);
+        // 265 → 266 — effect 87 → 88 (+pricing.backfill.run) (Story 34-10).
+        ActionCatalog.All.Should().HaveCount(266);
+        ActionCatalog.ByKey.Should().HaveCount(266);
     }
 }

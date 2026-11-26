@@ -544,6 +544,10 @@ public enum ExternalEffect
 
     /// <summary><c>DELETE /api/orchestrator/config</c> — <c>OrchestratorConfigEndpoints.Delete</c>.</summary>
     [Wire("orchestrator.config.delete")] OrchestratorConfigDelete,
+
+    // ── Story 34-10 — idempotent pricing backfill admin re-run trigger (machinery) ──
+    /// <summary><c>POST /api/admin/pricing/backfill</c> — <c>AdminPricingBackfillEndpoint.Run</c>.</summary>
+    [Wire("pricing.backfill.run")] PricingBackfillRun,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

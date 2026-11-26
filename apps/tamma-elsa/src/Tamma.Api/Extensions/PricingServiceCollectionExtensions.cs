@@ -142,4 +142,35 @@ public static class PricingServiceCollectionExtensions
 
         return services;
     }
+
+    /// <summary>
+    /// Story 34-10 (AC4) — registers the published <see cref="IPricingContract"/>
+    /// façade and the Story 34-7 pass-through default
+    /// <see cref="PassThroughCreditAwarePricingEngine"/> (uses <c>TryAddScoped</c>
+    /// so Story 34-7 can swap in its full engine behind the same seam).
+    /// </summary>
+    public static IServiceCollection AddPricingContract(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddScoped<ICreditAwarePricingEngine, PassThroughCreditAwarePricingEngine>();
+        services.TryAddScoped<IPricingContract, PricingContract>();
+
+        return services;
+    }
+
+    /// <summary>
+    /// Story 34-10 (AC1, AC2, AC9, AC10) — registers the idempotent
+    /// <see cref="IPricingBackfillService"/> invoked at startup and via
+    /// <c>POST /api/admin/pricing/backfill</c>.
+    /// </summary>
+    public static IServiceCollection AddPricingBackfill(this IServiceCollection services)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        services.TryAddSingleton(TimeProvider.System);
+        services.TryAddScoped<IPricingBackfillService, PricingBackfillService>();
+
+        return services;
+    }
 }

@@ -333,6 +333,10 @@ public class MediationClientEffectSweepTests
             [ExternalEffect.OrchestratorConfigDelete] = new(SiteKind.RouteOnly, null,
                 "DELETE /api/orchestrator/config — principal orchestrator configuration delete (machinery member), no TammaApiClient method"),
 
+            // Story 34-10: admin pricing backfill trigger (machinery member).
+            [ExternalEffect.PricingBackfillRun] = new(SiteKind.RouteOnly, null,
+                "POST /api/admin/pricing/backfill — platform-owner pricing backfill re-run trigger (machinery member), no TammaApiClient method"),
+
             // ── In-process: no HTTP hop, so no route sweep can ever see them ──
             [ExternalEffect.ProcessSpawn] = new(SiteKind.InProcess, null,
                 "ShellExecuteTool's ProcessStartInfo, inside the tool loop — invisible to any route sweep"),

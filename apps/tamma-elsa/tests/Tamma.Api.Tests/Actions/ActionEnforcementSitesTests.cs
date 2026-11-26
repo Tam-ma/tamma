@@ -172,15 +172,15 @@ public class ActionEnforcementSitesTests
         // sites for rows that have none.
         var withSites = ActionCatalog.All.Count(d => Live.For(d.Key).Count > 0);
 
-        withSites.Should().Be(63,
-            "63 catalog rows have a live site (Story 39-17: 61 → 63, + orchestrator.config.{set,delete}, two orchestrator config routes born .Governs-bound as machinery; Story 39-20: 50 → 61, + access.{team,repo}.*, eleven tenant-admin team & repo-access routes born .Governs-bound as machinery; Story 44-4 AC11/AC12: 44 → 50, + tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}, six native tracker iteration routes born .Governs-bound; Story 44-3 AC10/AC11: 41 → 44, + tracker.work-item.{reparent,move} and tracker.backlog.apply-ordering, three native tracker writes born .Governs-bound; Story 43-18: 39 → 41, + governance.action-level.{set,delete}, two machinery members bound (not enforcing) to PUT/DELETE /api/admin/actions/levels/{ns}/{key}; Story 43-6, 2026-11-07: 38 → 39, + governance.policy.group-enforce.set, a machinery member bound (not enforcing) to PUT /api/actions/policy/groups/{group}/enforce; Story 40-1 AC7: 37 → 38, + git.runner.install, born bound + enforcing; 43-17 follow-up: 35 → 37, + the two formerly-unowned engine callbacks ci.workflow.dispatch and llm.task.execute; Story 31-13: 24 → 35, + the 7 PR-lifecycle verbs "
+        withSites.Should().Be(64,
+            "64 catalog rows have a live site (Story 34-10: 63 → 64, + pricing.backfill.run, an admin pricing backfill route born .Governs-bound as machinery; Story 39-17: 61 → 63, + orchestrator.config.{set,delete}, two orchestrator config routes born .Governs-bound as machinery; Story 39-20: 50 → 61, + access.{team,repo}.*, eleven tenant-admin team & repo-access routes born .Governs-bound as machinery; Story 44-4 AC11/AC12: 44 → 50, + tracker.iteration.{create,update,delete,commit,uncommit,apply-plan}, six native tracker iteration routes born .Governs-bound; Story 44-3 AC10/AC11: 41 → 44, + tracker.work-item.{reparent,move} and tracker.backlog.apply-ordering, three native tracker writes born .Governs-bound; Story 43-18: 39 → 41, + governance.action-level.{set,delete}, two machinery members bound (not enforcing) to PUT/DELETE /api/admin/actions/levels/{ns}/{key}; Story 43-6, 2026-11-07: 38 → 39, + governance.policy.group-enforce.set, a machinery member bound (not enforcing) to PUT /api/actions/policy/groups/{group}/enforce; Story 40-1 AC7: 37 → 38, + git.runner.install, born bound + enforcing; 43-17 follow-up: 35 → 37, + the two formerly-unowned engine callbacks ci.workflow.dispatch and llm.task.execute; Story 31-13: 24 → 35, + the 7 PR-lifecycle verbs "
             + "and the 4 formerly-ungoverned issue callbacks, now bound + enforcing): the 19 "
             + "mediation effects (the merge trio git.merge.{dev,qa,main} replaced the coarse merge, "
             + "+2), the 4 mentorship effects, secret.read (42-10), and the 11 PR+issue verbs. Every "
             + "other row reports an empty array and MUST render as 'not enforced anywhere yet'.");
 
         ActionCatalog.All.Count.Should().BeGreaterThan(withSites * 4,
-            "the governed share is a small minority of the catalog (~24% at 63/262). That is the fact AC9 exists to "
+            "the governed share is a small minority of the catalog (~24% at 64/263). That is the fact AC9 exists to "
             + "put in front of an admin, and it must not be possible to lose it silently.");
     }
 
@@ -226,7 +226,9 @@ public class ActionEnforcementSitesTests
         // .Governs-bound (machinery). Partition: 59 + 209 = 268.
         // Story 39-17 — 59 → 61: two NEW orchestrator config routes (PUT/DELETE /api/orchestrator/config),
         // born .Governs-bound (machinery). Partition: 61 + 209 = 270.
-        bound.Count.Should().Be(61);
+        // Story 34-10 — 61 → 62: POST /api/admin/pricing/backfill, born .Governs-bound (machinery).
+        // Partition: 62 + 209 = 271.
+        bound.Count.Should().Be(62);
 
         // Story 43-9 D17, 2026-08-01 — `baselined` is now the UNION of two
         // separately-pinned collections, so it can no longer equal PinnedCount
