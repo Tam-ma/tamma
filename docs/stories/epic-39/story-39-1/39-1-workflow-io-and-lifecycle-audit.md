@@ -1,6 +1,6 @@
 # Story 39-1: Workflow I/O & Lifecycle Audit (consumes/produces map, gap analysis)
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

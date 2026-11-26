@@ -635,7 +635,7 @@ development_status:
   #    you change a status here, treat it as a change to every plan that reads it.
   # ══════════════════════════════════════════════════════════════════════════════════════════════
   epic-39: contexted   # Typed Work Documents & the Universal Workflow Lifecycle (added 2026-07-19)
-  39-1-workflow-io-and-lifecycle-audit: ready-for-dev  # NOT landed. Its sole deliverable — .dev/findings/epic-39-workflow-io-lifecycle-audit.md — does not exist. Story + impl plan only. Note: 39-2..39-15 shipped WITHOUT this discovery gate. [P0]
+  39-1-workflow-io-and-lifecycle-audit: done  # Deliverable landed at .dev/findings/epic-39-workflow-io-lifecycle-audit.md (49 workflows reconciled, 42 reflection dispatch pairs, 17 doc types, 19 WorkflowInterfaces, 10 resume endpoints) and linked from docs/stories/epic-39/README.md. [P0]
   39-2-document-core-envelope-type-registry-lineage-drift-tests: done # Tamma.Core/Documents/{DocumentEnvelope,DocumentTypeKey,DocumentTypeRegistry,DocumentStateMachine,DocumentJson,UuidV7}.cs + Lineage/ + Core.Tests/Documents/ (envelope, state-machine, registry, key, workflow-interface-graph). [P0]
   39-3-document-types-batch-1-decomposition-findings-ambiguity-clarification: done # Tamma.Core/Documents/Types/{Decomposition,Findings,AmbiguityAssessment,Clarification}.cs + Core.Tests/Documents/Types/; completion-notes.md in the story dir. [P0]
   39-4-document-types-batch-2-plan-design-review-triage-diagnosis-testspec: done # Types/{Plan,Design,Review,ReviewDocumentType,TriageDecision,Diagnosis,TestSpec}.cs — DocumentTypeKey now has exactly 10 members, registry pinned at 10; completion-notes.md present. [P0]
