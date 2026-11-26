@@ -30,6 +30,9 @@ namespace Tamma.Api.Tests.Orchestrator;
 [TestFixture]
 public class OrchestratorTenantIsolationTests
 {
+    [SetUp]
+    public Task SetUp() => ApiTestFixture.ResetDatabaseAsync();
+
     [Test]
     public async Task Two_tenants_run_isolated_with_disjoint_events_documents_configs_and_inboxes()
     {

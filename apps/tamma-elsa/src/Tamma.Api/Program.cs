@@ -464,8 +464,15 @@ builder.Services.Configure<Tamma.Api.Services.Orchestrator.OrchestratorHostOptio
     builder.Configuration.GetSection(Tamma.Api.Services.Orchestrator.OrchestratorHostOptions.SectionName));
 builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IOrchestratorConfigService,
     Tamma.Api.Services.Orchestrator.OrchestratorConfigService>();
-builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorInbox,
-    Tamma.Api.Services.Orchestrator.InMemoryOrchestratorInbox>();
+// Story 39-17 + 39-18 lockstep — Postgres-backed PersistedOrchestratorInbox over
+// channel_outbox (replaces InMemoryOrchestratorInbox in production DI). Both
+// IOrchestratorInbox (agent host/instance) and IOrchestratorInboxNotifier
+// (ChannelOutboxService write-time wake) resolve the SAME singleton instance.
+builder.Services.AddSingleton<Tamma.Api.Services.Channels.PersistedOrchestratorInbox>();
+builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorInbox>(sp =>
+    sp.GetRequiredService<Tamma.Api.Services.Channels.PersistedOrchestratorInbox>());
+builder.Services.AddSingleton<Tamma.Api.Services.Channels.IOrchestratorInboxNotifier>(sp =>
+    sp.GetRequiredService<Tamma.Api.Services.Channels.PersistedOrchestratorInbox>());
 builder.Services.AddScoped<Tamma.Api.Services.Orchestrator.IOrchestratorTurnRunner,
     Tamma.Api.Services.Orchestrator.ToolLoopTurnRunner>();
 builder.Services.AddSingleton<Tamma.Api.Services.Orchestrator.IOrchestratorAgentRegistry,

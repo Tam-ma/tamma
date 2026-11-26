@@ -1,6 +1,6 @@
 # Story 39-18: Real-Time Channels — workflow↔orchestrator and user↔orchestrator (SignalR)
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
@@ -77,3 +77,4 @@ P0 — 39-6's ACCEPT stage and 39-8's escalation delivery ride these channels; 3
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-20 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-20 | 1.1.0   | User channel reframed to serve the two 39-19 surfaces (Task View + Orchestrator Chat); `TaskAssigned` message; per-user (not just per-tenant) delivery scoping via the 39-20 audience resolver | Claude |
+| 2026-11-26 | 2.0.0   | Completed remaining half of Story 39-18 after Story 39-17 landed: added Postgres-backed `PersistedOrchestratorInbox : IOrchestratorInbox, IOrchestratorInboxNotifier` over `channel_outbox`, bridged `ChannelOutboxService` write-time & sweeper notifications, enriched `TaskAssigned` fan-out `TaskRef` with extracted `RepoKey` + `DocumentId`, wired production DI, and verified restart replay + two-tenant Postgres isolation tests. | Antigravity |
