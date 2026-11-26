@@ -507,6 +507,7 @@ public class ToolLoopAutonomyGateSeamTests
         public string ToolName => name;
         public string Description => $"stub {name}";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
         public Task<ToolExecutionResult> ExecuteAsync(
             string toolCallId, string argumentsJson, CancellationToken cancellationToken = default)
         {

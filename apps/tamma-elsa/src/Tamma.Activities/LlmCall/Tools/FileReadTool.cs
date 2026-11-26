@@ -19,6 +19,8 @@ public class FileReadTool : IToolExecutor, IFileSystemTool
 
     public string ToolName => "file_read";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         "Read the contents of a file at the given path relative to the workspace root.";
 

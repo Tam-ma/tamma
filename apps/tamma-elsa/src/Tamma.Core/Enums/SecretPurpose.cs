@@ -1,10 +1,16 @@
+// NOTE: This type lives in the Tamma.Core assembly but intentionally keeps the
+// `Tamma.Api.Services.Secrets` namespace. It was moved here (Story 42-1 §0, D1)
+// so Tamma.Activities (ToolDescriptor / SecretRequirement) can reference Epic 29's
+// canonical SecretPurpose taxonomy without a dependency cycle through Tamma.Api.
+// The namespace is preserved following the Tamma.Core/Agents/{AgentRole,AgentAction,
+// RolePhaseMap,EnumWire}.cs precedent to avoid churning every caller's `using`.
 namespace Tamma.Api.Services.Secrets;
 
 /// <summary>
 /// Typed purpose for a secret. Drives default rotation cadence,
-/// admin-UI iconography, and the <see cref="SecretMetadataFactory"/>
+/// admin-UI iconography, and the <c>SecretMetadataFactory</c>
 /// invariants enforced by Story 29-1 AC10 (e.g. a
-/// <see cref="DbCredential"/> with <see cref="SecretScope.Tenant"/>
+/// <see cref="DbCredential"/> with <c>SecretScope.Tenant</c>
 /// scope must carry a non-null <c>TenantId</c>).
 ///
 /// <para>The list intentionally matches the audit findings closed by

@@ -26,4 +26,19 @@ public interface IToolExecutorRegistry
     /// Get all registered tool executors filtered by an allowlist.
     /// </summary>
     IReadOnlyList<IToolExecutor> GetAllowed(string[]? allowlist);
+
+    /// <summary>
+    /// Dynamically register a platform/deployment-scoped tool executor at runtime (Story 42-1 §3).
+    /// Rejects duplicate tool names by default (use <see cref="Unregister"/> then <see cref="Register"/>
+    /// to replace a dynamic tool) and rejects principal-scoped tools (<see cref="IPrincipalScopedToolExecutor"/>)
+    /// with <see cref="PrincipalScopedToolRegistrationException"/>.
+    /// </summary>
+    void Register(IToolExecutor executor);
+
+    /// <summary>
+    /// Dynamically unregister a previously registered runtime tool executor by name (case-insensitive).
+    /// Returns <c>true</c> if removed, <c>false</c> if not found. Refuses to unregister DI-seeded
+    /// built-in executors with <see cref="InvalidOperationException"/>.
+    /// </summary>
+    bool Unregister(string toolName);
 }

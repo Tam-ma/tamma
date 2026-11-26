@@ -27,7 +27,7 @@ namespace Tamma.Api.Services.AcceptanceRules;
 /// <see cref="ResolvedAcceptanceRules"/> the request embeds, serialized through
 /// the one canonical <see cref="AcceptanceRulesJson.Options"/> (AC3 byte-identity).</para>
 /// </summary>
-public sealed class GetAcceptanceRulesTool : IToolExecutor
+public sealed class GetAcceptanceRulesTool : IPrincipalScopedToolExecutor
 {
     private readonly IAcceptanceRulesResolver _resolver;
     private readonly Guid? _userId;
@@ -52,6 +52,8 @@ public sealed class GetAcceptanceRulesTool : IToolExecutor
     }
 
     public string ToolName => "get_acceptance_rules";
+
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
 
     public string Description =>
         "Read the effective acceptance rules (autonomy level, revision/repair bounds, escalation criteria, " +

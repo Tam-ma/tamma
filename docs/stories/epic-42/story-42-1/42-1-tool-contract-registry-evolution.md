@@ -1,6 +1,6 @@
 # Story 42-1: Tool Contract & Registry Evolution
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 

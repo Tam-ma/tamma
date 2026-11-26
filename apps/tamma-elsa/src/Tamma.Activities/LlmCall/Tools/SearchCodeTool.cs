@@ -25,6 +25,8 @@ public class SearchCodeTool : IToolExecutor
 
     public string ToolName => "search_code";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         "Search for a regex or literal pattern across files in the workspace. Returns matching file paths and lines.";
 

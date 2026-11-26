@@ -25,6 +25,12 @@ public interface IToolExecutor
     Dictionary<string, object> InputSchema { get; }
 
     /// <summary>
+    /// Static capability descriptor declaring required secret binding and whether completion is
+    /// owned by an engine-side wait (Story 42-1). Plain abstract member (enforced by the compiler).
+    /// </summary>
+    ToolDescriptor Descriptor { get; }
+
+    /// <summary>
     /// Execute the tool with the given arguments.
     /// </summary>
     /// <param name="toolCallId">Provider-assigned tool call ID for correlation.</param>
