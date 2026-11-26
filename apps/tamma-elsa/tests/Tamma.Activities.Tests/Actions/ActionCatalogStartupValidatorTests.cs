@@ -360,6 +360,7 @@ public class ActionCatalogStartupValidatorTests
         public string ToolName => "frobnicate";
         public string Description => "not catalogued";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
         public Task<ToolExecutionResult> ExecuteAsync(
             string toolCallId, string argumentsJson, CancellationToken cancellationToken = default) =>
             Task.FromResult(new ToolExecutionResult(toolCallId, ToolName, false, "n/a", 0));

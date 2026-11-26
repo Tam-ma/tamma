@@ -21,6 +21,8 @@ public class ShellExecuteTool : IToolExecutor
 
     public string ToolName => "shell_execute";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         "Execute a shell command in the workspace directory. Some dangerous commands are blocked for safety.";
 

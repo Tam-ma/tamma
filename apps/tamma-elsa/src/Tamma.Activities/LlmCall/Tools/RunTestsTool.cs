@@ -20,6 +20,8 @@ public class RunTestsTool : IToolExecutor
 
     public string ToolName => "run_tests";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         "Run tests in the workspace and capture the output. Supports configurable test commands and optional project/filter arguments.";
 

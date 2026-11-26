@@ -393,6 +393,7 @@ public class ParallelToolExecutorTests
         public string ToolName { get; }
         public string Description => "Test tool";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
 
         public ImmediateToolExecutor(string name) => ToolName = name;
 
@@ -406,6 +407,7 @@ public class ParallelToolExecutorTests
         public string ToolName { get; }
         public string Description => "Test tool with delay";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
         private readonly int _delay;
 
         public DelayToolExecutor(string name, int delay = 100)
@@ -427,6 +429,7 @@ public class ParallelToolExecutorTests
         public string ToolName { get; }
         public string Description => "Test tool that always fails";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
 
         public FailingToolExecutor(string name) => ToolName = name;
 
@@ -440,6 +443,7 @@ public class ParallelToolExecutorTests
         public string ToolName { get; }
         public string Description => "Test tool that throws";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
 
         public ThrowingToolExecutor(string name) => ToolName = name;
 
@@ -457,6 +461,7 @@ public class ParallelToolExecutorTests
         public string ToolName { get; }
         public string Description => "Test filesystem tool";
         public Dictionary<string, object> InputSchema => new();
+        public ToolDescriptor Descriptor => ToolDescriptor.Default;
         private readonly string? _fixedPath;
         private readonly int _delay;
 

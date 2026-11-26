@@ -20,6 +20,8 @@ public class FileWriteTool : IToolExecutor, IFileSystemTool
 
     public string ToolName => "file_write";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         "Write content to a file at the given path relative to the workspace root. Creates parent directories if needed.";
 

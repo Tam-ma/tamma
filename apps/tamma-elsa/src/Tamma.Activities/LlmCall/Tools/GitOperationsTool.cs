@@ -41,6 +41,8 @@ public class GitOperationsTool : IToolExecutor
 
     public string ToolName => "git_operations";
 
+    public ToolDescriptor Descriptor => ToolDescriptor.Default;
+
     public string Description =>
         $"Execute git operations in the workspace. Supports subcommands: {SubcommandList}.";
 
