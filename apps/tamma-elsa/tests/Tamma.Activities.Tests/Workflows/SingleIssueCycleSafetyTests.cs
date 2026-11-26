@@ -301,8 +301,9 @@ public class SingleIssueCycleSafetyTests
         emits.Should().Contain("EmitCycleCompleted", "the cycle must emit CYCLE.COMPLETED on success");
         emits.Should().Contain("EmitStepFailed", "the cycle must emit CYCLE.STEP_FAILED at the failure sink");
 
-        // STARTED sits on the validated-work-item path (after validate, before context).
-        HasEdge("ValidateWorkItem", "EmitCycleStarted", "Valid").Should().BeTrue();
+        // STARTED sits on the validated plan path (after ValidateWorkItem → IssuePreRoute("Plan"), before GatherContext).
+        ReachableFromPort("ValidateWorkItem", "Valid").Should().Contain("EmitCycleStarted");
+        HasEdge("IssuePreRoute", "EmitCycleStarted", "Plan").Should().BeTrue();
         HasEdge("EmitCycleStarted", "GatherContext").Should().BeTrue();
     }
 

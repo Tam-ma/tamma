@@ -1,6 +1,6 @@
 # Story 41-29: Task-Level Flow Router (+ issue-level pre-route)
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
@@ -331,3 +331,4 @@ workflow does not have today — dispatch, comment, close, terminal — which is
 | ---------- | ------- | ---------------------- | ------ |
 | 2026-07-24 | 1.0.0   | Initial story creation | Claude |
 | 2026-07-24 | 1.1.0   | Code-verified revision: `infra` re-mapped from `deployment-pipeline` (post-merge, needs `MergeSha`) to the coding path + AC2 negative guard; 39-15 moved from Blocking to landed substrate; shared `PlanDocumentType` contract decision recorded (both plan producers); pre-route scoped to `question` only (former Open Q2 decided); Epic 40 merge order added; effort re-broken-out for the pre-route sub-graph | Claude |
+| 2026-11-26 | 1.2.0   | Implemented Phases 1–4 across `Tamma.Core`, `Tamma.Activities`, `Tamma.ElsaServer`, and `Tamma.Api/Prompts`: `TaskKind` + `PlanTask.Kind` + `PlanDocumentType.TaskKindOutOfVocabulary` + `PlanRouting`, updated both plan prompt templates, `RouteEvents` + `EmitRouteEventActivity`, `IssuePreRoute` (question answer sub-graph + needs-human terminal) and `FlowSwitchByKind` in `SingleIssueCycleWorkflow` preserving `[ResumeBehavior(Both)]` and crash re-entry, plus unit, graph, replay, and live Elsa runtime test suites. | Antigravity |

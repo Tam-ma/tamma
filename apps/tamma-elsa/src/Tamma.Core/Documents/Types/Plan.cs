@@ -1,13 +1,54 @@
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Tamma.Api.Services.Agents;
 
 namespace Tamma.Core.Documents.Types;
 
 /// <summary>
-/// One task in a <see cref="Plan"/> (Story 39-4, Design Decision D5). Each task
-/// names the <see cref="Files"/> it touches (the per-task file map AC4 requires),
-/// its <see cref="DependsOn"/> prerequisites (resolvable within the plan), and its
-/// <see cref="Testing"/> approach (non-empty per task).
+/// Story 41-29 (Part 1) — closed task-kind vocabulary on <see cref="PlanTask"/>.
+/// Drives the task-level flow router inside <c>SingleIssueCycleWorkflow</c>.
+/// Absent <c>kind</c> on a legacy plan task is valid and defaults to <see cref="Code"/>;
+/// a present-but-out-of-vocabulary value fails validation with
+/// <see cref="PlanDocumentType.TaskKindOutOfVocabulary"/> (never silently clamped).
+/// </summary>
+public enum TaskKind
+{
+    [Wire("code")] Code,
+    [Wire("test")] Test,
+    [Wire("docs")] Docs,
+    [Wire("infra")] Infra,
+    [Wire("design")] Design,
+    [Wire("investigation")] Investigation,
+    [Wire("chore")] Chore,
+}
+
+/// <summary>Case-insensitive, wire-token parsing for <see cref="TaskKind"/> (Story 41-29).</summary>
+public static class PlanTaskVocabulary
+{
+    public static string ToWire(this TaskKind kind) => EnumWire<TaskKind>.ToWire(kind);
+
+    public static bool TryParseKind(string? raw, out TaskKind value)
+    {
+        switch ((raw ?? "").Trim().ToLowerInvariant())
+        {
+            case "code": value = TaskKind.Code; return true;
+            case "test": value = TaskKind.Test; return true;
+            case "docs": value = TaskKind.Docs; return true;
+            case "infra": value = TaskKind.Infra; return true;
+            case "design": value = TaskKind.Design; return true;
+            case "investigation": value = TaskKind.Investigation; return true;
+            case "chore": value = TaskKind.Chore; return true;
+            default: value = default; return false;
+        }
+    }
+}
+
+/// <summary>
+/// One task in a <see cref="Plan"/> (Story 39-4, Design Decision D5; extended by
+/// Story 41-29 with closed <see cref="Kind"/>). Each task names the <see cref="Files"/>
+/// it touches (the per-task file map AC4 requires), its <see cref="DependsOn"/>
+/// prerequisites (resolvable within the plan), its <see cref="Testing"/> approach
+/// (non-empty per task), and optionally its <see cref="Kind"/> (absent ⇒ <c>code</c>).
 /// </summary>
 public sealed record PlanTask
 {
@@ -16,6 +57,7 @@ public sealed record PlanTask
     [JsonPropertyName("files")] public IReadOnlyList<string> Files { get; init; } = [];
     [JsonPropertyName("dependsOn")] public IReadOnlyList<string> DependsOn { get; init; } = [];
     [JsonPropertyName("testing")] public string Testing { get; init; } = "";
+    [JsonPropertyName("kind")] public string? Kind { get; init; }
 }
 
 /// <summary>
@@ -70,6 +112,9 @@ public sealed class PlanDocumentType : IDocumentType
     /// <summary>No topological order exists (AC4 — its own code) — the stable downstream-sequencing signal.</summary>
     public const string NoTopologicalOrder = "NO_TOPOLOGICAL_ORDER";
 
+    /// <summary>Story 41-29 (AC1) — a task's present <c>kind</c> is outside the closed <see cref="TaskKind"/> vocabulary.</summary>
+    public const string TaskKindOutOfVocabulary = "TASK_KIND_OUT_OF_VOCABULARY";
+
     private static readonly DependencyGraphCodes GraphCodes = new(
         DuplicateId: DuplicateTaskId,
         DanglingDependency: DanglingDependsOn,
@@ -122,6 +167,13 @@ public sealed class PlanDocumentType : IDocumentType
                 violations.Add(new DocumentViolation(
                     TaskMissingTesting,
                     $"Task {label} states no testing approach — every task must say how it is tested."));
+
+            // Story 41-29 AC1: absent kind is valid (defaults to 'code' for back-compat);
+            // a present kind must belong to the closed TaskKind vocabulary.
+            if (task.Kind is not null && !PlanTaskVocabulary.TryParseKind(task.Kind, out _))
+                violations.Add(new DocumentViolation(
+                    TaskKindOutOfVocabulary,
+                    $"Task {label} has kind '{task.Kind}', which is not one of: code, test, docs, infra, design, investigation, chore."));
         }
 
         var graphNodes = tasks
@@ -151,6 +203,7 @@ public sealed class PlanDocumentType : IDocumentType
           "tasks": [
             {
               "id": "T-1",
+              "kind": "code | test | docs | infra | design | investigation | chore",
               "description": "what the task delivers",
               "files": ["src/Foo.cs"],
               "dependsOn": ["T-2"],
@@ -160,8 +213,9 @@ public sealed class PlanDocumentType : IDocumentType
           "files": ["src/Foo.cs"]
         }
         Rules: every task needs a unique "id", a non-empty "files" map, and a non-empty
-        "testing" approach; "dependsOn" may only reference ids that exist in this plan,
-        with no self-dependency and no cycle (a topological order must exist).
+        "testing" approach; "kind" must be one of the closed tokens above (absent defaults
+        to "code"); "dependsOn" may only reference ids that exist in this plan, with no
+        self-dependency and no cycle (a topological order must exist).
         """;
 
     private static readonly IReadOnlyList<DocumentExample> s_examples = new[]
@@ -172,8 +226,8 @@ public sealed class PlanDocumentType : IDocumentType
             """
             {
               "tasks": [
-                { "id": "T-1", "description": "Add users table", "files": ["db/001_users.sql"], "dependsOn": [], "testing": "migration applies cleanly" },
-                { "id": "T-2", "description": "Login endpoint", "files": ["src/Login.cs"], "dependsOn": ["T-1"], "testing": "200 + token integration test" }
+                { "id": "T-1", "kind": "code", "description": "Add users table", "files": ["db/001_users.sql"], "dependsOn": [], "testing": "migration applies cleanly" },
+                { "id": "T-2", "kind": "code", "description": "Login endpoint", "files": ["src/Login.cs"], "dependsOn": ["T-1"], "testing": "200 + token integration test" }
               ],
               "files": ["db/001_users.sql", "src/Login.cs"]
             }

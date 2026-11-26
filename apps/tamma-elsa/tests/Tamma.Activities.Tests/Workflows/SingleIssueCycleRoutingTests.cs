@@ -388,14 +388,20 @@ public class SingleIssueCycleRoutingTests
     }
 
     [Test]
-    public void ExtractCurrentTask_ConnectsTo_TddForTask()
+    public void ExtractCurrentTask_RoutesTo_TddForTask_ViaFlowSwitchByKind()
     {
-        var hasConnection = _flowchart.Connections.Any(c =>
-            c.Source.Activity.Id == "ExtractCurrentTask" &&
-            c.Target.Activity.Id == "TddForTask");
+        // Story 41-29 AC2: ExtractCurrentTask no longer enters TddForTask unconditionally —
+        // it extracts the task kind and routes through FlowSwitchByKind (Code/Infra/Chore → TddForTask).
+        Edge("ExtractCurrentTask", null, "ExtractCurrentTaskKind").Should().BeTrue();
+        Edge("ExtractCurrentTaskKind", null, "FlowSwitchByKind").Should().BeTrue();
+        Edge("ExtractCurrentTask", null, "TddForTask").Should().BeFalse(
+            "the per-task loop must route through FlowSwitchByKind, not enter TddForTask unconditionally");
 
-        hasConnection.Should().BeTrue(
-            "ExtractCurrentTask must feed the per-task slice into TddForTask");
+        foreach (var codingCase in new[] { "Code", "Infra", "Chore" })
+        {
+            ReachableFromPort("FlowSwitchByKind", codingCase).Should().Contain("TddForTask",
+                $"task kind '{codingCase}' must route to the existing coding node TddForTask");
+        }
     }
 
     [Test]

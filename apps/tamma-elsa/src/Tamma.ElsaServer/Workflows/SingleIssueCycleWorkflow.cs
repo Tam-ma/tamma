@@ -11,7 +11,9 @@ using Elsa.Workflows.Runtime.Activities;
 using Tamma.Activities.ADL;
 using Tamma.Activities.AgentDispatch;
 using Tamma.Activities.Context;
+using Tamma.Activities.Documents;
 using Tamma.Core.Documents.Resume;
+using Tamma.Core.Documents.Types;
 using FlowEndpoint = Elsa.Workflows.Activities.Flowchart.Models.Endpoint;
 using FlowConnection = Elsa.Workflows.Activities.Flowchart.Models.Connection;
 
@@ -166,6 +168,144 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             Repository = new Input<string>(ctx => repository.Get(ctx)),
         };
         validateItem.SetDisplayText("Validate Work Item");
+
+        // ================================================================
+        // 1b. Issue-Level Pre-Route (Story 41-29 Part 2 / AC4)
+        // Reads accepted TriageDecision from 39-11 store (falls back to work-item
+        // labels). Branches ONLY on `question` (answer sub-graph: research →
+        // comment → close; never enters plan/branch) and defensive `needs-human`.
+        // `docs` is NOT pre-routed — it flows into the plan pipeline so all routing
+        // stays driven by the task-level switch.
+        // ================================================================
+        var triageFound = builder.WithVariable<bool>("TriageFound", false).Persisted();
+        var triageDocJson = builder.WithVariable<string>("TriageDocJson", "{}").Persisted();
+        var preRouteFlow = builder.WithVariable<string>("PreRouteFlow", PlanRouting.FlowPlan).Persisted();
+        var preRouteIssueType = builder.WithVariable<string>("PreRouteIssueType", "feature").Persisted();
+        var questionAnswer = builder.WithVariable<string>("QuestionAnswer", "").Persisted();
+
+        var readTriage = new FetchLatestAcceptedDocumentActivity
+        {
+            Id = "ReadTriage",
+            Name = "Read Accepted Triage Decision",
+            IssueId = new Input<string?>(ctx =>
+                !string.IsNullOrWhiteSpace(repository.Get(ctx)) && issueNumber.Get(ctx) > 0
+                    ? $"{repository.Get(ctx)}#{issueNumber.Get(ctx)}"
+                    : issueNumber.Get(ctx).ToString()),
+            DocumentTypeKey = new Input<string?>(_ => "triage-decision"),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Found = new Output<bool>(triageFound),
+            DocumentJson = new Output<string>(triageDocJson),
+        };
+        readTriage.SetDisplayText("Read Accepted Triage Decision");
+
+        var resolveIssuePreRoute = Assign(preRouteFlow, ctx =>
+        {
+            var triageJson = triageFound.Get(ctx) ? triageDocJson.Get(ctx) : null;
+            var res = PlanRouting.ResolveIssuePreRoute(triageJson, workItemJson.Get(ctx));
+            preRouteIssueType.Set(ctx, res.IssueType);
+            return (object)res.ChosenFlow;
+        }, "ResolveIssuePreRoute", "Resolve Issue Pre-Route");
+
+        var emitIssuePrerouted = new EmitRouteEventActivity
+        {
+            Id = "EmitIssuePrerouted",
+            Name = "Emit ROUTE.ISSUE.PREROUTED",
+            EventType = new Input<string>(_ => RouteEvents.IssuePrerouted),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            IssueType = new Input<string?>(ctx => preRouteIssueType.Get(ctx)),
+            ChosenFlow = new Input<string?>(ctx => preRouteFlow.Get(ctx)),
+        };
+        emitIssuePrerouted.SetDisplayText("Emit ROUTE.ISSUE.PREROUTED");
+
+        var issuePreRoute = new FlowSwitch
+        {
+            Id = "IssuePreRoute",
+            Name = "Issue Pre-Route",
+            Cases =
+            {
+                new FlowSwitchCase("Question", ctx => preRouteFlow.Get(ctx) == PlanRouting.FlowQuestion),
+                new FlowSwitchCase("NeedsHuman", ctx => preRouteFlow.Get(ctx) == PlanRouting.FlowNeedsHuman),
+                new FlowSwitchCase("Plan", ctx => true),
+            },
+        };
+        issuePreRoute.SetDisplayText("Issue Pre-Route");
+
+        // Question answer sub-graph: research → extract answer → post comment & close → finish
+        // (never reaches GatherContext, GeneratePlan, or CreateBranch).
+        var answerQuestion = new DispatchWorkflow
+        {
+            Id = "AnswerQuestion",
+            Name = "Answer Question (research)",
+            WorkflowDefinitionId = new("research"),
+            Input = new(ctx => new Dictionary<string, object>
+            {
+                ["repository"] = repository.Get(ctx),
+                ["issueNumber"] = issueNumber.Get(ctx),
+                ["issueId"] = $"{repository.Get(ctx)}#{issueNumber.Get(ctx)}",
+                ["topic"] = ExtractWorkItemTitle(workItemJson.Get(ctx)),
+                ["workItemJson"] = workItemJson.Get(ctx),
+                ["tenantId"] = tenantId.Get(ctx),
+            }),
+            WaitForCompletion = new(true),
+            Result = new(subResult),
+        };
+        answerQuestion.SetDisplayText("Answer Question (research)");
+
+        var extractQuestionAnswer = Assign(questionAnswer, ctx =>
+        {
+            var result = subResult.Get(ctx);
+            if (result != null)
+            {
+                if (result.TryGetValue("report", out var r) && !string.IsNullOrWhiteSpace(r?.ToString()))
+                    return (object)r!.ToString()!;
+                if (result.TryGetValue("summary", out var s) && !string.IsNullOrWhiteSpace(s?.ToString()))
+                    return (object)s!.ToString()!;
+            }
+            return (object)"";
+        }, "ExtractQuestionAnswer", "Extract Question Answer");
+
+        var answerQuestionOk = StepGate("AnswerQuestionOk", "Question Answered?",
+            ctx => !string.IsNullOrWhiteSpace(questionAnswer.Get(ctx)),
+            failedStepId, failedDetail, "answer-question",
+            _ => "research workflow returned no answer for question issue");
+
+        var notifyQuestionAnswered = new DispatchWorkflow
+        {
+            Id = "NotifyQuestionAnswered",
+            Name = "Post Question Answer & Close",
+            WorkflowDefinitionId = new("update-issue-status"),
+            Input = new(ctx => new Dictionary<string, object>
+            {
+                ["repository"] = repository.Get(ctx),
+                ["issueNumber"] = issueNumber.Get(ctx),
+                ["message"] = $"💡 **Answer:**\n\n{questionAnswer.Get(ctx)}",
+                ["addLabels"] = new[] { "tamma-answered", "tamma-completed" },
+                ["removeLabels"] = new[] { "tamma-processing" },
+                ["closeIssue"] = true,
+            }),
+            WaitForCompletion = new(false),
+        };
+        notifyQuestionAnswered.SetDisplayText("Post Question Answer & Close");
+
+        var reportQuestionAnswered = new ReportCycleResultActivity
+        {
+            Id = "ReportQuestionAnswered",
+            Name = "Report Question Answered",
+            Reason = new("success"),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+        };
+        reportQuestionAnswered.SetDisplayText("Report Question Answered");
+
+        var reportPreRouteNeedsHuman = new ReportCycleResultActivity
+        {
+            Id = "ReportPreRouteNeedsHuman",
+            Name = "Report Pre-Route Needs Human",
+            Reason = new("needsHuman"),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+        };
+        reportPreRouteNeedsHuman.SetDisplayText("Report Pre-Route Needs Human");
 
         // ================================================================
         // 2. Gather Context (sub-workflow)
@@ -610,6 +750,214 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             }
             catch { return (object)"{}"; }
         }, "ExtractCurrentTask", "Extract Current Task");
+
+        // ================================================================
+        // 10b. Task-Level Flow Router (Story 41-29 Part 3 / AC2 / AC3 / AC5)
+        // Re-derives task kind durably from persisted CurrentTaskJson on every
+        // iteration (no non-durable state → preserves [ResumeBehavior(Both)]).
+        // `code` / `infra` / `chore` / absent → existing coding node (TddForTask);
+        // `test` → test-case-creation; `investigation` → research; `design` →
+        // design-proposal; `docs` → human-assigned deferral (ROUTE.TASK.DEFERRED_TO_HUMAN);
+        // `unknown` → loud sink escalation (ROUTE.TASK.UNKNOWN_KIND).
+        // `deployment-pipeline` is NEVER reachable from inside the task loop.
+        // ================================================================
+        var currentTaskKind = builder.WithVariable<string>("CurrentTaskKind", "code").Persisted();
+        var currentTaskRawKind = builder.WithVariable<string>("CurrentTaskRawKind", "").Persisted();
+        var currentTaskId = builder.WithVariable<string>("CurrentTaskId", "").Persisted();
+
+        var extractCurrentTaskKind = Assign(currentTaskKind, ctx =>
+        {
+            var rawJson = currentTaskJson.Get(ctx);
+            var resolved = PlanRouting.ResolveKind(rawJson);
+            currentTaskRawKind.Set(ctx, resolved.RawKind ?? "");
+            currentTaskId.Set(ctx, ReadTaskId(rawJson) ?? $"task-{currentTaskIndex.Get(ctx)}");
+            return (object)resolved.KindWire;
+        }, "ExtractCurrentTaskKind", "Extract Current Task Kind");
+
+        var flowSwitchByKind = new FlowSwitch
+        {
+            Id = "FlowSwitchByKind",
+            Name = "Route Task by Kind",
+            Cases =
+            {
+                new FlowSwitchCase("Code", ctx => currentTaskKind.Get(ctx) == "code"),
+                new FlowSwitchCase("Infra", ctx => currentTaskKind.Get(ctx) == "infra"),
+                new FlowSwitchCase("Chore", ctx => currentTaskKind.Get(ctx) == "chore"),
+                new FlowSwitchCase("Test", ctx => currentTaskKind.Get(ctx) == "test"),
+                new FlowSwitchCase("Investigation", ctx => currentTaskKind.Get(ctx) == "investigation"),
+                new FlowSwitchCase("Design", ctx => currentTaskKind.Get(ctx) == "design"),
+                new FlowSwitchCase("Docs", ctx => currentTaskKind.Get(ctx) == "docs"),
+                new FlowSwitchCase("Unknown", ctx => true),
+            },
+        };
+        flowSwitchByKind.SetDisplayText("Route Task by Kind");
+
+        var emitTaskDispatchedCoding = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskDispatchedCoding",
+            Name = "Emit ROUTE.TASK.DISPATCHED (coding)",
+            EventType = new Input<string>(_ => RouteEvents.TaskDispatched),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            Kind = new Input<string?>(ctx => currentTaskKind.Get(ctx)),
+            TargetWorkflow = new Input<string?>(_ => "tdd-for-task"),
+        };
+        emitTaskDispatchedCoding.SetDisplayText("Emit ROUTE.TASK.DISPATCHED (coding)");
+
+        var emitTaskDispatchedTest = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskDispatchedTest",
+            Name = "Emit ROUTE.TASK.DISPATCHED (test)",
+            EventType = new Input<string>(_ => RouteEvents.TaskDispatched),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            Kind = new Input<string?>(_ => "test"),
+            TargetWorkflow = new Input<string?>(_ => "test-case-creation"),
+        };
+        emitTaskDispatchedTest.SetDisplayText("Emit ROUTE.TASK.DISPATCHED (test)");
+
+        var dispatchTestTask = new DispatchWorkflow
+        {
+            Id = "DispatchTestTask",
+            Name = "Dispatch Test Task (test-case-creation)",
+            WorkflowDefinitionId = new("test-case-creation"),
+            Input = new(ctx => new Dictionary<string, object>
+            {
+                ["repository"] = repository.Get(ctx),
+                ["branchName"] = branchName.Get(ctx),
+                ["issueNumber"] = issueNumber.Get(ctx),
+                ["tasksJson"] = $"[{currentTaskJson.Get(ctx)}]",
+                ["contextIds"] = contextIds.Get(ctx),
+                ["conventions"] = conventions.Get(ctx),
+                ["tenantId"] = tenantId.Get(ctx),
+            }),
+            WaitForCompletion = new(true),
+            Result = new(subResult),
+        };
+        dispatchTestTask.SetDisplayText("Dispatch Test Task (test-case-creation)");
+
+        var testTaskOk = StepGate("TestTaskOk", "Test Task Succeeded?",
+            ctx => IsRoutedSubWorkflowOk(subResult.Get(ctx)),
+            failedStepId, failedDetail, "test-case-creation",
+            ctx => $"test task '{currentTaskId.Get(ctx)}' failed in test-case-creation");
+
+        var emitTaskDispatchedInvestigation = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskDispatchedInvestigation",
+            Name = "Emit ROUTE.TASK.DISPATCHED (investigation)",
+            EventType = new Input<string>(_ => RouteEvents.TaskDispatched),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            Kind = new Input<string?>(_ => "investigation"),
+            TargetWorkflow = new Input<string?>(_ => "research"),
+        };
+        emitTaskDispatchedInvestigation.SetDisplayText("Emit ROUTE.TASK.DISPATCHED (investigation)");
+
+        var dispatchInvestigationTask = new DispatchWorkflow
+        {
+            Id = "DispatchInvestigationTask",
+            Name = "Dispatch Investigation Task (research)",
+            WorkflowDefinitionId = new("research"),
+            Input = new(ctx => new Dictionary<string, object>
+            {
+                ["repository"] = repository.Get(ctx),
+                ["issueNumber"] = issueNumber.Get(ctx),
+                ["issueId"] = $"{repository.Get(ctx)}#{issueNumber.Get(ctx)}",
+                ["topic"] = currentTaskJson.Get(ctx),
+                ["workItemJson"] = workItemJson.Get(ctx),
+                ["tenantId"] = tenantId.Get(ctx),
+            }),
+            WaitForCompletion = new(true),
+            Result = new(subResult),
+        };
+        dispatchInvestigationTask.SetDisplayText("Dispatch Investigation Task (research)");
+
+        var investigationTaskOk = StepGate("InvestigationTaskOk", "Investigation Task Succeeded?",
+            ctx => IsRoutedSubWorkflowOk(subResult.Get(ctx)),
+            failedStepId, failedDetail, "research",
+            ctx => $"investigation task '{currentTaskId.Get(ctx)}' failed in research");
+
+        var emitTaskDispatchedDesign = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskDispatchedDesign",
+            Name = "Emit ROUTE.TASK.DISPATCHED (design)",
+            EventType = new Input<string>(_ => RouteEvents.TaskDispatched),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            Kind = new Input<string?>(_ => "design"),
+            TargetWorkflow = new Input<string?>(_ => "design-proposal"),
+        };
+        emitTaskDispatchedDesign.SetDisplayText("Emit ROUTE.TASK.DISPATCHED (design)");
+
+        var dispatchDesignTask = new DispatchWorkflow
+        {
+            Id = "DispatchDesignTask",
+            Name = "Dispatch Design Task (design-proposal)",
+            WorkflowDefinitionId = new("design-proposal"),
+            Input = new(ctx => new Dictionary<string, object>
+            {
+                ["repository"] = repository.Get(ctx),
+                ["issueNumber"] = issueNumber.Get(ctx),
+                ["issueId"] = $"{repository.Get(ctx)}#{issueNumber.Get(ctx)}",
+                ["requirement"] = currentTaskJson.Get(ctx),
+                ["conventions"] = conventions.Get(ctx),
+                ["tenantId"] = tenantId.Get(ctx),
+            }),
+            WaitForCompletion = new(true),
+            Result = new(subResult),
+        };
+        dispatchDesignTask.SetDisplayText("Dispatch Design Task (design-proposal)");
+
+        var designTaskOk = StepGate("DesignTaskOk", "Design Task Succeeded?",
+            ctx => IsRoutedSubWorkflowOk(subResult.Get(ctx)),
+            failedStepId, failedDetail, "design-proposal",
+            ctx => $"design task '{currentTaskId.Get(ctx)}' failed in design-proposal");
+
+        // Unbuilt Epic 41 target (docs: 41-24/41-25/41-26) → human-assigned deferral, never mis-routed to TDD.
+        var emitTaskDeferredDocs = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskDeferredDocs",
+            Name = "Emit ROUTE.TASK.DEFERRED_TO_HUMAN (docs)",
+            EventType = new Input<string>(_ => RouteEvents.TaskDeferredToHuman),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            Kind = new Input<string?>(_ => "docs"),
+            MissingTarget = new Input<string?>(_ => "epic-41-docs-workflow (41-24/41-25/41-26)"),
+        };
+        emitTaskDeferredDocs.SetDisplayText("Emit ROUTE.TASK.DEFERRED_TO_HUMAN (docs)");
+
+        var notifyDocsDeferred = NotifyIssue("NotifyDocsDeferred", repository, issueNumber,
+            "📝 Documentation task deferred to human assignee (docs workflow pending Epic 41-24/25/26).",
+            new[] { "needs-human" });
+
+        // Out-of-vocabulary task kind → loud escalation through shared sink (never TDD, never silent skip).
+        var emitTaskUnknownKind = new EmitRouteEventActivity
+        {
+            Id = "EmitTaskUnknownKind",
+            Name = "Emit ROUTE.TASK.UNKNOWN_KIND",
+            EventType = new Input<string>(_ => RouteEvents.TaskUnknownKind),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            TaskId = new Input<string?>(ctx => currentTaskId.Get(ctx)),
+            RawKind = new Input<string?>(ctx => currentTaskRawKind.Get(ctx)),
+        };
+        emitTaskUnknownKind.SetDisplayText("Emit ROUTE.TASK.UNKNOWN_KIND");
+
+        var unknownTaskKindEscalate = StepGate("UnknownTaskKindEscalate", "Unknown Task Kind Escalation",
+            _ => false,
+            failedStepId, failedDetail, "task-router",
+            ctx => $"task '{currentTaskId.Get(ctx)}' has unknown kind '{currentTaskRawKind.Get(ctx)}' — escalated to human");
 
         // ────────────────────────────────────────────────────────────────
         // Story 40-2: TddForTask is a WaitForAgentRunActivity — it dispatches the
@@ -1260,6 +1608,10 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             {
                 // Main flow
                 initInputs, readConventions, validateItem,
+                // Story 41-29: Issue-level pre-route
+                readTriage, resolveIssuePreRoute, emitIssuePrerouted, issuePreRoute,
+                answerQuestion, extractQuestionAnswer, answerQuestionOk, notifyQuestionAnswered,
+                reportQuestionAnswered, reportPreRouteNeedsHuman,
                 emitCycleStarted,
                 gatherContext, extractContext, contextOk,
                 generatePlan, extractPlan, planOk,
@@ -1271,7 +1623,16 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 createPR, extractPR, prOk,
                 createTestCases,
                 initTaskLoop, computeTaskResumeIndex, taskResumeOk, applyTaskResume,
-                hasMoreTasks, extractCurrentTask, tddForTask, incrementTask,
+                hasMoreTasks, extractCurrentTask,
+                // Story 41-29: Task-level flow router
+                extractCurrentTaskKind, flowSwitchByKind,
+                emitTaskDispatchedCoding,
+                emitTaskDispatchedTest, dispatchTestTask, testTaskOk,
+                emitTaskDispatchedInvestigation, dispatchInvestigationTask, investigationTaskOk,
+                emitTaskDispatchedDesign, dispatchDesignTask, designTaskOk,
+                emitTaskDeferredDocs, notifyDocsDeferred,
+                emitTaskUnknownKind, unknownTaskKindEscalate,
+                tddForTask, incrementTask,
                 tddResultOk, tddWaitEscalate,
                 dispatchTddRetry, tddRetryOk, notifyTddRetry, notifyTddFailed,
                 checkCiSupported, markCiSkipped, ciGate, ciUnsupportedRouter, ciOk, notifyCiPassed,
@@ -1302,9 +1663,29 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 Connect(initInputs, readConventions),
                 Connect(readConventions, validateItem),
 
-                // 1. Validate → notify + emit CYCLE.STARTED + continue (parallel)
-                ConnectOutcome(validateItem, "Valid", notifyProcessing),
-                ConnectOutcome(validateItem, "Valid", emitCycleStarted),
+                // 1. Validate → 1b. Issue Pre-Route (Story 41-29)
+                ConnectOutcome(validateItem, "Valid", readTriage),
+                Connect(readTriage, resolveIssuePreRoute),
+                Connect(resolveIssuePreRoute, emitIssuePrerouted),
+                Connect(emitIssuePrerouted, issuePreRoute),
+
+                // Pre-Route: Question → Answer sub-graph (never reaches GatherContext/GeneratePlan/CreateBranch)
+                ConnectOutcome(issuePreRoute, "Question", answerQuestion),
+                Connect(answerQuestion, extractQuestionAnswer),
+                Connect(extractQuestionAnswer, answerQuestionOk),
+                ConnectOutcome(answerQuestionOk, "True", notifyQuestionAnswered),
+                ConnectOutcome(answerQuestionOk, "True", reportQuestionAnswered),
+                Connect(reportQuestionAnswered, finish),
+                ConnectOutcome(answerQuestionOk, "False", emitStepFailed),
+
+                // Pre-Route: NeedsHuman → defensive escalate terminal
+                ConnectOutcome(issuePreRoute, "NeedsHuman", notifyNeedsHuman),
+                ConnectOutcome(issuePreRoute, "NeedsHuman", reportPreRouteNeedsHuman),
+                Connect(reportPreRouteNeedsHuman, finish),
+
+                // Pre-Route: Plan (bug/feature/chore/docs/security) → existing pipeline unchanged
+                ConnectOutcome(issuePreRoute, "Plan", notifyProcessing),
+                ConnectOutcome(issuePreRoute, "Plan", emitCycleStarted),
                 Connect(emitCycleStarted, gatherContext),
                 ConnectOutcome(validateItem, "Invalid", notifyInvalid),
                 ConnectOutcome(validateItem, "Invalid", reportError),
@@ -1425,7 +1806,47 @@ public class SingleIssueCycleWorkflow : WorkflowBase
                 // tdd-with-debug-retry sub-workflow (bounded debug-retry). Recovered →
                 // advance; not converged → fail the cycle LOUD (needs-human sink).
                 ConnectOutcome(hasMoreTasks, "True", extractCurrentTask),
-                Connect(extractCurrentTask, tddForTask),
+                // Story 41-29: extract kind → FlowSwitchByKind → mapped target → incrementTask (or sink)
+                Connect(extractCurrentTask, extractCurrentTaskKind),
+                Connect(extractCurrentTaskKind, flowSwitchByKind),
+
+                // Code / Infra / Chore / absent → existing coding node (TddForTask) unchanged
+                ConnectOutcome(flowSwitchByKind, "Code", emitTaskDispatchedCoding),
+                ConnectOutcome(flowSwitchByKind, "Infra", emitTaskDispatchedCoding),
+                ConnectOutcome(flowSwitchByKind, "Chore", emitTaskDispatchedCoding),
+                Connect(emitTaskDispatchedCoding, tddForTask),
+
+                // Test → test-case-creation → gate → incrementTask (or sink)
+                ConnectOutcome(flowSwitchByKind, "Test", emitTaskDispatchedTest),
+                Connect(emitTaskDispatchedTest, dispatchTestTask),
+                Connect(dispatchTestTask, testTaskOk),
+                ConnectOutcome(testTaskOk, "True", incrementTask),
+                ConnectOutcome(testTaskOk, "False", emitStepFailed),
+
+                // Investigation → research → gate → incrementTask (or sink)
+                ConnectOutcome(flowSwitchByKind, "Investigation", emitTaskDispatchedInvestigation),
+                Connect(emitTaskDispatchedInvestigation, dispatchInvestigationTask),
+                Connect(dispatchInvestigationTask, investigationTaskOk),
+                ConnectOutcome(investigationTaskOk, "True", incrementTask),
+                ConnectOutcome(investigationTaskOk, "False", emitStepFailed),
+
+                // Design → design-proposal → gate → incrementTask (or sink)
+                ConnectOutcome(flowSwitchByKind, "Design", emitTaskDispatchedDesign),
+                Connect(emitTaskDispatchedDesign, dispatchDesignTask),
+                Connect(dispatchDesignTask, designTaskOk),
+                ConnectOutcome(designTaskOk, "True", incrementTask),
+                ConnectOutcome(designTaskOk, "False", emitStepFailed),
+
+                // Docs (unbuilt Epic 41 target) → human-assigned deferral → advance loop
+                ConnectOutcome(flowSwitchByKind, "Docs", emitTaskDeferredDocs),
+                Connect(emitTaskDeferredDocs, notifyDocsDeferred),
+                Connect(emitTaskDeferredDocs, incrementTask),
+
+                // Unknown / out-of-vocab kind → loud escalation through shared sink (never TDD)
+                ConnectOutcome(flowSwitchByKind, "Unknown", emitTaskUnknownKind),
+                Connect(emitTaskUnknownKind, unknownTaskKindEscalate),
+                ConnectOutcome(unknownTaskKindEscalate, "False", notifyNeedsHuman),
+                ConnectOutcome(unknownTaskKindEscalate, "False", emitStepFailed),
                 // Story 40-2: Received → TddResultOk (success → advance; agent failure →
                 // the same debug-retry leg as before). Timeout / Failed (no run) → escalate.
                 ConnectOutcome(tddForTask, WaitForAgentRunActivity.OutcomeReceived, tddResultOk),
@@ -1661,6 +2082,31 @@ public class SingleIssueCycleWorkflow : WorkflowBase
             return string.Equals(ds?.ToString(), "success", StringComparison.OrdinalIgnoreCase);
         // No recognised deployment verdict → fail the cycle (fail-closed).
         return false;
+    }
+
+    /// <summary>
+    /// Story 41-29 — fail-closed check for a routed non-coding task sub-workflow
+    /// (<c>test-case-creation</c>, <c>research</c>, <c>design-proposal</c>). Passes
+    /// when a non-null result dictionary is returned without an explicit failure/error
+    /// status; a faulted/empty result routes to the shared <c>EmitStepFailed</c> sink.
+    /// </summary>
+    internal static bool IsRoutedSubWorkflowOk(IDictionary<string, object>? result)
+    {
+        if (result == null || result.Count == 0) return false;
+        if (result.TryGetValue("success", out var s))
+        {
+            if (s is false || string.Equals(s?.ToString(), "false", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        if (result.TryGetValue("status", out var st))
+        {
+            var status = st?.ToString();
+            if (string.Equals(status, "failed", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "error", StringComparison.OrdinalIgnoreCase) ||
+                string.Equals(status, "escalated", StringComparison.OrdinalIgnoreCase))
+                return false;
+        }
+        return true;
     }
 
     /// <summary>
