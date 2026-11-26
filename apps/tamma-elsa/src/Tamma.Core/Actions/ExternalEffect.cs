@@ -498,6 +498,45 @@ public enum ExternalEffect
     /// <c>sprint-plan</c> document's committed items to an iteration in one
     /// idempotent transaction.</summary>
     [Wire("tracker.iteration.apply-plan")] TrackerIterationApplyPlan,
+
+    // ── Story 39-20 — tenant-scoped teams & repository access grants (machinery) ──
+    // Appended at the END so the existing wire-pin order is untouched.
+    // All 11 are human-operated tenant-admin access-control routes mounted under
+    // /api/v1/orgs/{tenantId:guid}/{teams,repos}; born `.Governs`-bound as machinery
+    // members (Story 43-13) so 43-9's shrink-only ungoverned-route ratchet stays intact.
+
+    /// <summary><c>POST /api/v1/orgs/{tenantId:guid}/teams</c> — <c>TeamEndpoints.CreateTeam</c>.</summary>
+    [Wire("access.team.create")] AccessTeamCreate,
+
+    /// <summary><c>PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}</c> — <c>TeamEndpoints.UpdateTeam</c>.</summary>
+    [Wire("access.team.update")] AccessTeamUpdate,
+
+    /// <summary><c>DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}</c> — <c>TeamEndpoints.DeleteTeam</c>.</summary>
+    [Wire("access.team.delete")] AccessTeamDelete,
+
+    /// <summary><c>POST /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members</c> — <c>TeamEndpoints.AddMember</c>.</summary>
+    [Wire("access.team.member.add")] AccessTeamMemberAdd,
+
+    /// <summary><c>PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}</c> — <c>TeamEndpoints.UpdateMemberRole</c>.</summary>
+    [Wire("access.team.member.role.update")] AccessTeamMemberRoleUpdate,
+
+    /// <summary><c>DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}</c> — <c>TeamEndpoints.RemoveMember</c>.</summary>
+    [Wire("access.team.member.remove")] AccessTeamMemberRemove,
+
+    /// <summary><c>POST /api/v1/orgs/{tenantId:guid}/repos</c> — <c>RepoAccessEndpoints.RegisterRepo</c>.</summary>
+    [Wire("access.repo.register")] AccessRepoRegister,
+
+    /// <summary><c>PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/visibility</c> — <c>RepoAccessEndpoints.UpdateVisibility</c>.</summary>
+    [Wire("access.repo.visibility.update")] AccessRepoVisibilityUpdate,
+
+    /// <summary><c>PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants</c> — <c>RepoAccessEndpoints.UpsertGrant</c>.</summary>
+    [Wire("access.repo.grant.upsert")] AccessRepoGrantUpsert,
+
+    /// <summary><c>DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants/{grantId:guid}</c> — <c>RepoAccessEndpoints.RevokeGrantById</c>.</summary>
+    [Wire("access.repo.grant.revoke-by-id")] AccessRepoGrantRevokeById,
+
+    /// <summary><c>DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants</c> — <c>RepoAccessEndpoints.RevokeGrantByGrantee</c>.</summary>
+    [Wire("access.repo.grant.revoke-by-grantee")] AccessRepoGrantRevokeByGrantee,
 }
 
 /// <summary><see cref="ExternalEffect"/> wire helper.</summary>

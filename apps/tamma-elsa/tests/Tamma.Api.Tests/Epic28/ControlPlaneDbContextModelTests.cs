@@ -192,6 +192,13 @@ public class ControlPlaneDbContextModelTests
             // levels. Same CP-residency, FK-free, DROP-list-excluded posture as
             // action_assignments / action_authorizations.
             "action_level_overrides",
+            // Story 39-20 — tenant-scoped teams, memberships, registered
+            // repositories, and direct/team access grants. CP-resident alongside
+            // tenants, users, tenant_memberships, and github_installation_repos.
+            "teams",
+            "team_members",
+            "repositories",
+            "repo_access_grants",
         }, because: "Story 28-1 PR D (Decision #4) — enumerate every "
             + "CP-resident table; the 11 + 4 mentorship tenant-resident "
             + "entities have moved to TenantDbContext. Story 31-2 adds "
@@ -212,7 +219,9 @@ public class ControlPlaneDbContextModelTests
             + "Story 38-3 adds slack_outbox. "
             + "Story 37-2 adds audit_chain_checkpoints. "
             + "Story 41-30 adds scheduled_triggers + scheduled_trigger_fires. "
-            + "Story 43-5 adds action_assignments + action_authorizations.");
+            + "Story 43-5 adds action_assignments + action_authorizations. "
+            + "Story 43-18 adds action_level_overrides. "
+            + "Story 39-20 adds teams + team_members + repositories + repo_access_grants.");
     }
 
     // ── Story 34-11 — provider cost price-book model shape ──

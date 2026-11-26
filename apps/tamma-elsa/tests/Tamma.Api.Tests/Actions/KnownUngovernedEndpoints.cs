@@ -302,7 +302,10 @@ internal static class KnownUngovernedEndpoints
     // Story 44-4 AC12 — 251 → 257: six NEW iteration mutating endpoints (create, patch, delete,
     // commit, uncommit, apply-plan), ALL BORN .Governs-BOUND — PinnedCount (207) and PinHistory
     // are unmodified. New state: 207 baselined + 2 exceptions + 48 bound = 257.
-    internal const int PinnedInScopeCount = 257;
+    // Story 39-20 — 257 → 268: eleven NEW tenant-admin team & repo-access mutating endpoints,
+    // ALL BORN .Governs-BOUND to machinery members effect:access.{team,repo}.* — PinnedCount (207)
+    // and PinHistory are unmodified. New state: 207 baselined + 2 exceptions + 59 bound = 268.
+    internal const int PinnedInScopeCount = 268;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set

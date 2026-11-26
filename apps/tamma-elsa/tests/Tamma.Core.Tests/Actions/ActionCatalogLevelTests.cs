@@ -300,7 +300,7 @@ public class ActionCatalogLevelTests
         missing.Should().BeEmpty("keys in the table with no catalog dial row");
         extra.Should().BeEmpty("catalog dial rows absent from the table");
         mismatched.Should().BeEmpty("a level moved without updating BOTH the descriptor and this table");
-        actual.Should().HaveCount(186, "186 = 239 catalog rows − 53 machinery (Story 44-4 AC11: +6 native tracker iteration effects — 5 at level 20 + iteration.delete at 95; was 180 = 233 − 53)");
+        actual.Should().HaveCount(186, "186 = 250 catalog rows − 64 machinery (Story 39-20: +11 access-admin machinery rows, dial count unchanged; Story 44-4 AC11: +6 native tracker iteration effects — 5 at level 20 + iteration.delete at 95; was 180 = 233 − 53)");
     }
 
     [Test]
@@ -321,7 +321,8 @@ public class ActionCatalogLevelTests
         // 49 → 50 (Story 40-3b, 2026-11-07: + AgentRunWaitReconciler (Tamma.Api), the agent-run wait reconciler — an IHostedService, so automation machinery like every hosted service.)
         // 50 → 51 (Story 43-6, 2026-11-07: + effect:governance.policy.group-enforce.set, the machinery member PUT /api/actions/policy/groups/{group}/enforce is bound to — machinery, so the dial-row count stays 177).
         // 51 → 53 (Story 43-18: + effect:governance.action-level.{set,delete}, machinery members for PUT/DELETE /api/admin/actions/levels/{ns}/{key} — dial-row count stays 177).
-        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(53);
+        // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery members for tenant-admin team & repo-access routes — dial-row count stays 186).
+        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(64);
         ActionCatalog.All.Where(d => d.IsMachinery).Select(d => d.Key.ToWire())
             .Should().OnlyContain(k => !LevelTable.ContainsKey(k));
     }

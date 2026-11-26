@@ -2658,39 +2658,51 @@ orgs.MapDelete("/{tenantId:guid}", OrgEndpoints.DeleteOrg)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 
 // Story 39-20 (AC1 / AC2 / D9) — tenant-scoped teams & repository access grants.
+// All 11 mutating routes are born `.Governs`-bound to machinery members (Story 43-13).
 orgs.MapGet("/{tenantId:guid}/teams", TeamEndpoints.ListTeams)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 orgs.MapPost("/{tenantId:guid}/teams", TeamEndpoints.CreateTeam)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamCreate.ToWire()));
 orgs.MapGet("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.GetTeam)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 orgs.MapPut("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.UpdateTeam)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamUpdate.ToWire()));
 orgs.MapDelete("/{tenantId:guid}/teams/{teamId:guid}", TeamEndpoints.DeleteTeam)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamDelete.ToWire()));
 orgs.MapGet("/{tenantId:guid}/teams/{teamId:guid}/members", TeamEndpoints.ListMembers)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 orgs.MapPost("/{tenantId:guid}/teams/{teamId:guid}/members", TeamEndpoints.AddMember)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamMemberAdd.ToWire()));
 orgs.MapPut("/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}", TeamEndpoints.UpdateMemberRole)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamMemberRoleUpdate.ToWire()));
 orgs.MapDelete("/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid}", TeamEndpoints.RemoveMember)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessTeamMemberRemove.ToWire()));
 
 orgs.MapGet("/{tenantId:guid}/repos", RepoAccessEndpoints.ListRepos)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 orgs.MapPost("/{tenantId:guid}/repos", RepoAccessEndpoints.RegisterRepo)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessRepoRegister.ToWire()));
 orgs.MapPut("/{tenantId:guid}/repos/{repoId:guid}/visibility", RepoAccessEndpoints.UpdateVisibility)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessRepoVisibilityUpdate.ToWire()));
 orgs.MapGet("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.ListGrants)
     .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
 orgs.MapPut("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.UpsertGrant)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessRepoGrantUpsert.ToWire()));
 orgs.MapDelete("/{tenantId:guid}/repos/{repoId:guid}/grants/{grantId:guid}", RepoAccessEndpoints.RevokeGrantById)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessRepoGrantRevokeById.ToWire()));
 orgs.MapDelete("/{tenantId:guid}/repos/{repoId:guid}/grants", RepoAccessEndpoints.RevokeGrantByGrantee)
-    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>();
+    .AddEndpointFilter<Tamma.Api.Authorization.RequireTenantMembershipFilter>()
+    .Governs(new ActionKey(ActionNamespace.Effect, ExternalEffect.AccessRepoGrantRevokeByGrantee.ToWire()));
 
 // Story 29-3 — tenant-scope secret create. Caller must be a member of
 // {tenantId} (RequireTenantMembershipFilter); the endpoint handler

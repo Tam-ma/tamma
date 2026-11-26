@@ -300,6 +300,32 @@ public class MediationClientEffectSweepTests
                 "DELETE /api/admin/actions/levels/{ns}/{key} — platform-owner shipped-level override "
                 + "delete (machinery member), no TammaApiClient method"),
 
+            // Story 39-20 — tenant-admin team & repository access-control routes.
+            // Reached by tenant admins / team maintainers via the dashboard or API,
+            // never through the engine's mediation client.
+            [ExternalEffect.AccessTeamCreate] = new(SiteKind.RouteOnly, null,
+                "POST /api/v1/orgs/{tenantId:guid}/teams — tenant-admin team create (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessTeamUpdate] = new(SiteKind.RouteOnly, null,
+                "PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid} — tenant-admin team update (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessTeamDelete] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid} — tenant-admin team delete (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessTeamMemberAdd] = new(SiteKind.RouteOnly, null,
+                "POST /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members — team member add (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessTeamMemberRoleUpdate] = new(SiteKind.RouteOnly, null,
+                "PUT /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid} — team member role update (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessTeamMemberRemove] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/v1/orgs/{tenantId:guid}/teams/{teamId:guid}/members/{userId:guid} — team member remove (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessRepoRegister] = new(SiteKind.RouteOnly, null,
+                "POST /api/v1/orgs/{tenantId:guid}/repos — tenant-admin repo register (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessRepoVisibilityUpdate] = new(SiteKind.RouteOnly, null,
+                "PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/visibility — tenant-admin repo visibility update (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessRepoGrantUpsert] = new(SiteKind.RouteOnly, null,
+                "PUT /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — tenant-admin repo grant upsert (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessRepoGrantRevokeById] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants/{grantId:guid} — tenant-admin repo grant revoke by id (machinery member), no TammaApiClient method"),
+            [ExternalEffect.AccessRepoGrantRevokeByGrantee] = new(SiteKind.RouteOnly, null,
+                "DELETE /api/v1/orgs/{tenantId:guid}/repos/{repoId:guid}/grants — tenant-admin repo grant revoke by grantee (machinery member), no TammaApiClient method"),
+
             // ── In-process: no HTTP hop, so no route sweep can ever see them ──
             [ExternalEffect.ProcessSpawn] = new(SiteKind.InProcess, null,
                 "ShellExecuteTool's ProcessStartInfo, inside the tool loop — invisible to any route sweep"),
