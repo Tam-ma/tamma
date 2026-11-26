@@ -141,6 +141,10 @@ public class ControlPlaneDbContextModelTests
             // Story 35-6 — per-(tenant, dimension, period, level) dedup ledger
             // capping BILLING.QUOTA.WARN/EXCEEDED emissions to once per period.
             "quota_notifications",
+            // Story 35-8 — Stripe invoice mirror, line items, and per-tenant dunning state.
+            "billing_invoices",
+            "billing_invoice_lines",
+            "billing_dunning_states",
             // Story 37-1 — curated audit-record read-model + the per-(projector,
             // tenant) cursor. audit_records is mapped on BOTH contexts (the CP
             // build materializes platform-scope + single-user rows); the cursor

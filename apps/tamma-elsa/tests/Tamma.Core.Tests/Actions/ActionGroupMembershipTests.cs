@@ -336,7 +336,8 @@ public class ActionGroupMembershipTests
         // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, eleven machinery members for tenant-admin team & repo-access routes).
         // 64 → 68 (Story 39-17: + tool:workflow_control, + effect:orchestrator.config.{set,delete}, + automation:orchestrator-agent-host).
         // 68 → 70 (Story 35-3: + platform-task:billing.{meter_flush,usage_reconcile}).
-        expected.Should().HaveCount(70, "1 tool + 5 engine effects + 3 schedule effects + 3 policy/level effects + 11 access-admin effects + 2 orchestrator-config effects + 35 automation + 10 platform tasks");
+        // 70 → 71 (Story 35-8: + platform-task:billing.dunning.advance).
+        expected.Should().HaveCount(71, "1 tool + 5 engine effects + 3 schedule effects + 3 policy/level effects + 11 access-admin effects + 2 orchestrator-config effects + 35 automation + 11 platform tasks");
         WiresIn(ActionGroup.PlatformAutomation).Should().BeEquivalentTo(expected);
     }
 
@@ -393,7 +394,8 @@ public class ActionGroupMembershipTests
             // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery).
             // 64 → 68 (Story 39-17: + tool:workflow_control, + effect:orchestrator.config.{set,delete}, + automation:orchestrator-agent-host).
             // 68 → 70 (Story 35-3: + platform-task:billing.{meter_flush,usage_reconcile}).
-            [ActionGroup.PlatformAutomation] = 70,
+            // 70 → 71 (Story 35-8: + platform-task:billing.dunning.advance).
+            [ActionGroup.PlatformAutomation] = 71,
         };
 
         // 223 → 225 (2026-08-18): platform-automation 47 → 49 (+AdlLoopWatchdogService
@@ -414,7 +416,8 @@ public class ActionGroupMembershipTests
         // 239 → 250 (Story 39-20): platform-automation 53 → 64 (+effect:access.{team,repo}.*, machinery).
         // 250 → 262 (Story 39-17): code-read 3 → 10, source-control-read 1 → 2, platform-automation 64 → 68.
         // 262 → 264 (Story 35-3): platform-automation 68 → 70 (+platform-task:billing.{meter_flush,usage_reconcile}).
-        counts.Values.Sum().Should().Be(264);
+        // 264 → 265 (Story 35-8): platform-automation 70 → 71 (+platform-task:billing.dunning.advance).
+        counts.Values.Sum().Should().Be(265);
         foreach (var (group, count) in counts)
             ActionCatalog.ByGroup[group].Should().HaveCount(count, $"group '{group.ToWire()}'");
     }

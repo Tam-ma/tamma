@@ -127,6 +127,7 @@ public class MachineryInventoryTests
         "platform-task:billing.customer.create",
         "platform-task:billing.meter_flush",
         "platform-task:billing.usage_reconcile",
+        "platform-task:billing.dunning.advance",
         "platform-task:provisioning.tenant",
         "platform-task:provisioning.tenant.v2",
         "platform-task:provisioning.tenant.deprovision",
@@ -171,7 +172,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(69, "22 + 37 + 10 = 69 (43-11's count check, amended through Story 39-17 [67] and Story 35-3 [+2 platform-task billing.{meter_flush,usage_reconcile}])");
+        MachineryInventory.Should().HaveCount(70, "22 + 37 + 11 = 70 (43-11's count check, amended through Story 39-17 [67], Story 35-3 [+2], and Story 35-8 [+1 platform-task:billing.dunning.advance])");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(

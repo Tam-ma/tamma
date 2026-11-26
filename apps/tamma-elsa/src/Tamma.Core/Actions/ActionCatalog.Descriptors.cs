@@ -899,5 +899,7 @@ public static partial class ActionCatalog
             "Tamma.Api.Services.Billing.MeterEventFlushTaskHandler"),
         Task(PlatformTaskKind.BillingUsageReconcile, ActionRisk.ReadOnly, "Reconcile billing usage", "Compares local per-tenant usage rollups against Stripe Billing Meter summaries and emits drift alerts (Story 35-3).",
             "Tamma.Api.Services.Billing.UsageReconciliationTaskHandler"),
+        Task(PlatformTaskKind.BillingDunningAdvance, ActionRisk.Mutating, "Advance billing dunning", "Advances a tenant's failed-payment dunning stage on schedule through grace to suspension (Story 35-8).",
+            "Tamma.Api.Services.Billing.DunningAdvanceTaskHandler"),
     };
 }

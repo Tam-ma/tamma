@@ -335,7 +335,8 @@ public class ActionCatalogLevelTests
         // 53 → 64 (Story 39-20: + effect:access.{team,repo}.*, machinery members for tenant-admin team & repo-access routes — dial-row count stays 186).
         // 64 → 67 (Story 39-17: + effect:orchestrator.config.{set,delete} + automation:orchestrator-agent-host — machinery).
         // 67 → 69 (Story 35-3: + platform-task:billing.{meter_flush,usage_reconcile} — machinery).
-        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(69);
+        // 69 → 70 (Story 35-8: + platform-task:billing.dunning.advance — machinery).
+        ActionCatalog.All.Count(d => d.IsMachinery).Should().Be(70);
         ActionCatalog.All.Where(d => d.IsMachinery).Select(d => d.Key.ToWire())
             .Should().OnlyContain(k => !LevelTable.ContainsKey(k));
     }

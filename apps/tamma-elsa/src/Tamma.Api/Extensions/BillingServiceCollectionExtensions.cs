@@ -30,6 +30,10 @@ public static class BillingServiceCollectionExtensions
             .Configure(opts =>
                 configuration.GetSection(BillingOptions.SectionName).Bind(opts));
 
+        services.AddOptions<DunningOptions>()
+            .Configure(opts =>
+                configuration.GetSection(DunningOptions.SectionName).Bind(opts));
+
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
 
         // Catalog reader + Stripe client factory are mode-agnostic singletons
@@ -50,6 +54,14 @@ public static class BillingServiceCollectionExtensions
         if (mode == TammaMode.SaaS)
         {
             services.AddScoped<IBillingProvider, StripeBillingProvider>();
+
+            // Story 35-8 (AC2, AC5, AC13) — invoice projection, dunning state machine,
+            // and scheduled dunning-advance task handler (SaaS-only; not registered in
+            // single-user mode).
+            services.TryAddScoped<IPlatformQueuedTaskRepository, PlatformQueuedTaskRepository>();
+            services.AddScoped<IInvoiceService, InvoiceService>();
+            services.AddScoped<IDunningStateMachine, DunningStateMachine>();
+            services.AddPlatformTaskHandler<DunningAdvanceTaskHandler>();
         }
         else
         {

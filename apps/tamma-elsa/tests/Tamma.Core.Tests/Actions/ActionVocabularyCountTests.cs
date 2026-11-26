@@ -144,11 +144,12 @@ public class ActionVocabularyCountTests
     }
 
     [Test]
-    public void PlatformTaskKind_has_10_members()
+    public void PlatformTaskKind_has_11_members()
     {
         // Derivation: 8 baseline IPlatformTaskHandler implementations + 2 Story 35-3
-        // handlers (billing.meter_flush, billing.usage_reconcile) = 10.
-        Enum.GetValues<PlatformTaskKind>().Should().HaveCount(10);
+        // handlers (billing.meter_flush, billing.usage_reconcile) + 1 Story 35-8
+        // handler (billing.dunning.advance) = 11.
+        Enum.GetValues<PlatformTaskKind>().Should().HaveCount(11);
     }
 
     [Test]
@@ -216,7 +217,8 @@ public class ActionVocabularyCountTests
         // 239 → 250 — effect 74 → 85 (Story 39-20: + effect:access.{team,repo}.*, machinery).
         // 250 → 262 — tool 8 → 17 (+9 orchestrator tools), effect 85 → 87 (+orchestrator.config.{set,delete}), automation 36 → 37 (+orchestrator-agent-host) (Story 39-17).
         // 262 → 264 — platform-task 8 → 10 (+billing.meter_flush, +billing.usage_reconcile) (Story 35-3).
-        ActionCatalog.All.Should().HaveCount(264);
-        ActionCatalog.ByKey.Should().HaveCount(264);
+        // 264 → 265 — platform-task 10 → 11 (+billing.dunning.advance) (Story 35-8).
+        ActionCatalog.All.Should().HaveCount(265);
+        ActionCatalog.ByKey.Should().HaveCount(265);
     }
 }

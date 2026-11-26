@@ -709,6 +709,23 @@ public class ControlPlaneDbContext : DbContext
     public DbSet<QuotaNotification> QuotaNotifications => Set<QuotaNotification>();
 
     /// <summary>
+    /// Story 35-8 (AC1) — control-plane mirror of Stripe invoices for each tenant.
+    /// </summary>
+    public DbSet<BillingInvoice> BillingInvoices => Set<BillingInvoice>();
+
+    /// <summary>
+    /// Story 35-8 (AC1) — line-item breakdown (<c>base | metered_overage | credit</c>)
+    /// for each mirrored <see cref="BillingInvoice"/>.
+    /// </summary>
+    public DbSet<BillingInvoiceLine> BillingInvoiceLines => Set<BillingInvoiceLine>();
+
+    /// <summary>
+    /// Story 35-8 (AC8) — one-per-tenant dunning / billing suspension state read by
+    /// Story 35-6's <c>QuotaService</c> to hard-block platform usage when suspended.
+    /// </summary>
+    public DbSet<BillingDunningState> BillingDunningStates => Set<BillingDunningState>();
+
+    /// <summary>
     /// Story 37-1 — platform-scope curated audit trail. Tenant-scope rows live
     /// in the per-tenant schema's <c>audit_records</c>; these are the
     /// platform/lifecycle rows (impersonation, tenant provision/move, etc.).

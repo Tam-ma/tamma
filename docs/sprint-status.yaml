@@ -577,7 +577,7 @@ development_status:
   35-5-stripe-webhook-ingestion-idempotency-and-billing-event-proje: done    # Stripe Webhook Ingestion, Idempotency & Billing Event Projection [P0] | DONE 2026-08-18 (checked in code, not from a changelog): POST /api/v1/billing/stripe/webhook + admin replay routes (Program.cs:3426-3433) + Api/Services/Billing/{StripeWebhookProcessor,IStripeEventVerifier,IStripeSigningSecretSource,BillingWebhookDcbEvents,BillingWebhookFollowupTaskHandler}.cs + Extensions/BillingWebhookServiceCollectionExtensions.cs + Api.Tests/Billing/{StripeWebhookProcessorTests,StripeWebhookEndpointTests,BillingWebhookRoutesTests}
   35-6-plan-quota-and-usage-limit-enforcement: done # Plan Quota & Usage-Limit Enforcement (BYOK-Aware) [P0]
   35-7-payment-methods-and-self-service-stripe-billing-portal: drafted # Payment Methods & Self-Service Stripe Billing Portal [P1]
-  35-8-invoicing-failed-payment-dunning-and-recovery: drafted # Invoicing, Failed-Payment Dunning & Recovery [P0]
+  35-8-invoicing-failed-payment-dunning-and-recovery: done # Invoicing, Failed-Payment Dunning & Recovery [P0]
   35-9-tax-calculation-and-compliance: drafted        # Tax Calculation & Compliance (Stripe Tax / VAT) [P1]
   35-10-credits-and-prepaid-wallet-ledger: drafted    # Credits & Prepaid Wallet Ledger [P2]
   35-11-tenant-billing-dashboard-and-admin-billing-console: drafted # Tenant Billing Dashboard (dashboard-user) & Admin Billing Console (dashboard) [P1]

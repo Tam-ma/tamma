@@ -1216,6 +1216,206 @@ namespace Tamma.Data.Migrations.ControlPlane
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.BillingDunningState", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<Guid?>("CurrentInvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<int>("FailedAttempts")
+                        .HasColumnType("integer");
+
+                    b.Property<int>("LastObservedAttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime?>("NextAdvanceAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid?>("PendingAdvanceTaskId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Stage")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("active");
+
+                    b.Property<DateTime?>("StageEnteredAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("SuspendedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_billing_dunning_states_tenant_id");
+
+                    b.ToTable("billing_dunning_states", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_billing_dunning_states_stage", "\"Stage\" IN ('active','past_due','grace','suspended','flagged')");
+                        });
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingInvoice", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<long>("AmountDue")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AmountPaid")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("AmountRemaining")
+                        .HasColumnType("bigint");
+
+                    b.Property<int>("AttemptCount")
+                        .HasColumnType("integer");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("usd");
+
+                    b.Property<DateTime?>("FinalizedAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("HostedInvoiceUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<bool>("IsDisputed")
+                        .HasColumnType("boolean");
+
+                    b.Property<DateTime?>("NextPaymentAttempt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime?>("PaidAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("PdfUrl")
+                        .HasMaxLength(2048)
+                        .HasColumnType("character varying(2048)");
+
+                    b.Property<DateTime>("PeriodEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("Status")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("draft");
+
+                    b.Property<string>("StripeInvoiceId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<string>("StripeSubscriptionId")
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("StripeInvoiceId")
+                        .IsUnique()
+                        .HasDatabaseName("IX_billing_invoices_stripe_invoice_id")
+                        .HasFilter("\"StripeInvoiceId\" IS NOT NULL");
+
+                    b.HasIndex("TenantId", "CreatedAt")
+                        .HasDatabaseName("IX_billing_invoices_tenant_created");
+
+                    b.ToTable("billing_invoices", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_billing_invoices_status", "\"Status\" IN ('draft','open','paid','uncollectible','void')");
+                        });
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingInvoiceLine", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<long>("Amount")
+                        .HasColumnType("bigint");
+
+                    b.Property<string>("Currency")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasDefaultValue("usd");
+
+                    b.Property<string>("Description")
+                        .IsRequired()
+                        .HasMaxLength(1024)
+                        .HasColumnType("character varying(1024)");
+
+                    b.Property<Guid>("InvoiceId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Kind")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("base");
+
+                    b.Property<long>("Quantity")
+                        .HasColumnType("bigint");
+
+                    b.Property<long>("UnitAmount")
+                        .HasColumnType("bigint");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("InvoiceId")
+                        .HasDatabaseName("IX_billing_invoice_lines_invoice_id");
+
+                    b.ToTable("billing_invoice_lines", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_billing_invoice_lines_kind", "\"Kind\" IN ('base','metered_overage','credit')");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.BillingMeterEventBuffer", b =>
                 {
                     b.Property<Guid>("Id")
@@ -4006,6 +4206,39 @@ namespace Tamma.Data.Migrations.ControlPlane
                     b.Navigation("Tenant");
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.BillingDunningState", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingInvoice", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingInvoiceLine", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.BillingInvoice", "Invoice")
+                        .WithMany("Lines")
+                        .HasForeignKey("InvoiceId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Invoice");
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.BillingMeterEventBuffer", b =>
                 {
                     b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
@@ -4300,6 +4533,11 @@ namespace Tamma.Data.Migrations.ControlPlane
             modelBuilder.Entity("Tamma.Data.Entities.Agent", b =>
                 {
                     b.Navigation("Versions");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingInvoice", b =>
+                {
+                    b.Navigation("Lines");
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.GitHubInstallation", b =>

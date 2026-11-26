@@ -1,6 +1,6 @@
 # Story 35-8: Invoicing, Failed-Payment Dunning & Recovery
 
-Status: drafted
+Status: done
 
 ## MANDATORY: Before You Code
 
