@@ -26,6 +26,20 @@ public sealed class NullBillingProvider : IBillingProvider
     public Task<CatalogSyncResult> SyncCatalogAsync(CancellationToken ct = default) =>
         throw SaasOnly();
 
+    /// <inheritdoc />
+    public Task<MeterEventReportResult> ReportMeterEventAsync(
+        MeterEventReportRequest request, CancellationToken ct = default) =>
+        throw SaasOnly();
+
+    /// <inheritdoc />
+    public Task<long> GetMeterEventSummaryTotalAsync(
+        string meterId,
+        string stripeCustomerId,
+        DateTime periodStartUtc,
+        DateTime periodEndUtc,
+        CancellationToken ct = default) =>
+        throw SaasOnly();
+
     private static TammaError SaasOnly() => new(
         "BILLING.SAAS_ONLY",
         "Billing is SaaS-only. The NullBillingProvider is active because this "

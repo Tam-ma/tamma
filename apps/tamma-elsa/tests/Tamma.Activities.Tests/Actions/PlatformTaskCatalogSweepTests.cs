@@ -45,6 +45,8 @@ public class PlatformTaskCatalogSweepTests
             CranlTenantProviderV2.DeprovisioningTaskType,
             BillingWebhookEventTypes.FollowupTaskType,
             CreateBillingCustomerTaskHandler.TaskTypeName,
+            MeterEventFlushTaskHandler.TaskTypeName,
+            UsageReconciliationTaskHandler.TaskTypeName,
         };
 
         var catalogued = ActionCatalog.ByKey.Keys
@@ -74,11 +76,12 @@ public class PlatformTaskCatalogSweepTests
     }
 
     [Test]
-    public void The_handler_count_is_pinned_at_8()
+    public void The_handler_count_is_pinned_at_10()
     {
-        // 43-2 C4: a naive ': IPlatformTaskHandler' grep returns 9 — one is the
-        // registry (implements IPlatformTaskHandlerRegistry). Reflection sees the
-        // true 8.
-        HandlerTypes().Should().HaveCount(8);
+        // 43-2 C4: a naive ': IPlatformTaskHandler' grep includes the registry
+        // (implements IPlatformTaskHandlerRegistry). Reflection sees the true
+        // handlers: 8 baseline + 2 Story 35-3 handlers (MeterEventFlushTaskHandler,
+        // UsageReconciliationTaskHandler) = 10.
+        HandlerTypes().Should().HaveCount(10);
     }
 }

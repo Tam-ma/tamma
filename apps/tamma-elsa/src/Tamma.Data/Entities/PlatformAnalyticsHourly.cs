@@ -74,6 +74,18 @@ public class PlatformAnalyticsHourly
     /// <summary>Sum of <c>LLM.CALL.SUCCESS.data.outputTokens</c> in the bucket.</summary>
     public long TokensOut { get; set; }
 
+    /// <summary>Story 35-3 — sum of <c>billing_mode = platform</c> input tokens in the bucket.</summary>
+    public long PlatformTokensIn { get; set; }
+
+    /// <summary>Story 35-3 — sum of <c>billing_mode = platform</c> output tokens in the bucket.</summary>
+    public long PlatformTokensOut { get; set; }
+
+    /// <summary>Story 35-3 — sum of <c>billing_mode = byok</c> input tokens in the bucket (analytics only).</summary>
+    public long ByokTokensIn { get; set; }
+
+    /// <summary>Story 35-3 — sum of <c>billing_mode = byok</c> output tokens in the bucket (analytics only).</summary>
+    public long ByokTokensOut { get; set; }
+
     /// <summary>
     /// Sum of <c>LLM.CALL.SUCCESS.data.costUsd</c> in the bucket, capped
     /// at 4 decimals (same precision as

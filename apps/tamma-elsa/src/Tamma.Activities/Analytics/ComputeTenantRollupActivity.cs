@@ -139,19 +139,20 @@ public sealed class ComputeTenantRollupActivity : TammaAsyncActivity
             .ConfigureAwait(false);
 
         // LLM.CALL.SUCCESS data column carries { costUsd, inputTokens,
-        // outputTokens } per Story 9-2. Pull rows (bounded by the hour
-        // window — typically ≤ tens of thousands per tenant per hour)
-        // and aggregate in memory so we share the same JSON parsing
-        // logic as PlatformAnalyticsService.TryExtractCostUsd.
+        // outputTokens } per Story 9-2, and Tags carries { billing_mode } per
+        // Story 35-2. Pull rows (bounded by the hour window) and aggregate in
+        // memory so we share the same JSON parsing logic and split tokens by
+        // billing_mode for Story 35-3.
         var llmRows = await tenantDb.DomainEvents
             .AsNoTracking()
             .Where(e => e.CreatedAt >= hour && e.CreatedAt < hourEnd
                         && e.Type == "LLM.CALL.SUCCESS")
-            .Select(e => e.Data)
+            .Select(e => new { e.Data, e.Tags })
             .ToListAsync(cancellationToken)
             .ConfigureAwait(false);
 
-        var (costUsd, tokensIn, tokensOut) = AggregateLlmUsage(llmRows);
+        var (costUsd, tokensIn, tokensOut, platformTokensIn, platformTokensOut, byokTokensIn, byokTokensOut) =
+            AggregateLlmUsageByBillingMode(llmRows.Select(r => ((string?)r.Data, (string?)r.Tags)));
 
         // ── Upsert into the CP fact table ──
         await using var cp = await cpFactory
@@ -178,6 +179,10 @@ public sealed class ComputeTenantRollupActivity : TammaAsyncActivity
                 AgentDispatches = agentDispatches,
                 TokensIn = tokensIn,
                 TokensOut = tokensOut,
+                PlatformTokensIn = platformTokensIn,
+                PlatformTokensOut = platformTokensOut,
+                ByokTokensIn = byokTokensIn,
+                ByokTokensOut = byokTokensOut,
                 CostUsd = costUsd,
                 ActiveTenantsAtHourEnd = 0,
                 ComputedAt = now,
@@ -191,6 +196,10 @@ public sealed class ComputeTenantRollupActivity : TammaAsyncActivity
             existing.AgentDispatches = agentDispatches;
             existing.TokensIn = tokensIn;
             existing.TokensOut = tokensOut;
+            existing.PlatformTokensIn = platformTokensIn;
+            existing.PlatformTokensOut = platformTokensOut;
+            existing.ByokTokensIn = byokTokensIn;
+            existing.ByokTokensOut = byokTokensOut;
             existing.CostUsd = costUsd;
             existing.ComputedAt = now;
         }
@@ -244,6 +253,80 @@ public sealed class ComputeTenantRollupActivity : TammaAsyncActivity
         }
 
         return (Math.Round(cost, 4, MidpointRounding.AwayFromZero), tokensIn, tokensOut);
+    }
+
+    /// <summary>
+    /// Story 35-3 — sums <c>costUsd</c>, total <c>inputTokens</c>/<c>outputTokens</c>,
+    /// and the <c>billing_mode</c>-split counters (<c>platform</c> vs <c>byok</c>)
+    /// from <c>LLM.CALL.SUCCESS</c> rows. Missing or unknown <c>billing_mode</c>
+    /// tags default to <c>platform</c> so a tagging gap is never silently free.
+    /// </summary>
+    public static (
+        decimal CostUsd,
+        long TokensIn,
+        long TokensOut,
+        long PlatformTokensIn,
+        long PlatformTokensOut,
+        long ByokTokensIn,
+        long ByokTokensOut) AggregateLlmUsageByBillingMode(
+        IEnumerable<(string? Data, string? Tags)> rows)
+    {
+        var cost = 0m;
+        var tokensIn = 0L;
+        var tokensOut = 0L;
+        var platformIn = 0L;
+        var platformOut = 0L;
+        var byokIn = 0L;
+        var byokOut = 0L;
+
+        foreach (var (data, tags) in rows)
+        {
+            var (c, ti, to) = ExtractLlmUsage(data);
+            cost += c;
+            tokensIn += ti;
+            tokensOut += to;
+
+            if (IsByokBillingMode(tags))
+            {
+                byokIn += ti;
+                byokOut += to;
+            }
+            else
+            {
+                platformIn += ti;
+                platformOut += to;
+            }
+        }
+
+        return (
+            Math.Round(cost, 4, MidpointRounding.AwayFromZero),
+            tokensIn,
+            tokensOut,
+            platformIn,
+            platformOut,
+            byokIn,
+            byokOut);
+    }
+
+    private static bool IsByokBillingMode(string? tags)
+    {
+        if (string.IsNullOrWhiteSpace(tags)) return false;
+        try
+        {
+            using var doc = JsonDocument.Parse(tags);
+            if (doc.RootElement.ValueKind != JsonValueKind.Object) return false;
+            if (doc.RootElement.TryGetProperty("billing_mode", out var el) ||
+                doc.RootElement.TryGetProperty("billingMode", out el))
+            {
+                var raw = el.ValueKind == JsonValueKind.String ? el.GetString() : null;
+                return string.Equals(raw, "byok", StringComparison.OrdinalIgnoreCase);
+            }
+            return false;
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
     }
 
     /// <summary>

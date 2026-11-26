@@ -895,5 +895,9 @@ public static partial class ActionCatalog
         Task(PlatformTaskKind.CreateBillingCustomer, ActionRisk.Mutating, "Create billing customer", "Creates the billing-provider customer for a tenant.",
             "Tamma.Api.Services.Billing.Tasks.CreateBillingCustomerTaskHandler",
             sensitive: SensitiveActionCatalog.BillingCustomerCreated),
+        Task(PlatformTaskKind.BillingMeterFlush, ActionRisk.Mutating, "Flush billing meter events", "Flushes buffered platform-token meter events to Stripe Billing Meters (Story 35-3).",
+            "Tamma.Api.Services.Billing.MeterEventFlushTaskHandler"),
+        Task(PlatformTaskKind.BillingUsageReconcile, ActionRisk.ReadOnly, "Reconcile billing usage", "Compares local per-tenant usage rollups against Stripe Billing Meter summaries and emits drift alerts (Story 35-3).",
+            "Tamma.Api.Services.Billing.UsageReconciliationTaskHandler"),
     };
 }

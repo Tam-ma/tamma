@@ -133,6 +133,11 @@ public class ControlPlaneDbContextModelTests
             // reads PlanSlug + Seats as the single quota source. At most one
             // non-terminal row per tenant (partial-unique).
             "billing_subscriptions",
+            // Story 35-3 — per-tenant per-billing-period usage rollup (split by
+            // billing_mode) + pending Stripe Billing Meter event buffer.
+            // CP-resident so flush & reconciliation workers iterate across tenants.
+            "billing_usage_rollup",
+            "billing_meter_event_buffer",
             // Story 37-1 — curated audit-record read-model + the per-(projector,
             // tenant) cursor. audit_records is mapped on BOTH contexts (the CP
             // build materializes platform-scope + single-user rows); the cursor
@@ -211,6 +216,7 @@ public class ControlPlaneDbContextModelTests
             + "Story 35-1 adds billing_customers + billing_plan_prices. "
             + "Story 35-5 adds billing_webhook_events. "
             + "Story 35-4 adds billing_subscriptions. "
+            + "Story 35-3 adds billing_usage_rollup + billing_meter_event_buffer. "
             + "Story 37-1 adds audit_records + audit_projector_cursor. "
             + "Story 34-11 adds providers + provider_model_prices. "
             + "Story 34-5 adds margin_policies. "

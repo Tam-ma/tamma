@@ -143,4 +143,76 @@ public sealed class StripeBillingProvider : IBillingProvider
         var seeder = new BillingSeeder(stripe, _db, _events, _options, _logger);
         return await seeder.SyncAsync(ct).ConfigureAwait(false);
     }
+
+    /// <inheritdoc />
+    public async Task<MeterEventReportResult> ReportMeterEventAsync(
+        MeterEventReportRequest request, CancellationToken ct = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        var stripe = await _stripeFactory.CreateAsync(ct).ConfigureAwait(false);
+        var options = new Stripe.Billing.MeterEventCreateOptions
+        {
+            EventName = request.EventName,
+            Identifier = request.IdempotencyKey,
+            Timestamp = DateTime.SpecifyKind(request.TimestampUtc, DateTimeKind.Utc),
+            Payload = new Dictionary<string, string>
+            {
+                ["stripe_customer_id"] = request.StripeCustomerId,
+                ["value"] = request.Value,
+            },
+        };
+
+        var created = await stripe.MeterEvents
+            .CreateAsync(
+                options,
+                new RequestOptions { IdempotencyKey = request.IdempotencyKey },
+                ct)
+            .ConfigureAwait(false);
+
+        var identifier = !string.IsNullOrEmpty(created?.Identifier)
+            ? created.Identifier
+            : request.IdempotencyKey;
+
+        _logger.LogDebug(
+            "Stripe meter event accepted: eventName={EventName} value={Value} stripeIdentifier={StripeIdentifier}.",
+            request.EventName, request.Value, identifier);
+
+        return new MeterEventReportResult(identifier);
+    }
+
+    /// <inheritdoc />
+    public async Task<long> GetMeterEventSummaryTotalAsync(
+        string meterId,
+        string stripeCustomerId,
+        DateTime periodStartUtc,
+        DateTime periodEndUtc,
+        CancellationToken ct = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(meterId);
+        ArgumentException.ThrowIfNullOrWhiteSpace(stripeCustomerId);
+
+        var stripe = await _stripeFactory.CreateAsync(ct).ConfigureAwait(false);
+        var options = new Stripe.Billing.MeterEventSummaryListOptions
+        {
+            Customer = stripeCustomerId,
+            StartTime = DateTime.SpecifyKind(periodStartUtc, DateTimeKind.Utc),
+            EndTime = DateTime.SpecifyKind(periodEndUtc, DateTimeKind.Utc),
+        };
+
+        var summaries = await stripe.MeterEventSummaries
+            .ListAsync(meterId, options, requestOptions: null, cancellationToken: ct)
+            .ConfigureAwait(false);
+
+        long total = 0;
+        if (summaries?.Data is not null)
+        {
+            foreach (var summary in summaries.Data)
+            {
+                total += (long)Math.Round(summary.AggregatedValue, MidpointRounding.AwayFromZero);
+            }
+        }
+
+        return total;
+    }
 }

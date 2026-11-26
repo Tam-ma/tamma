@@ -1216,6 +1216,94 @@ namespace Tamma.Data.Migrations.ControlPlane
                         });
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.BillingMeterEventBuffer", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<int>("AttemptCount")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<string>("BillingMode")
+                        .IsRequired()
+                        .ValueGeneratedOnAdd()
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasDefaultValue("platform");
+
+                    b.Property<DateTime>("CreatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.Property<string>("EventName")
+                        .IsRequired()
+                        .HasMaxLength(128)
+                        .HasColumnType("character varying(128)");
+
+                    b.Property<DateTime>("EventTimestamp")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("IdempotencyKey")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<DateTime?>("LastAttemptAt")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<string>("LastError")
+                        .HasMaxLength(2000)
+                        .HasColumnType("character varying(2000)");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<bool>("ReportedToStripe")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false);
+
+                    b.Property<string>("StripeCustomerId")
+                        .IsRequired()
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<string>("StripeEventId")
+                        .HasMaxLength(255)
+                        .HasColumnType("character varying(255)");
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<string>("Value")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("CreatedAt")
+                        .HasDatabaseName("IX_billing_meter_event_buffer_Pending")
+                        .HasFilter("\"ReportedToStripe\" = FALSE");
+
+                    b.HasIndex("IdempotencyKey")
+                        .IsUnique()
+                        .HasDatabaseName("UX_billing_meter_event_buffer_IdempotencyKey");
+
+                    b.HasIndex("TenantId", "PeriodStart", "EventName")
+                        .HasDatabaseName("IX_billing_meter_event_buffer_TenantId_PeriodStart_EventName");
+
+                    b.ToTable("billing_meter_event_buffer", null, t =>
+                        {
+                            t.HasCheckConstraint("ck_billing_meter_event_buffer_billing_mode", "\"BillingMode\" IN ('platform','byok')");
+                        });
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.BillingPlanPrice", b =>
                 {
                     b.Property<Guid>("Id")
@@ -1363,6 +1451,78 @@ namespace Tamma.Data.Migrations.ControlPlane
                         {
                             t.HasCheckConstraint("ck_billing_subscriptions_status", "\"Status\" IN ('trialing','active','past_due','canceled','incomplete','incomplete_expired','unpaid')");
                         });
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingUsageRollup", b =>
+                {
+                    b.Property<Guid>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("uuid")
+                        .HasDefaultValueSql("gen_random_uuid()");
+
+                    b.Property<decimal>("BillableAmountUsd")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(20, 4)
+                        .HasColumnType("numeric(20,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<long>("ByokInputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("ByokOutputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("LastSourceCursor")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<DateTime>("PeriodEnd")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<DateTime>("PeriodStart")
+                        .HasColumnType("timestamp with time zone");
+
+                    b.Property<decimal>("PlatformCostUsd")
+                        .ValueGeneratedOnAdd()
+                        .HasPrecision(20, 4)
+                        .HasColumnType("numeric(20,4)")
+                        .HasDefaultValue(0m);
+
+                    b.Property<long>("PlatformInputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("PlatformOutputTokens")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<int>("Seats")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasDefaultValue(0);
+
+                    b.Property<Guid>("TenantId")
+                        .HasColumnType("uuid");
+
+                    b.Property<DateTime>("UpdatedAt")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("timestamp with time zone")
+                        .HasDefaultValueSql("now()");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("TenantId", "PeriodStart")
+                        .IsUnique()
+                        .HasDatabaseName("UX_billing_usage_rollup_TenantId_PeriodStart");
+
+                    b.ToTable("billing_usage_rollup", (string)null);
                 });
 
             modelBuilder.Entity("Tamma.Data.Entities.BillingWebhookEvent", b =>
@@ -1964,6 +2124,16 @@ namespace Tamma.Data.Migrations.ControlPlane
                         .HasColumnType("bigint")
                         .HasDefaultValue(0L);
 
+                    b.Property<long>("ByokTokensIn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("ByokTokensOut")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
                     b.Property<DateTime>("ComputedAt")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("timestamp with time zone")
@@ -1977,6 +2147,16 @@ namespace Tamma.Data.Migrations.ControlPlane
 
                     b.Property<DateTime>("Hour")
                         .HasColumnType("timestamp with time zone");
+
+                    b.Property<long>("PlatformTokensIn")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
+
+                    b.Property<long>("PlatformTokensOut")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bigint")
+                        .HasDefaultValue(0L);
 
                     b.Property<Guid?>("TenantId")
                         .HasColumnType("uuid");
@@ -3786,7 +3966,29 @@ namespace Tamma.Data.Migrations.ControlPlane
                     b.Navigation("Tenant");
                 });
 
+            modelBuilder.Entity("Tamma.Data.Entities.BillingMeterEventBuffer", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
             modelBuilder.Entity("Tamma.Data.Entities.BillingSubscription", b =>
+                {
+                    b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
+                        .WithMany()
+                        .HasForeignKey("TenantId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Tenant");
+                });
+
+            modelBuilder.Entity("Tamma.Data.Entities.BillingUsageRollup", b =>
                 {
                     b.HasOne("Tamma.Data.Entities.Tenant", "Tenant")
                         .WithMany()

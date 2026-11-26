@@ -35,7 +35,41 @@ public interface IBillingProvider
     /// <c>billing_plan_prices</c>. Re-running is a no-op (existing ids reused).
     /// </summary>
     Task<CatalogSyncResult> SyncCatalogAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// Story 35-3 — report one platform-token or seat meter event to Stripe
+    /// Billing Meters with a deterministic idempotency key so retries never
+    /// double-bill. Throws on a single-user (disabled) provider.
+    /// </summary>
+    Task<MeterEventReportResult> ReportMeterEventAsync(
+        MeterEventReportRequest request, CancellationToken ct = default);
+
+    /// <summary>
+    /// Story 35-3 — read the summed Stripe meter event summaries for one
+    /// customer + meter over <c>[periodStartUtc, periodEndUtc)</c>. Used by
+    /// the hourly reconciliation worker to detect drift against local rollups.
+    /// </summary>
+    Task<long> GetMeterEventSummaryTotalAsync(
+        string meterId,
+        string stripeCustomerId,
+        DateTime periodStartUtc,
+        DateTime periodEndUtc,
+        CancellationToken ct = default);
 }
+
+/// <summary>
+/// Story 35-3 — input for reporting a single buffered usage event to Stripe
+/// Billing Meters. Contains no secrets or payment details.
+/// </summary>
+public sealed record MeterEventReportRequest(
+    string EventName,
+    string StripeCustomerId,
+    string Value,
+    string IdempotencyKey,
+    DateTime TimestampUtc);
+
+/// <summary>Story 35-3 — acknowledgement returned after Stripe accepts a meter event.</summary>
+public sealed record MeterEventReportResult(string Identifier);
 
 /// <summary>
 /// The tenant-shaped inputs for a Stripe customer create. No payment details —

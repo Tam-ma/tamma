@@ -120,11 +120,13 @@ public class MachineryInventoryTests
         // Story 39-17: per-tenant orchestrator agent host — background service, machinery by class.
         "automation:orchestrator-agent-host",
 
-        // ── Task handlers — all 8 platform-task:* ──────────────────────────
+        // ── Task handlers — all 10 platform-task:* ─────────────────────────
         "platform-task:RETIRE_SECRET_VERSION",
         "platform-task:plan.activate_scheduled",
         "platform-task:billing.webhook.followup",
         "platform-task:billing.customer.create",
+        "platform-task:billing.meter_flush",
+        "platform-task:billing.usage_reconcile",
         "platform-task:provisioning.tenant",
         "platform-task:provisioning.tenant.v2",
         "platform-task:provisioning.tenant.deprovision",
@@ -169,7 +171,7 @@ public class MachineryInventoryTests
             .ToHashSet(StringComparer.Ordinal);
         var fixture = MachineryInventory.ToHashSet(StringComparer.Ordinal);
 
-        MachineryInventory.Should().HaveCount(67, "22 + 37 + 8 = 67 (43-11's count check, amended through Story 39-20 [64] and Story 39-17 [+2 effects orchestrator.config.{set,delete} + 1 automation orchestrator-agent-host])");
+        MachineryInventory.Should().HaveCount(69, "22 + 37 + 10 = 69 (43-11's count check, amended through Story 39-17 [67] and Story 35-3 [+2 platform-task billing.{meter_flush,usage_reconcile}])");
         MachineryInventory.Should().OnlyHaveUniqueItems();
 
         flagged.Except(fixture).Should().BeEmpty(
