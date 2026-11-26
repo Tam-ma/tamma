@@ -235,7 +235,11 @@ internal static class KnownUngovernedEndpoints
     /// effect:llm.task.execute and enforce. Story 43-17 had flagged both as having
     /// NO OWNER; they were the last two ungoverned routes on the /api/engine group.
     /// Their baseline entries are deleted in the same diff — the backlog SHRINKS.</para>
-    internal const int PinnedCount = 208;
+    /// <para><b>208 → 207 (Story 42-6 Part A).</b> POST /api/kb/mcp/tools/invoke
+    /// (the ungoverned MCP tool-invoke proxy) was RETIRED (route + handler + client
+    /// method + DTO deleted). Its stale baseline entry goes in the same diff and the
+    /// shrink-only ratchet drops strictly down to 207.</para>
+    internal const int PinnedCount = 207;
 
     /// <summary>
     /// The pin's recorded high-water history, oldest first; every element must be
@@ -249,7 +253,7 @@ internal static class KnownUngovernedEndpoints
     /// which is the defect <c>ContractBindingTests.cs:255-271</c> has and this epic's
     /// ratchets must not inherit.</para>
     /// </summary>
-    internal static readonly int[] PinHistory = [237, 216, 215, 214, 210, 208];
+    internal static readonly int[] PinHistory = [237, 216, 215, 214, 210, 208, 207];
 
     /// <summary>
     /// The pinned size of the in-scope mutating surface (Correction 4: derive it at
@@ -288,7 +292,10 @@ internal static class KnownUngovernedEndpoints
     // effect:governance.action-level.{set,delete} (not enforcing) — neither the backlog
     // (PinnedCount) nor the D17 exception set moves. New state: 208 baselined + 2
     // exceptions + 39 bound = 249.
-    internal const int PinnedInScopeCount = 249;
+    // Story 42-6 Part A — 249 → 248: POST /api/kb/mcp/tools/invoke was DELETED from the
+    // host, so the in-scope mutating surface has one fewer endpoint AND the backlog
+    // shrinks 208 → 207. New state: 207 baselined + 2 exceptions + 39 bound = 248.
+    internal const int PinnedInScopeCount = 248;
 
     // =======================================================================
     // Story 43-9 DECISION D17 — the NAMED, DATED, REVIEWED exception set
@@ -605,8 +612,6 @@ internal static class KnownUngovernedEndpoints
             "no-catalog-member: MCP-SERVER LIFECYCLE — starting a configured MCP server changes which tools exist for the model to call. It is NOT effect:mcp.tool.invoke (that member names the invocation route) and no catalog member covers server lifecycle; adding one is a vocabulary decision nobody has taken. Note that this route's real consequence — the tool SET changing — has no drift signal anywhere in this epic"),
         new("POST", "/api/kb/mcp/servers/{id}/stop",
             "no-catalog-member: MCP-SERVER LIFECYCLE — the stop half of the pair above; same absent catalog member, same absent drift signal"),
-        new("POST", "/api/kb/mcp/tools/invoke",
-            "binding-owned-by Story 43-9: the direct MCP tool-invocation proxy and the ONE route effect:mcp.tool.invoke actually names. DECISION REVERSED 2026-08-01 (Story 43-9 D16, §C): 43-9 deliberately does NOT bind or enforce this route, and this entry stays. Reason: on 2026-07-30 effect:mcp.tool.invoke was reversed to ship min: AutonomyDial.AlwaysHuman, because epic D2 tolerates an unclassified action at runtime only on the strength of the drift harnesses making it unmergeable in CI, and NO CI harness can enumerate a remote MCP server's tools — for MCP that half of the bargain does not exist and never will. So a binding here would NOT be behaviour-preserving: it would hard-block the route on day one, which is a behaviour change a story must argue for rather than inherit from a helper. Blast radius is independently empty today: no MCP tool executor is registered, so an mcp__* name already terminates as an unknown tool. A future story that binds it owns that behaviour change"),
         new("POST", "/api/kb/rag/query",
             "no-catalog-member: knowledge-base / RAG proxy write; the sidecar surface past the proxy is ungoverned and no catalog member covers it"),
         new("POST", "/api/kb/vector-db/search",

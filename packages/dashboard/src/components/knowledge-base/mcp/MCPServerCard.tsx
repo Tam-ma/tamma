@@ -12,7 +12,7 @@ export interface MCPServerCardProps {
   onStart: () => void;
   onStop: () => void;
   onRestart: () => void;
-  onViewTools: () => void;
+  onViewTools?: (() => void) | undefined;
   onViewLogs: () => void;
 }
 
@@ -119,13 +119,15 @@ export function MCPServerCard({
             Start
           </button>
         )}
-        <button
-          data-testid="tools-button"
-          onClick={onViewTools}
-          style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: '4px', backgroundColor: 'transparent', color: '#374151', cursor: 'pointer', fontSize: '12px' }}
-        >
-          Tools
-        </button>
+        {onViewTools && (
+          <button
+            data-testid="tools-button"
+            onClick={onViewTools}
+            style={{ padding: '5px 12px', border: '1px solid #d1d5db', borderRadius: '4px', backgroundColor: 'transparent', color: '#374151', cursor: 'pointer', fontSize: '12px' }}
+          >
+            Tools
+          </button>
+        )}
         <button
           data-testid="logs-button"
           onClick={onViewLogs}

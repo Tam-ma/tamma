@@ -3813,15 +3813,16 @@ kb.MapGet("/rag/config", KbEndpoints.GetRagConfig);
 kb.MapPut("/rag/config", KbEndpoints.UpdateRagConfig).RequireAuthorization("SettingsManage");
 kb.MapPost("/rag/query", KbEndpoints.QueryRag);
 kb.MapGet("/rag/metrics", KbEndpoints.GetRagMetrics);
-// MCP (8)
+// MCP (6) — sidecar KB administration ONLY, NOT the governed tool catalog (Story 42-6 Part A D2).
+// GET /api/kb/mcp/tools and POST /api/kb/mcp/tools/invoke were retired by Story 42-6 Part A.
+// NOTE: This surface becomes AllowAnonymous in the dev-without-JWT branch, so it must NEVER grow
+// a tool-invoking route (enforced by McpRouteRetirementTests over EndpointDataSource).
 kb.MapGet("/mcp/servers", KbEndpoints.ListMcpServers);
 kb.MapGet("/mcp/servers/{id}", KbEndpoints.GetMcpServer);
 kb.MapPost("/mcp/servers/{id}/start", KbEndpoints.StartMcpServer).RequireAuthorization("SettingsManage");
 kb.MapPost("/mcp/servers/{id}/stop", KbEndpoints.StopMcpServer).RequireAuthorization("SettingsManage");
 kb.MapGet("/mcp/config", KbEndpoints.GetMcpConfig);
 kb.MapPut("/mcp/config", KbEndpoints.UpdateMcpConfig).RequireAuthorization("SettingsManage");
-kb.MapGet("/mcp/tools", KbEndpoints.ListMcpTools);
-kb.MapPost("/mcp/tools/invoke", KbEndpoints.InvokeMcpTool).RequireAuthorization("SettingsManage");
 // Context (3)
 kb.MapGet("/context/history", KbEndpoints.GetContextHistory);
 kb.MapPost("/context/feedback", KbEndpoints.PostContextFeedback).RequireAuthorization("SettingsManage");

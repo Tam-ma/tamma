@@ -1,6 +1,6 @@
 # Story 42-6: MCP Integration — and reconciling the MCP surfaces that already ship
 
-Status: drafted
+Status: in-progress (Part A done 2026-11-26; Part B blocked on the MCP catalog-binding fork in §2)
 
 ## MANDATORY: Before You Code
 

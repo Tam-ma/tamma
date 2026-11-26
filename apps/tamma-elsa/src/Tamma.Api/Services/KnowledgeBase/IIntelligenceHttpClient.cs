@@ -44,15 +44,13 @@ public interface IIntelligenceHttpClient
     Task<object> QueryRagAsync(RagQueryRequest body, CancellationToken ct = default);
     Task<object> GetRagMetricsAsync(CancellationToken ct = default);
 
-    // ── MCP (8) ──────────────────────────────────────────────────────────
+    // ── MCP (6 — sidecar KB admin only; tool routes retired by Story 42-6 Part A) ──
     Task<object> ListMcpServersAsync(CancellationToken ct = default);
     Task<object> GetMcpServerAsync(string id, CancellationToken ct = default);
     Task<object> StartMcpServerAsync(string id, CancellationToken ct = default);
     Task<object> StopMcpServerAsync(string id, CancellationToken ct = default);
     Task<object> GetMcpConfigAsync(CancellationToken ct = default);
     Task<object> UpdateMcpConfigAsync(UpdateMcpConfigRequest body, CancellationToken ct = default);
-    Task<object> ListMcpToolsAsync(string? serverName = null, CancellationToken ct = default);
-    Task<object> InvokeMcpToolAsync(McpInvokeRequest body, CancellationToken ct = default);
 
     // ── Context (3) ──────────────────────────────────────────────────────
     Task<object> GetContextHistoryAsync(int? limit = null, CancellationToken ct = default);

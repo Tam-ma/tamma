@@ -1,34 +1,29 @@
 /**
  * MCP Servers Hook
  *
- * React hook for MCP server management.
+ * React hook for sidecar-KB MCP server administration (Story 42-6 Part A retired
+ * the ungoverned listTools / invokeTool surface from this hook).
  */
 
 import { useState, useCallback } from 'react';
-import type { MCPServerInfo, MCPTool, MCPToolInvokeResult, MCPServerLog } from '@tamma/shared';
+import type { MCPServerInfo, MCPServerLog } from '@tamma/shared';
 import { mcpApi } from '../../services/knowledge-base/api-client.js';
 
 export interface UseMCPServersReturn {
   servers: MCPServerInfo[];
-  tools: MCPTool[];
   logs: MCPServerLog[];
-  invokeResult: MCPToolInvokeResult | null;
   loading: boolean;
   error: string | null;
   loadServers: () => Promise<void>;
   startServer: (name: string) => Promise<void>;
   stopServer: (name: string) => Promise<void>;
   restartServer: (name: string) => Promise<void>;
-  loadTools: (serverName: string) => Promise<void>;
-  invokeTool: (serverName: string, toolName: string, args: Record<string, unknown>) => Promise<void>;
   loadLogs: (serverName: string, limit?: number) => Promise<void>;
 }
 
 export function useMCPServers(): UseMCPServersReturn {
   const [servers, setServers] = useState<MCPServerInfo[]>([]);
-  const [tools, setTools] = useState<MCPTool[]>([]);
   const [logs, setLogs] = useState<MCPServerLog[]>([]);
-  const [invokeResult, setInvokeResult] = useState<MCPToolInvokeResult | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -72,32 +67,6 @@ export function useMCPServers(): UseMCPServersReturn {
     }
   }, [loadServers]);
 
-  const loadTools = useCallback(async (serverName: string) => {
-    try {
-      const data = await mcpApi.listTools(serverName);
-      setTools(data);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Failed to load tools');
-    }
-  }, []);
-
-  const invokeTool = useCallback(async (
-    serverName: string,
-    toolName: string,
-    args: Record<string, unknown>,
-  ) => {
-    setLoading(true);
-    try {
-      const result = await mcpApi.invokeTool(serverName, toolName, args);
-      setInvokeResult(result);
-      setError(null);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : 'Tool invocation failed');
-    } finally {
-      setLoading(false);
-    }
-  }, []);
-
   const loadLogs = useCallback(async (serverName: string, limit = 100) => {
     try {
       const data = await mcpApi.getServerLogs(serverName, limit);
@@ -109,17 +78,13 @@ export function useMCPServers(): UseMCPServersReturn {
 
   return {
     servers,
-    tools,
     logs,
-    invokeResult,
     loading,
     error,
     loadServers,
     startServer,
     stopServer,
     restartServer,
-    loadTools,
-    invokeTool,
     loadLogs,
   };
 }

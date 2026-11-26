@@ -20,8 +20,6 @@ import { RAGConfigPanel } from '../../components/knowledge-base/rag/RAGConfigPan
 import { RAGTestInterface } from '../../components/knowledge-base/rag/RAGTestInterface.js';
 import { RAGMetricsChart } from '../../components/knowledge-base/rag/RAGMetricsChart.js';
 import { MCPServerList } from '../../components/knowledge-base/mcp/MCPServerList.js';
-import { ToolList } from '../../components/knowledge-base/mcp/ToolList.js';
-import { ToolInvokePanel } from '../../components/knowledge-base/mcp/ToolInvokePanel.js';
 import { ServerLogViewer } from '../../components/knowledge-base/mcp/ServerLogViewer.js';
 import { ContextTestInterface } from '../../components/knowledge-base/context-testing/ContextTestInterface.js';
 import { UsageChart } from '../../components/knowledge-base/analytics/UsageChart.js';
@@ -34,7 +32,6 @@ import { useRAGConfig } from '../../hooks/knowledge-base/useRAGConfig.js';
 import { useMCPServers } from '../../hooks/knowledge-base/useMCPServers.js';
 import { useContextTest } from '../../hooks/knowledge-base/useContextTest.js';
 import { useKBAnalytics } from '../../hooks/knowledge-base/useKBAnalytics.js';
-import type { MCPTool } from '@tamma/shared';
 
 const NAV_ITEMS = [
   { id: 'overview', label: 'Overview', description: 'Quick status overview' },
@@ -49,7 +46,6 @@ const NAV_ITEMS = [
 export function KnowledgeBaseDashboard(): JSX.Element {
   const [activeSection, setActiveSection] = useState('overview');
   const [selectedLogServer, setSelectedLogServer] = useState<string | null>(null);
-  const [selectedTool, setSelectedTool] = useState<MCPTool | null>(null);
 
   // Hooks
   const index = useIndexStatus();
@@ -86,15 +82,6 @@ export function KnowledgeBaseDashboard(): JSX.Element {
     setSelectedLogServer(serverName);
     void mcp.loadLogs(serverName);
   }, [mcp]);
-
-  const handleViewTools = useCallback((serverName: string) => {
-    void mcp.loadTools(serverName);
-    setSelectedTool(null);
-  }, [mcp]);
-
-  const handleInvokeTool = useCallback((tool: MCPTool) => {
-    setSelectedTool(tool);
-  }, []);
 
   const renderSection = () => {
     switch (activeSection) {
@@ -201,22 +188,8 @@ export function KnowledgeBaseDashboard(): JSX.Element {
               onStart={(name) => void mcp.startServer(name)}
               onStop={(name) => void mcp.stopServer(name)}
               onRestart={(name) => void mcp.restartServer(name)}
-              onViewTools={handleViewTools}
               onViewLogs={handleViewLogs}
             />
-            {mcp.tools.length > 0 && (
-              <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px', backgroundColor: '#fff' }}>
-                <ToolList tools={mcp.tools} onInvoke={handleInvokeTool} />
-              </div>
-            )}
-            {selectedTool && (
-              <ToolInvokePanel
-                tool={selectedTool}
-                onInvoke={(serverName, toolName, args) => mcp.invokeTool(serverName, toolName, args)}
-                result={mcp.invokeResult}
-                loading={mcp.loading}
-              />
-            )}
             {selectedLogServer && (
               <div style={{ border: '1px solid #e5e7eb', borderRadius: '8px', padding: '20px', backgroundColor: '#fff' }}>
                 <ServerLogViewer

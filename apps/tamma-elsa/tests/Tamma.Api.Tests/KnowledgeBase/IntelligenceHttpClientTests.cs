@@ -247,23 +247,6 @@ public class IntelligenceHttpClientTests
         _handler.LastRequest.RequestUri!.AbsolutePath.Should().Be("/kb/mcp/config");
     }
 
-    [Test]
-    public async Task ListMcpToolsAsync_IssuesGetRequest()
-    {
-        _handler.RespondWith(HttpStatusCode.OK, Array.Empty<object>());
-        _ = await _client.ListMcpToolsAsync();
-        _handler.LastRequest!.RequestUri!.AbsolutePath.Should().Be("/kb/mcp/tools");
-    }
-
-    [Test]
-    public async Task InvokeMcpToolAsync_PostsBody()
-    {
-        _handler.RespondWith(HttpStatusCode.OK, new { success = true });
-        _ = await _client.InvokeMcpToolAsync(new McpInvokeRequest("s", "t", null));
-        _handler.LastRequest!.Method.Should().Be(HttpMethod.Post);
-        _handler.LastRequest.RequestUri!.AbsolutePath.Should().Be("/kb/mcp/tools/invoke");
-    }
-
     // ── context routes (3) ──────────────────────────────────────────────────
 
     [Test]
