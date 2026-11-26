@@ -186,9 +186,10 @@ public class DeploymentPipelineWorkflowTests
     }
 
     [Test]
-    public void StartEdge_EmitsStageStarted_BeforeDispatch()
+    public void StartEdge_ChecksQaGate_AndEmitsStageStarted_BeforeDispatch()
     {
-        HasEdge("Init", null, "EmitQaStarted").Should().BeTrue("the pipeline must emit STAGE.STARTED before the first dispatch");
+        HasEdge("Init", null, "CheckQaDeployGate").Should().BeTrue(
+            "Story 43-19: QA entry must consult the deploy.qa autonomy gate before starting QA");
         HasEdge("EmitQaStarted", null, "QADeploy").Should().BeTrue();
     }
 
@@ -549,7 +550,7 @@ public class DeploymentPipelineWorkflowTests
         => _flowchart.Connections.Any(c =>
             c.Source.Activity.Id == sourceId &&
             (port == null || c.Source.Port == port) &&
-            c.Target.Activity.Id == targetId);
+            WorkflowTestHelper.ResolvedTargetId(_flowchart, c) == targetId);
 
     private HashSet<string> Reachable(string startId)
     {

@@ -54,29 +54,34 @@ public interface IElsaWorkflowService
         int issueNumber, int prNumber, string? tenantId, string? repository);
 
     /// <summary>
-    /// Story 43-14 (D3) — LOCATE the suspended production-deploy approval gate
+    /// Story 43-14 (D3) / 43-19 — LOCATE the suspended stage-scoped deploy approval gate
     /// (bookmark + run correlation) WITHOUT running, so the deploy-tail grants are
-    /// minted before resume.
+    /// minted before resuming production. <paramref name="stage"/> defaults to
+    /// <c>production</c> when omitted.
     /// </summary>
     Task<ApprovalGateLocation> LocateDeploymentApprovalGateAsync(
-        int issueNumber, string? tenantId, string? repository, string? mergeSha);
+        int issueNumber, string? tenantId, string? repository, string? mergeSha,
+        string? stage = null);
 
     /// <summary>
-    /// Completeness audit P0 item 3 — resume the <c>deployment-pipeline</c>
-    /// production-approval human gate suspended on the tenant+repo+SHA-scoped
-    /// bookmark <c>adl-deploy-prod-approval-{tenant}-{repo}-{issue}-{mergeSha}</c>,
+    /// Completeness audit P0 item 3 / Story 43-19 — resume the <c>deployment-pipeline</c>
+    /// stage-scoped approval human gate suspended on
+    /// <c>adl-deploy-{stage}-approval-{tenant}-{repo}-{issue}-{mergeSha}</c>
+    /// (<c>stage</c> ∈ {qa, uat, production}; defaults to <c>production</c>),
     /// injecting the <c>{decision, feedback, approver}</c> payload as workflow
     /// input. Forwards to the engine's in-process resume endpoint. Returns the
     /// resolved workflow instance id on success.
     ///
-    /// <para>Tenant scoping — <paramref name="tenantId"/> /
-    /// <paramref name="repository"/> / <paramref name="mergeSha"/> scope the
-    /// bookmark lookup, so the engine can only resolve a gate in the caller's own
-    /// tenant; a cross-tenant attempt resolves no bookmark (GateNotFound).</para>
+    /// <para>Tenant + stage scoping — <paramref name="tenantId"/> /
+    /// <paramref name="repository"/> / <paramref name="mergeSha"/> /
+    /// <paramref name="stage"/> scope the bookmark lookup, so a QA approval can never
+    /// resume UAT or production and a cross-tenant attempt resolves no bookmark
+    /// (GateNotFound).</para>
     /// </summary>
     Task<MergeApprovalResumeResult> ResumeDeploymentApprovalAsync(
         int issueNumber, string? tenantId, string? repository, string? mergeSha,
-        string decision, string? feedback, string? approver);
+        string decision, string? feedback, string? approver,
+        string? stage = null);
 
     /// <summary>
     /// Follow-up #15 — resume the <c>blocker-diagnosis</c> progressive resolution ladder

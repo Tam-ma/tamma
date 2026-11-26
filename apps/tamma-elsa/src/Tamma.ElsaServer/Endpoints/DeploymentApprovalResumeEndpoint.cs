@@ -46,24 +46,32 @@ public static class DeploymentApprovalResumeEndpoint
         string Decision,
         string? Feedback,
         string? Approver,
-        // Tenant + repository + mergeSha scope the bookmark lookup. Supplied by the
-        // tenant-scoped Tamma.Api caller; folded into the bookmark name so the
-        // lookup can only ever match a gate in the caller's own tenant/repo/SHA.
+        // Tenant + repository + mergeSha + stage scope the bookmark lookup. Supplied by
+        // the tenant-scoped Tamma.Api caller; folded into the bookmark name so the
+        // lookup can only ever match the targeted stage gate in the caller's own
+        // tenant/repo/SHA. Stage defaults to production when omitted (Story 43-19).
         string? TenantId,
         string? Repository,
-        string? MergeSha);
+        string? MergeSha,
+        string? Stage = null);
 
-    /// <summary>Bookmark name the gate registers — delegates to the SINGLE
+    /// <summary>Bookmark name the gate registers (production default) — delegates to the SINGLE
     /// canonical builder shared with <see cref="WaitForDeploymentApprovalActivity"/>
     /// so suspend-side and resume-side names match byte-for-byte.</summary>
     public static string BookmarkName(string? tenantId, string? repository, int issueNumber, string? mergeSha)
         => WaitForDeploymentApprovalActivity.BookmarkName(tenantId, repository, issueNumber, mergeSha);
 
+    /// <summary>Story 43-19 — stage-scoped bookmark name shared with
+    /// <see cref="WaitForDeploymentApprovalActivity.BookmarkName(string?, string?, int, string?, string?)"/>.</summary>
+    public static string BookmarkName(
+        string? tenantId, string? repository, int issueNumber, string? mergeSha, string? stage)
+        => WaitForDeploymentApprovalActivity.BookmarkName(tenantId, repository, issueNumber, mergeSha, stage);
+
     /// <summary>
-    /// Story 43-14 (D3) — the LOCATE half: find the suspended bookmark and return
-    /// <c>{workflowInstanceId, correlationId}</c> WITHOUT running, so Tamma.Api can
-    /// mint the deploy-tail correlation-standing grant BEFORE resuming. Mirrors
-    /// <see cref="MergeApprovalResumeEndpoint.Locate"/>.
+    /// Story 43-14 (D3) / 43-19 — the LOCATE half: find the suspended stage-scoped bookmark
+    /// and return <c>{workflowInstanceId, correlationId, stage}</c> WITHOUT running, so Tamma.Api
+    /// can mint the deploy-tail correlation-standing grant BEFORE resuming production.
+    /// Mirrors <see cref="MergeApprovalResumeEndpoint.Locate"/>.
     /// </summary>
     public static async Task<IResult> Locate(
         [FromBody] ResumeRequest request,
@@ -72,7 +80,16 @@ public static class DeploymentApprovalResumeEndpoint
         CancellationToken ct)
     {
         var logger = loggerFactory.CreateLogger("Tamma.ElsaServer.DeploymentApprovalLocate");
-        var name = BookmarkName(request.TenantId, request.Repository, request.IssueNumber, request.MergeSha);
+        if (!WaitForDeploymentApprovalActivity.TryNormalizeStage(request.Stage, out var stage))
+        {
+            return Results.BadRequest(new
+            {
+                error = "invalid_stage",
+                detail = "stage must be one of: qa, uat, production",
+            });
+        }
+
+        var name = BookmarkName(request.TenantId, request.Repository, request.IssueNumber, request.MergeSha, stage);
 
         var bookmarks = (await bookmarkStore
             .FindManyAsync(new BookmarkFilter { Name = name }, ct)
@@ -80,7 +97,7 @@ public static class DeploymentApprovalResumeEndpoint
 
         if (bookmarks.Count == 0)
         {
-            return Results.NotFound(new { error = "bookmark_not_found", bookmark = name });
+            return Results.NotFound(new { error = "bookmark_not_found", bookmark = name, stage });
         }
         if (bookmarks.Count > 1)
         {
@@ -94,6 +111,7 @@ public static class DeploymentApprovalResumeEndpoint
         return Results.Ok(new
         {
             found = true,
+            stage,
             workflowInstanceId = bookmark.WorkflowInstanceId,
             correlationId = string.IsNullOrWhiteSpace(bookmark.CorrelationId)
                 ? bookmark.WorkflowInstanceId
@@ -113,7 +131,16 @@ public static class DeploymentApprovalResumeEndpoint
         if (string.IsNullOrWhiteSpace(request.Decision))
             return Results.BadRequest(new { error = "decision is required" });
 
-        var name = BookmarkName(request.TenantId, request.Repository, request.IssueNumber, request.MergeSha);
+        if (!WaitForDeploymentApprovalActivity.TryNormalizeStage(request.Stage, out var stage))
+        {
+            return Results.BadRequest(new
+            {
+                error = "invalid_stage",
+                detail = "stage must be one of: qa, uat, production",
+            });
+        }
+
+        var name = BookmarkName(request.TenantId, request.Repository, request.IssueNumber, request.MergeSha, stage);
 
         var bookmarks = (await bookmarkStore
             .FindManyAsync(new BookmarkFilter { Name = name }, ct)
@@ -122,13 +149,14 @@ public static class DeploymentApprovalResumeEndpoint
         if (bookmarks.Count == 0)
         {
             logger.LogWarning(
-                "No suspended deploy-approval bookmark {Bookmark} — gate not waiting (already decided, wrong issue/sha, or not this tenant/repo)",
-                name);
+                "No suspended {Stage} deploy-approval bookmark {Bookmark} — gate not waiting (already decided, wrong stage/issue/sha, or not this tenant/repo)",
+                stage, name);
             return Results.NotFound(new
             {
                 error = "bookmark_not_found",
                 bookmark = name,
-                detail = "No production-deploy approval gate is currently waiting for this issue/SHA.",
+                stage,
+                detail = $"No {stage} deploy approval gate is currently waiting for this issue/SHA.",
             });
         }
 
@@ -172,12 +200,13 @@ public static class DeploymentApprovalResumeEndpoint
             ct).ConfigureAwait(false);
 
         logger.LogInformation(
-            "Resumed deploy-approval gate {Bookmark} (instance {InstanceId}) with decision {Decision}",
-            name, bookmark.WorkflowInstanceId, request.Decision);
+            "Resumed {Stage} deploy-approval gate {Bookmark} (instance {InstanceId}) with decision {Decision}",
+            stage, name, bookmark.WorkflowInstanceId, request.Decision);
 
         return Results.Ok(new
         {
             resumed = true,
+            stage,
             bookmark = name,
             workflowInstanceId = bookmark.WorkflowInstanceId,
             decision = request.Decision,

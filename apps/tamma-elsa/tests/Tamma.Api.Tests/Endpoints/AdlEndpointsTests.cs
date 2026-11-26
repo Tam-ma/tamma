@@ -227,7 +227,7 @@ public class AdlEndpointsTests
         var tenant = Guid.NewGuid();
         _elsa
             .Setup(s => s.ResumeDeploymentApprovalAsync(
-                42, tenant.ToString(), "octo/repo", "deadbeef", "approve", "ship it", "alice@example.com"))
+                42, tenant.ToString(), "octo/repo", "deadbeef", "approve", "ship it", "alice@example.com", "production"))
             .ReturnsAsync(new MergeApprovalResumeResult(Resumed: true, GateNotFound: false, WorkflowInstanceId: "wf-1"));
 
         var req = new AdlEndpoints.DeployApprovalDecisionRequest(42, "octo/repo", "deadbeef", "approve", "ship it");
@@ -237,7 +237,7 @@ public class AdlEndpointsTests
 
         StatusCodeOf(result).Should().Be(StatusCodes.Status200OK);
         _elsa.Verify(s => s.ResumeDeploymentApprovalAsync(
-            42, tenant.ToString(), "octo/repo", "deadbeef", "approve", "ship it", "alice@example.com"), Times.Once);
+            42, tenant.ToString(), "octo/repo", "deadbeef", "approve", "ship it", "alice@example.com", "production"), Times.Once);
     }
 
     [Test]
@@ -248,9 +248,9 @@ public class AdlEndpointsTests
         _elsa
             .Setup(s => s.ResumeDeploymentApprovalAsync(
                 It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
-                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .Callback<int, string?, string?, string?, string, string?, string?>(
-                (_, _, _, _, _, _, approver) => capturedApprover = approver)
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()))
+            .Callback<int, string?, string?, string?, string, string?, string?, string?>(
+                (_, _, _, _, _, _, approver, _) => capturedApprover = approver)
             .ReturnsAsync(new MergeApprovalResumeResult(true, false, "wf-9"));
 
         var req = new AdlEndpoints.DeployApprovalDecisionRequest(1, "octo/repo", "sha", "reject", null);
@@ -268,7 +268,7 @@ public class AdlEndpointsTests
         var callerTenant = Guid.NewGuid();
         _elsa
             .Setup(s => s.ResumeDeploymentApprovalAsync(
-                5, callerTenant.ToString(), "victim/repo", "sha", "approve", null, It.IsAny<string?>()))
+                5, callerTenant.ToString(), "victim/repo", "sha", "approve", null, It.IsAny<string?>(), "production"))
             .ReturnsAsync(new MergeApprovalResumeResult(Resumed: false, GateNotFound: true, WorkflowInstanceId: null));
 
         var req = new AdlEndpoints.DeployApprovalDecisionRequest(5, "victim/repo", "sha", "approve", null);
@@ -278,7 +278,76 @@ public class AdlEndpointsTests
 
         StatusCodeOf(result).Should().Be(StatusCodes.Status404NotFound);
         _elsa.Verify(s => s.ResumeDeploymentApprovalAsync(
-            5, callerTenant.ToString(), "victim/repo", "sha", "approve", null, It.IsAny<string?>()), Times.Once);
+            5, callerTenant.ToString(), "victim/repo", "sha", "approve", null, It.IsAny<string?>(), "production"), Times.Once);
+    }
+
+    [TestCase("qa", "qa")]
+    [TestCase("UAT", "uat")]
+    [TestCase("prod", "production")]
+    public async Task ResumeDeploymentApproval_StageSpecified_ForwardsCanonicalStage(string rawStage, string expectedStage)
+    {
+        var tenant = Guid.NewGuid();
+        _elsa
+            .Setup(s => s.ResumeDeploymentApprovalAsync(
+                10, tenant.ToString(), "octo/repo", "abc123", "approve", "ok", "alice@example.com", expectedStage))
+            .ReturnsAsync(new MergeApprovalResumeResult(Resumed: true, GateNotFound: false, WorkflowInstanceId: "wf-stage"));
+
+        var req = new AdlEndpoints.DeployApprovalDecisionRequest(10, "octo/repo", "abc123", "approve", "ok", rawStage);
+
+        var result = await AdlEndpoints.ResumeDeploymentApproval(
+            req, _elsa.Object, TenantContext(tenant), Principal("alice@example.com"), _loggerFactory);
+
+        StatusCodeOf(result).Should().Be(StatusCodes.Status200OK);
+        _elsa.Verify(s => s.ResumeDeploymentApprovalAsync(
+            10, tenant.ToString(), "octo/repo", "abc123", "approve", "ok", "alice@example.com", expectedStage), Times.Once);
+    }
+
+    [TestCase("qa")]
+    [TestCase("uat")]
+    public async Task ResumeDeploymentApproval_NonProdStageApprove_NeverLocatesOrMintsDeployTail(string nonProdStage)
+    {
+        // Security pin (Story 43-19): approving QA or UAT must NEVER mint ApprovalChains.DeployTail
+        // (effect:deploy.prod + effect:git.release.create) — otherwise a QA approval would bypass
+        // the production gate.
+        var tenant = Guid.NewGuid();
+        var ledger = new Mock<Tamma.Data.Repositories.IActionAuthorizationLedger>();
+        var principals = new Mock<Tamma.Api.Services.Actions.IGovernancePrincipalResolver>();
+        var events = new Tamma.Api.Services.Actions.ActionGateEventsService(
+            new Mock<Tamma.Data.Repositories.IEventRepository>().Object);
+        var minter = new Tamma.Api.Services.Actions.ApprovalGrantMinter(ledger.Object, principals.Object, events);
+
+        _elsa
+            .Setup(s => s.ResumeDeploymentApprovalAsync(
+                7, tenant.ToString(), "octo/repo", "sha1", "approve", null, It.IsAny<string?>(), nonProdStage))
+            .ReturnsAsync(new MergeApprovalResumeResult(Resumed: true, GateNotFound: false, WorkflowInstanceId: "wf-1"));
+
+        var req = new AdlEndpoints.DeployApprovalDecisionRequest(7, "octo/repo", "sha1", "approve", null, nonProdStage);
+        var result = await AdlEndpoints.ResumeDeploymentApproval(
+            req, _elsa.Object, TenantContext(tenant), Principal("alice@example.com"), _loggerFactory, minter);
+
+        StatusCodeOf(result).Should().Be(StatusCodes.Status200OK);
+        _elsa.Verify(s => s.LocateDeploymentApprovalGateAsync(
+            It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()),
+            Times.Never, "non-prod stage approval must not trigger DeployTail locate/mint");
+        ledger.Verify(l => l.MintStandingGrantAsync(
+            It.IsAny<Guid?>(), It.IsAny<Guid?>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<Guid>(), It.IsAny<string?>(), It.IsAny<TimeSpan?>(), It.IsAny<CancellationToken>()),
+            Times.Never, "non-prod stage approval must never mint prod/release grants");
+    }
+
+    [TestCase("dev")]
+    [TestCase("staging")]
+    [TestCase("canary")]
+    public async Task ResumeDeploymentApproval_ReservedOrUnknownStage_Returns400_NoForward(string badStage)
+    {
+        var req = new AdlEndpoints.DeployApprovalDecisionRequest(1, "octo/repo", "sha", "approve", null, badStage);
+
+        var result = await AdlEndpoints.ResumeDeploymentApproval(
+            req, _elsa.Object, TenantContext(Guid.NewGuid()), Principal("a@b.test"), _loggerFactory);
+
+        StatusCodeOf(result).Should().Be(StatusCodes.Status400BadRequest,
+            "deploy.dev and deploy.staging remain reserved and must be rejected");
+        VerifyDeployNeverForwarded();
     }
 
     [TestCase("yes")]
@@ -311,7 +380,7 @@ public class AdlEndpointsTests
     private void VerifyDeployNeverForwarded() =>
         _elsa.Verify(s => s.ResumeDeploymentApprovalAsync(
             It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(),
-            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>()),
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()),
             Times.Never, "invalid input must be rejected up front, not forwarded");
 
     // ================================================================

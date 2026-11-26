@@ -190,8 +190,66 @@ public class DeploymentPipelineWorkflow : WorkflowBase
         init.SetDisplayText("Initialize");
 
         // ================================================================
-        // 2. QA Stage
+        // 2. QA Stage (+ Story 43-19 stage-entry gate on effect:deploy.qa, level 75)
         // ================================================================
+        var qaGateOutcome = builder.WithVariable<string>("QaGateOutcome", "").Persisted();
+        var qaGateReason = builder.WithVariable<string>("QaGateReason", "").Persisted();
+        var qaGateEnforced = builder.WithVariable<bool>("QaGateEnforced", true).Persisted();
+        var checkQaGate = new CheckActionGateActivity
+        {
+            Id = "CheckQaDeployGate", Name = "Check QA Deploy Gate",
+            ActionKey = new Input<string>("effect:deploy.qa"),
+            Operation = new Input<string?>("deployment-pipeline:qa-approval"),
+            Target = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Outcome = new Output<string?>(qaGateOutcome),
+            Enforced = new Output<bool>(qaGateEnforced),
+            Reason = new Output<string?>(qaGateReason),
+        };
+        checkQaGate.SetDisplayText("Check QA Deploy Gate");
+
+        var qaApprovalNeeded = new FlowDecision(ctx =>
+            !StageGateAutomates(qaGateEnforced.Get(ctx), qaGateOutcome.Get(ctx)))
+        { Id = "QaApprovalNeeded", Name = "QA Approval Needed?" };
+        qaApprovalNeeded.SetDisplayText("QA Approval Needed?");
+
+        var setQaGateDenied = new SetVariable
+        {
+            Id = "SetQaGateDenied", Name = "QA Gate Denied",
+            Variable = stageError,
+            Value = new Input<object?>(ctx =>
+            {
+                var reason = qaGateReason.Get(ctx);
+                return (object)("qa promotion refused by the autonomy gate"
+                    + (string.IsNullOrWhiteSpace(reason) ? "" : $": {reason.Trim()}"));
+            })
+        };
+        setQaGateDenied.SetDisplayText("QA Gate Denied");
+
+        var waitQaApproval = new WaitForDeploymentApprovalActivity
+        {
+            Id = "WaitQaApproval", Name = "Wait QA Approval",
+            Stage = new Input<string?>(WaitForDeploymentApprovalActivity.StageQa),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            MergeSha = new Input<string?>(ctx => mergeSha.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            Decision = new Output<string?>(decisionVar),
+            Feedback = new Output<string?>(feedbackVar),
+            Approver = new Output<string?>(approverVar),
+        };
+        waitQaApproval.SetDisplayText("Wait QA Approval");
+
+        var emitQaApproved = EmitDeployEvent("EmitQaApproved", "Emit QA APPROVED",
+            DeployEvents.StageApproved, WaitForDeploymentApprovalActivity.StageQa,
+            repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus,
+            approver: approverVar, feedback: feedbackVar);
+
+        var emitQaRejected = EmitDeployEvent("EmitQaRejected", "Emit QA REJECTED",
+            DeployEvents.StageRejected, WaitForDeploymentApprovalActivity.StageQa,
+            repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus,
+            approver: approverVar, feedback: feedbackVar);
+
         var emitQaStarted = EmitDeployEvent("EmitQaStarted", "Emit QA STARTED",
             DeployEvents.StageStarted, "qa",
             repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus);
@@ -218,8 +276,66 @@ public class DeploymentPipelineWorkflow : WorkflowBase
             repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus);
 
         // ================================================================
-        // 3. UAT Stage
+        // 3. UAT Stage (+ Story 43-19 stage-entry gate on effect:deploy.uat, level 80)
         // ================================================================
+        var uatGateOutcome = builder.WithVariable<string>("UatGateOutcome", "").Persisted();
+        var uatGateReason = builder.WithVariable<string>("UatGateReason", "").Persisted();
+        var uatGateEnforced = builder.WithVariable<bool>("UatGateEnforced", true).Persisted();
+        var checkUatGate = new CheckActionGateActivity
+        {
+            Id = "CheckUatDeployGate", Name = "Check UAT Deploy Gate",
+            ActionKey = new Input<string>("effect:deploy.uat"),
+            Operation = new Input<string?>("deployment-pipeline:uat-approval"),
+            Target = new Input<string?>(ctx => repository.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Outcome = new Output<string?>(uatGateOutcome),
+            Enforced = new Output<bool>(uatGateEnforced),
+            Reason = new Output<string?>(uatGateReason),
+        };
+        checkUatGate.SetDisplayText("Check UAT Deploy Gate");
+
+        var uatApprovalNeeded = new FlowDecision(ctx =>
+            !StageGateAutomates(uatGateEnforced.Get(ctx), uatGateOutcome.Get(ctx)))
+        { Id = "UatApprovalNeeded", Name = "UAT Approval Needed?" };
+        uatApprovalNeeded.SetDisplayText("UAT Approval Needed?");
+
+        var setUatGateDenied = new SetVariable
+        {
+            Id = "SetUatGateDenied", Name = "UAT Gate Denied",
+            Variable = stageError,
+            Value = new Input<object?>(ctx =>
+            {
+                var reason = uatGateReason.Get(ctx);
+                return (object)("uat promotion refused by the autonomy gate"
+                    + (string.IsNullOrWhiteSpace(reason) ? "" : $": {reason.Trim()}"));
+            })
+        };
+        setUatGateDenied.SetDisplayText("UAT Gate Denied");
+
+        var waitUatApproval = new WaitForDeploymentApprovalActivity
+        {
+            Id = "WaitUatApproval", Name = "Wait UAT Approval",
+            Stage = new Input<string?>(WaitForDeploymentApprovalActivity.StageUat),
+            IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
+            MergeSha = new Input<string?>(ctx => mergeSha.Get(ctx)),
+            TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
+            Repository = new Input<string?>(ctx => repository.Get(ctx)),
+            Decision = new Output<string?>(decisionVar),
+            Feedback = new Output<string?>(feedbackVar),
+            Approver = new Output<string?>(approverVar),
+        };
+        waitUatApproval.SetDisplayText("Wait UAT Approval");
+
+        var emitUatApproved = EmitDeployEvent("EmitUatApproved", "Emit UAT APPROVED",
+            DeployEvents.StageApproved, WaitForDeploymentApprovalActivity.StageUat,
+            repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus,
+            approver: approverVar, feedback: feedbackVar);
+
+        var emitUatRejected = EmitDeployEvent("EmitUatRejected", "Emit UAT REJECTED",
+            DeployEvents.StageRejected, WaitForDeploymentApprovalActivity.StageUat,
+            repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus,
+            approver: approverVar, feedback: feedbackVar);
+
         var emitUatStarted = EmitDeployEvent("EmitUatStarted", "Emit UAT STARTED",
             DeployEvents.StageStarted, "uat",
             repository, mergeSha, issueNumber, mode, tenantId, stageResult, stageError, completedStages, rollbackStatus);
@@ -378,6 +494,7 @@ public class DeploymentPipelineWorkflow : WorkflowBase
         var waitProdApproval = new WaitForDeploymentApprovalActivity
         {
             Id = "WaitProdApproval", Name = "Wait Prod Approval",
+            Stage = new Input<string?>(WaitForDeploymentApprovalActivity.StageProduction),
             IssueNumber = new Input<int>(ctx => issueNumber.Get(ctx)),
             MergeSha = new Input<string?>(ctx => mergeSha.Get(ctx)),
             TenantId = new Input<string?>(ctx => tenantId.Get(ctx)),
@@ -589,16 +706,22 @@ public class DeploymentPipelineWorkflow : WorkflowBase
         // ================================================================
         // Flowchart
         // ================================================================
-        builder.Root = new Flowchart
+        var flowchart = new Flowchart
         {
             Id = "DeploymentPipelineFlowchart",
             Start = init,
             Activities =
             {
                 init,
+                // QA approval gate (Story 43-19)
+                checkQaGate, setQaGateDenied,
+                qaApprovalNeeded, waitQaApproval, emitQaApproved, emitQaRejected,
                 // QA
                 emitQaStarted, qaDeployCall, extractQaResult, qaOk, emitQaSuccess,
                 qaRetryCheck, qaIncrement, emitQaFailed,
+                // UAT approval gate (Story 43-19)
+                checkUatGate, setUatGateDenied,
+                uatApprovalNeeded, waitUatApproval, emitUatApproved, emitUatRejected,
                 // UAT
                 emitUatStarted, uatDeployCall, extractUatResult, uatOk, emitUatSuccess,
                 uatRetryCheck, uatIncrement, emitUatFailed,
@@ -620,14 +743,26 @@ public class DeploymentPipelineWorkflow : WorkflowBase
             },
             Connections =
             {
-                // ── Init → QA ──
-                Connect(init, emitQaStarted),
+                // ── Init → QA approval gate (Story 43-19) → QA ──
+                Connect(init, checkQaGate),
+                ConnectOutcome(checkQaGate, CheckActionGateActivity.EdgeAutomated, qaApprovalNeeded),
+                ConnectOutcome(checkQaGate, CheckActionGateActivity.EdgeRequiresHuman, qaApprovalNeeded),
+                ConnectOutcome(checkQaGate, CheckActionGateActivity.EdgeDenied, setQaGateDenied),
+                Connect(setQaGateDenied, emitQaRejected),
+                ConnectOutcome(qaApprovalNeeded, "True", waitQaApproval),
+                ConnectOutcome(qaApprovalNeeded, "False", emitQaStarted),
+                ConnectOutcome(waitQaApproval, "Approve", emitQaApproved),
+                Connect(emitQaApproved, emitQaStarted),
+                ConnectOutcome(waitQaApproval, "Reject", emitQaRejected),
+                ConnectOutcome(waitQaApproval, "Invalid", emitQaRejected),
+                Connect(emitQaRejected, setQaFailed),
+
                 Connect(emitQaStarted, qaDeployCall),
                 Connect(qaDeployCall, extractQaResult),
                 Connect(extractQaResult, qaOk),
-                // QA OK → emit success → UAT
+                // QA OK → emit success → UAT approval gate (Story 43-19)
                 ConnectOutcome(qaOk, "True", emitQaSuccess),
-                Connect(emitQaSuccess, emitUatStarted),
+                Connect(emitQaSuccess, checkUatGate),
                 // QA not-OK → bounded retry: under cap → increment → re-dispatch;
                 //            at cap → loud FAILED → terminal
                 ConnectOutcome(qaOk, "False", qaRetryCheck),
@@ -637,7 +772,19 @@ public class DeploymentPipelineWorkflow : WorkflowBase
                 Connect(emitQaFailed, setQaFailed),
                 Connect(setQaFailed, emitPipelineFailed),
 
-                // ── UAT ──
+                // ── UAT approval gate (Story 43-19) → UAT ──
+                ConnectOutcome(checkUatGate, CheckActionGateActivity.EdgeAutomated, uatApprovalNeeded),
+                ConnectOutcome(checkUatGate, CheckActionGateActivity.EdgeRequiresHuman, uatApprovalNeeded),
+                ConnectOutcome(checkUatGate, CheckActionGateActivity.EdgeDenied, setUatGateDenied),
+                Connect(setUatGateDenied, emitUatRejected),
+                ConnectOutcome(uatApprovalNeeded, "True", waitUatApproval),
+                ConnectOutcome(uatApprovalNeeded, "False", emitUatStarted),
+                ConnectOutcome(waitUatApproval, "Approve", emitUatApproved),
+                Connect(emitUatApproved, emitUatStarted),
+                ConnectOutcome(waitUatApproval, "Reject", emitUatRejected),
+                ConnectOutcome(waitUatApproval, "Invalid", emitUatRejected),
+                Connect(emitUatRejected, setUatFailed),
+
                 Connect(emitUatStarted, uatDeployCall),
                 Connect(uatDeployCall, extractUatResult),
                 Connect(extractUatResult, uatOk),
@@ -721,6 +868,17 @@ public class DeploymentPipelineWorkflow : WorkflowBase
                 Connect(setOutputs, finish),
             }
         };
+
+        // Explicit WaitAny joins at every mutually-exclusive convergence point so
+        // Elsa 3.5's implicit WaitAllActive never hangs or completes silently behind
+        // a stage-approval suspend or retry loop (see FlowJoins / explicit-execution-suites).
+        FlowJoins.WaitAny(flowchart,
+            qaApprovalNeeded, emitQaStarted, emitQaRejected, setQaFailed,
+            uatApprovalNeeded, emitUatStarted, emitUatRejected, setUatFailed,
+            prodApprovalNeeded, emitProdStarted, emitProdRejected, setProdFailed,
+            setSuccess, emitPipelineFailed, setOutputs);
+
+        builder.Root = flowchart;
     }
 
     // ================================================================
@@ -957,6 +1115,16 @@ public class DeploymentPipelineWorkflow : WorkflowBase
     /// </list>
     /// Public + pure so the test drives the same function the workflow does.
     /// </summary>
+    /// <summary>
+    /// Shared pure predicate for all three stage-entry deploy gates (QA, UAT,
+    /// Production — Story 43-19). Identical semantics to
+    /// <see cref="ProductionGateAutomates"/>: returns <c>true</c> only when
+    /// automation is positively granted (or observe-only with a readable wire);
+    /// unreadable, denied, or below-dial outcomes fail closed onto the human wait.
+    /// </summary>
+    public static bool StageGateAutomates(bool enforced, string? outcomeWire)
+        => ProductionGateAutomates(enforced, outcomeWire);
+
     public static bool ProductionGateAutomates(bool enforced, string? outcomeWire)
     {
         var wire = outcomeWire?.Trim();

@@ -162,20 +162,23 @@ public static class AdlEndpoints
         new(StringComparer.OrdinalIgnoreCase) { "approve", "reject" };
 
     /// <summary>
-    /// Resume request for the production-deploy approval gate. <c>Approver</c> is
-    /// intentionally absent — derived from the authenticated caller (I2), never
-    /// trusted from the client.
+    /// Resume request for a stage-scoped deployment-approval gate (Story 43-19).
+    /// <c>Stage</c> is optional and defaults to <c>"production"</c> so existing prod
+    /// callers remain unchanged; <c>"qa"</c>, <c>"uat"</c>, and <c>"production"</c>
+    /// (alias <c>"prod"</c>) are accepted. <c>Approver</c> is intentionally absent —
+    /// derived from the authenticated caller (I2), never trusted from the client.
     /// </summary>
     public sealed record DeployApprovalDecisionRequest(
         int IssueNumber,
         string Repository,
         string MergeSha,
         string Decision,
-        string? Feedback);
+        string? Feedback,
+        string? Stage = null);
 
     /// <summary>
-    /// Resume the production-deploy approval gate for an issue with a human
-    /// decision (completeness audit P0 item 3).
+    /// Resume a stage-scoped deploy-approval gate (QA, UAT, or Production) for an
+    /// issue with a human decision (completeness audit P0 item 3 / Story 43-19).
     /// Route: <c>POST /api/adl/deploy-approval/resume</c>.
     /// </summary>
     public static async Task<IResult> ResumeDeploymentApproval(
@@ -192,6 +195,8 @@ public static class AdlEndpoints
             return Results.BadRequest(new { error = "decision is required (approve|reject)" });
         if (!AllowedDeployDecisions.Contains(req.Decision.Trim()))
             return Results.BadRequest(new { error = "decision must be one of: approve, reject" });
+        if (!Tamma.Activities.ADL.WaitForDeploymentApprovalActivity.TryNormalizeStage(req.Stage, out var stage))
+            return Results.BadRequest(new { error = "stage must be one of: qa, uat, production" });
         if (req.IssueNumber <= 0)
             return Results.BadRequest(new { error = "issueNumber is required (> 0)" });
         if (string.IsNullOrWhiteSpace(req.Repository))
@@ -199,9 +204,9 @@ public static class AdlEndpoints
         if (string.IsNullOrWhiteSpace(req.MergeSha))
             return Results.BadRequest(new { error = "mergeSha is required" });
 
-        // Scope the resume to the caller's ambient tenant — the engine folds it
-        // into the bookmark name so a caller can only resolve a gate in its OWN
-        // tenant. (Ambient null = self-hosted single-user scope.)
+        // Scope the resume to the caller's ambient tenant + stage — the engine folds
+        // both into the bookmark name so a caller can only resolve the targeted stage
+        // gate in its OWN tenant. (Ambient null = self-hosted single-user scope.)
         var tenantId = tenantContext.TenantId?.ToString();
 
         // I2 — the approver is the authenticated caller, derived server-side. A
@@ -210,14 +215,16 @@ public static class AdlEndpoints
 
         try
         {
-            // Story 43-14 (D3, AC3) — on an APPROVE decision, mint the deploy-tail
-            // correlation-standing grants (effect:deploy.prod + effect:git.release.create)
-            // BEFORE resuming. Locate → mint → resume. A rejection mints nothing.
+            // Story 43-14 (D3, AC3) / 43-19 — on a PRODUCTION APPROVE decision ONLY,
+            // mint the deploy-tail correlation-standing grants (effect:deploy.prod +
+            // effect:git.release.create) BEFORE resuming. QA/UAT approvals MUST NOT
+            // mint DeployTail — approving QA must never pre-grant production or release.
             if (grantMinter is not null
+                && string.Equals(stage, Tamma.Activities.ADL.WaitForDeploymentApprovalActivity.StageProduction, StringComparison.Ordinal)
                 && string.Equals(req.Decision.Trim(), "approve", StringComparison.OrdinalIgnoreCase))
             {
                 var located = await elsa.LocateDeploymentApprovalGateAsync(
-                    req.IssueNumber, tenantId, req.Repository, req.MergeSha);
+                    req.IssueNumber, tenantId, req.Repository, req.MergeSha, stage);
                 if (located.Found && !string.IsNullOrWhiteSpace(located.CorrelationId))
                 {
                     await grantMinter.MintForChainAsync(
@@ -230,24 +237,26 @@ public static class AdlEndpoints
 
             var result = await elsa.ResumeDeploymentApprovalAsync(
                 req.IssueNumber, tenantId, req.Repository, req.MergeSha,
-                req.Decision, req.Feedback, approver);
+                req.Decision, req.Feedback, approver, stage);
 
             if (result.GateNotFound)
             {
                 return Results.NotFound(new
                 {
                     error = "gate_not_waiting",
-                    detail = "No production-deploy approval gate is currently suspended for this issue/SHA.",
+                    stage,
+                    detail = $"No {stage} deploy approval gate is currently suspended for this issue/SHA.",
                 });
             }
 
             logger.LogInformation(
-                "Drove deploy-approval gate for issue #{Issue} with decision {Decision} (approver {Approver})",
-                req.IssueNumber, LogSanitizer.Clean(req.Decision), LogSanitizer.Clean(approver));
+                "Drove {Stage} deploy-approval gate for issue #{Issue} with decision {Decision} (approver {Approver})",
+                stage, req.IssueNumber, LogSanitizer.Clean(req.Decision), LogSanitizer.Clean(approver));
 
             return Results.Ok(new
             {
                 resumed = result.Resumed,
+                stage,
                 workflowInstanceId = result.WorkflowInstanceId,
                 decision = req.Decision,
             });
@@ -255,9 +264,9 @@ public static class AdlEndpoints
         catch (Exception ex)
         {
             logger.LogError(ex,
-                "Failed to resume deploy-approval gate for issue #{Issue}", req.IssueNumber);
+                "Failed to resume {Stage} deploy-approval gate for issue #{Issue}", stage, req.IssueNumber);
             return Results.Problem(
-                detail: "Failed to resume the production-deploy approval gate.",
+                detail: $"Failed to resume the {stage} deploy approval gate.",
                 statusCode: StatusCodes.Status502BadGateway);
         }
     }

@@ -1,6 +1,6 @@
 # Story 43-19: Live QA/UAT Deploy Gates (the stage-scoped wait)
 
-Status: drafted
+Status: done
 
 ## User Story
 

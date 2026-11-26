@@ -45,8 +45,8 @@ public class DeploymentApprovalResumeEndpointTests
     }
 
     private static DeploymentApprovalResumeEndpoint.ResumeRequest Req(
-        int issue, string decision, string? tenantId, string? repo, string? sha)
-        => new(issue, decision, Feedback: null, Approver: null, TenantId: tenantId, Repository: repo, MergeSha: sha);
+        int issue, string decision, string? tenantId, string? repo, string? sha, string? stage = null)
+        => new(issue, decision, Feedback: null, Approver: null, TenantId: tenantId, Repository: repo, MergeSha: sha, Stage: stage);
 
     private static StoredBookmark Bookmark(string name, string instanceId) => ResumableState.Register(NewBookmark(name, instanceId));
 
@@ -135,6 +135,45 @@ public class DeploymentApprovalResumeEndpointTests
         _client.Verify(c => c.RunInstanceAsync(
             It.Is<RunWorkflowInstanceRequest>(r => (string)r.Input!["decision"] == "reject"),
             It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Resume_QaStage_OnlyMatchesQaBookmark_NeverResumesUat()
+    {
+        var tenant = Guid.NewGuid().ToString();
+        var qaBookmark = WaitForDeploymentApprovalActivity.BookmarkName(tenant, "octo/repo", 42, "sha1", "qa");
+        var uatBookmark = WaitForDeploymentApprovalActivity.BookmarkName(tenant, "octo/repo", 42, "sha1", "uat");
+        SetupFind(qaBookmark, Bookmark(qaBookmark, "wf-qa"));
+        SetupFind(uatBookmark /* none */);
+
+        // UAT resume must 404 when only QA is waiting.
+        var uatResult = await DeploymentApprovalResumeEndpoint.Resume(
+            Req(42, "approve", tenant, "octo/repo", "sha1", stage: "uat"),
+            _bookmarks.Object, _runtime.Object, NullLoggerFactory.Instance, CancellationToken.None);
+        StatusCodeOf(uatResult).Should().Be(StatusCodes.Status404NotFound);
+
+        // QA resume hits the QA bookmark.
+        var qaResult = await DeploymentApprovalResumeEndpoint.Resume(
+            Req(42, "approve", tenant, "octo/repo", "sha1", stage: "qa"),
+            _bookmarks.Object, _runtime.Object, NullLoggerFactory.Instance, CancellationToken.None);
+        StatusCodeOf(qaResult).Should().Be(StatusCodes.Status200OK);
+        _client.Verify(c => c.RunInstanceAsync(It.IsAny<RunWorkflowInstanceRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestCase("dev")]
+    [TestCase("staging")]
+    [TestCase("bogus")]
+    public async Task ResumeAndLocate_ReservedOrInvalidStage_Returns400(string badStage)
+    {
+        var req = Req(1, "approve", Guid.NewGuid().ToString(), "octo/repo", "sha", stage: badStage);
+
+        var resumeResult = await DeploymentApprovalResumeEndpoint.Resume(
+            req, _bookmarks.Object, _runtime.Object, NullLoggerFactory.Instance, CancellationToken.None);
+        StatusCodeOf(resumeResult).Should().Be(StatusCodes.Status400BadRequest);
+
+        var locateResult = await DeploymentApprovalResumeEndpoint.Locate(
+            req, _bookmarks.Object, NullLoggerFactory.Instance, CancellationToken.None);
+        StatusCodeOf(locateResult).Should().Be(StatusCodes.Status400BadRequest);
     }
 
     private static int? StatusCodeOf(IResult result)

@@ -172,9 +172,9 @@ public sealed class RotationTriggerServiceTests
             Task.FromResult(new MergeApprovalResumeResult(false, false, null));
         public Task<ApprovalGateLocation> LocateMergeApprovalGateAsync(int i, int p, string? t, string? r) =>
             Task.FromResult(new ApprovalGateLocation(false, null, null));
-        public Task<ApprovalGateLocation> LocateDeploymentApprovalGateAsync(int i, string? t, string? r, string? sha) =>
+        public Task<ApprovalGateLocation> LocateDeploymentApprovalGateAsync(int i, string? t, string? r, string? sha, string? stage = null) =>
             Task.FromResult(new ApprovalGateLocation(false, null, null));
-        public Task<MergeApprovalResumeResult> ResumeDeploymentApprovalAsync(int i, string? t, string? r, string? sha, string d, string? f, string? a) =>
+        public Task<MergeApprovalResumeResult> ResumeDeploymentApprovalAsync(int i, string? t, string? r, string? sha, string d, string? f, string? a, string? stage = null) =>
             Task.FromResult(new MergeApprovalResumeResult(false, false, null));
         public Task<MergeApprovalResumeResult> ResumeBlockerResolutionAsync(Guid sid, string k, string? l, bool res, string? pt, string? det, string? sr, string? resolver) =>
             Task.FromResult(new MergeApprovalResumeResult(false, false, null));

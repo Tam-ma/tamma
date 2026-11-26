@@ -49,7 +49,7 @@ namespace Tamma.Activities.ADL;
 [Activity(
     "Tamma.ADL",
     "Wait For Deployment Approval",
-    "Suspend the deployment pipeline and wait for a production approve/reject decision",
+    "Suspend the deployment pipeline and wait for a stage-scoped approve/reject decision",
     Kind = ActivityKind.Task
 )]
 [FlowNode("Approve", "Reject", "Invalid")]
@@ -59,10 +59,44 @@ public class WaitForDeploymentApprovalActivity : TammaOutcomeActivity
     public const string DecisionApprove = "approve";
     public const string DecisionReject = "reject";
 
-    public override string? EventType => DeployEvents.ProductionApprovalRequested;
+    /// <summary>Canonical stage names supported by <c>DeploymentPipelineWorkflow</c> (QA → UAT → Production).</summary>
+    public const string StageQa = "qa";
+    public const string StageUat = "uat";
+    public const string StageProduction = "production";
+
+    /// <summary>The live pipeline stages. <c>dev</c> and <c>staging</c> stay reserved (Story 43-19 AC3).</summary>
+    public static readonly IReadOnlyList<string> SupportedStages =
+        new[] { StageQa, StageUat, StageProduction };
+
+    /// <summary>
+    /// Production gates keep emitting <c>DEPLOY.PRODUCTION.APPROVAL_REQUESTED</c> (AC4);
+    /// QA and UAT gates emit <c>DEPLOY.STAGE.APPROVAL_REQUESTED</c> with their <c>stage</c>
+    /// recorded in <see cref="BuildStartData"/>.
+    /// </summary>
+    public override string? EventType
+    {
+        get
+        {
+            var literal = Stage?.Expression?.Value?.ToString();
+            return string.IsNullOrWhiteSpace(literal)
+                   || string.Equals(literal, StageProduction, StringComparison.OrdinalIgnoreCase)
+                   || string.Equals(literal, "prod", StringComparison.OrdinalIgnoreCase)
+                ? DeployEvents.ProductionApprovalRequested
+                : DeployEvents.StageApprovalRequested;
+        }
+    }
 
     [Input(Description = "Issue number for bookmark identification")]
     public Input<int> IssueNumber { get; set; } = default!;
+
+    /// <summary>
+    /// Story 43-19 — deploy stage this gate protects (<c>qa</c> | <c>uat</c> |
+    /// <c>production</c>). Folded into the bookmark name so a QA approval can never
+    /// resume UAT or production. Defaults to <c>production</c> so existing prod callers
+    /// and tests stay unchanged.
+    /// </summary>
+    [Input(Description = "Deploy stage (qa | uat | production; defaults to production)")]
+    public Input<string?> Stage { get; set; } = new(StageProduction);
 
     /// <summary>
     /// Merged commit SHA being deployed — folded into the bookmark name so a
@@ -106,21 +140,77 @@ public class WaitForDeploymentApprovalActivity : TammaOutcomeActivity
     }
 
     /// <summary>
-    /// Canonical, globally-unique bookmark name for a production-deploy approval
-    /// gate. Includes <paramref name="tenantId"/> + <paramref name="repository"/>
-    /// + <paramref name="mergeSha"/> (in addition to issue) so two tenants — or two
-    /// repos, or two distinct merged commits — on the same issue get DISTINCT
-    /// bookmarks and can never resume each other's gate. Both the activity (suspend
-    /// side) and the engine endpoint (resume side) MUST call this single method so
-    /// the names match byte-for-byte. Mirrors
-    /// <see cref="WaitForMergeApprovalActivity.BookmarkName"/>.
+    /// Validate and canonicalise a deploy stage token. Null / whitespace defaults to
+    /// <see cref="StageProduction"/> so pre-43-19 callers that omit <c>stage</c> keep
+    /// targeting the production gate (AC4). <c>"prod"</c> is accepted as an alias for
+    /// <c>"production"</c>. Reserved stages (<c>dev</c>, <c>staging</c>) and unknown
+    /// tokens return <c>false</c>.
+    /// </summary>
+    public static bool TryNormalizeStage(string? stage, out string canonical)
+    {
+        if (string.IsNullOrWhiteSpace(stage))
+        {
+            canonical = StageProduction;
+            return true;
+        }
+
+        switch (stage.Trim().ToLowerInvariant())
+        {
+            case StageQa:
+                canonical = StageQa;
+                return true;
+            case StageUat:
+                canonical = StageUat;
+                return true;
+            case StageProduction:
+            case "prod":
+                canonical = StageProduction;
+                return true;
+            default:
+                canonical = string.Empty;
+                return false;
+        }
+    }
+
+    /// <summary>
+    /// Stage segment embedded in the bookmark name: <c>qa</c>, <c>uat</c>, or
+    /// <c>prod</c> (preserving the pre-43-19 <c>adl-deploy-prod-approval-…</c>
+    /// bookmark key verbatim for production).
+    /// </summary>
+    public static string BookmarkStageSegment(string? stage)
+    {
+        if (TryNormalizeStage(stage, out var canonical))
+        {
+            return canonical == StageProduction ? "prod" : canonical;
+        }
+        return WaitForMergeApprovalActivity.NormalizeSegment(stage);
+    }
+
+    /// <summary>
+    /// Backward-compatible 4-argument overload — targets the <c>production</c> stage
+    /// (<c>adl-deploy-prod-approval-{tenant}-{repo}-{issue}-{mergeSha}</c>).
     /// </summary>
     public static string BookmarkName(string? tenantId, string? repository, int issueNumber, string? mergeSha)
+        => BookmarkName(tenantId, repository, issueNumber, mergeSha, StageProduction);
+
+    /// <summary>
+    /// Canonical, globally-unique, stage-scoped bookmark name for a deployment-pipeline
+    /// approval gate (Story 43-19). Includes <paramref name="stage"/> +
+    /// <paramref name="tenantId"/> + <paramref name="repository"/> +
+    /// <paramref name="mergeSha"/> (in addition to issue) so QA, UAT, and production
+    /// gates in the same pipeline run — as well as different tenants, repos, or commits —
+    /// get DISTINCT bookmarks and can never resume each other's wait. Both the activity
+    /// (suspend side) and the engine endpoint (resume side) MUST call this single method
+    /// so the names match byte-for-byte.
+    /// </summary>
+    public static string BookmarkName(
+        string? tenantId, string? repository, int issueNumber, string? mergeSha, string? stage)
     {
+        var stageSeg = BookmarkStageSegment(stage);
         var tenant = WaitForMergeApprovalActivity.NormalizeSegment(tenantId);
         var repo = WaitForMergeApprovalActivity.NormalizeSegment(repository);
         var sha = WaitForMergeApprovalActivity.NormalizeSegment(mergeSha);
-        return $"adl-deploy-prod-approval-{tenant}-{repo}-{issueNumber}-{sha}";
+        return $"adl-deploy-{stageSeg}-approval-{tenant}-{repo}-{issueNumber}-{sha}";
     }
 
     protected override Task RunAsync(ActivityExecutionContext context)
@@ -129,11 +219,12 @@ public class WaitForDeploymentApprovalActivity : TammaOutcomeActivity
         var mergeSha = MergeSha.GetOrDefault(context);
         var tenantId = TenantId.GetOrDefault(context);
         var repository = Repository.GetOrDefault(context);
-        var bookmarkName = BookmarkName(tenantId, repository, issueNumber, mergeSha);
+        var stage = ResolveCanonicalStage(context);
+        var bookmarkName = BookmarkName(tenantId, repository, issueNumber, mergeSha, stage);
 
         Logger?.LogInformation(
-            "Creating production-deploy approval bookmark {BookmarkName} for issue #{IssueNumber}",
-            bookmarkName, issueNumber);
+            "Creating {Stage} deploy approval bookmark {BookmarkName} for issue #{IssueNumber}",
+            stage, bookmarkName, issueNumber);
 
         context.CreateBookmark(
             new CreateBookmarkArgs
@@ -163,17 +254,24 @@ public class WaitForDeploymentApprovalActivity : TammaOutcomeActivity
         Feedback.Set(context, feedback);
         Approver.Set(context, approver);
 
+        var stage = ResolveCanonicalStage(context);
         Logger?.LogInformation(
-            "Production-deploy decision received for issue #{IssueNumber}: {Decision} (outcome={Outcome}, approver={Approver})",
-            IssueNumber.Get(context), decisionStr ?? "<null>", outcome, approver ?? "<none>");
+            "Deploy decision received for stage {Stage} issue #{IssueNumber}: {Decision} (outcome={Outcome}, approver={Approver})",
+            stage, IssueNumber.Get(context), decisionStr ?? "<null>", outcome, approver ?? "<none>");
 
         await context.CompleteActivityWithOutcomesAsync(outcome);
+    }
+
+    private string ResolveCanonicalStage(ActivityExecutionContext context)
+    {
+        var raw = Stage.GetOrDefault(context);
+        return TryNormalizeStage(raw, out var canonical) ? canonical : StageProduction;
     }
 
     /// <summary>
     /// Map a raw decision string to a typed outcome + canonical token. Unknown /
     /// empty → <c>(Invalid, "invalid")</c> — NEVER a silent "approve" (fail-closed:
-    /// an ambiguous decision must NOT promote to production). Pure — exposed for
+    /// an ambiguous decision must NOT promote to any deploy stage). Pure — exposed for
     /// unit testing.
     /// </summary>
     public static (string Outcome, string Normalized) Normalize(string? decision)
@@ -188,12 +286,13 @@ public class WaitForDeploymentApprovalActivity : TammaOutcomeActivity
     {
         ["issueNumber"] = IssueNumber.Get(context),
         ["mergeSha"] = MergeSha.GetOrDefault(context) ?? "",
-        ["stage"] = "production",
+        ["stage"] = ResolveCanonicalStage(context),
     };
 
     public override Dictionary<string, object?> BuildEndData(ActivityExecutionContext context) => new()
     {
         ["issueNumber"] = IssueNumber.Get(context),
+        ["stage"] = ResolveCanonicalStage(context),
         ["decision"] = this.GetOutput<string?>(context, nameof(Decision)) ?? "",
         ["approver"] = this.GetOutput<string?>(context, nameof(Approver)) ?? "",
     };

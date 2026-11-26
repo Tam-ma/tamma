@@ -334,36 +334,40 @@ public class GiteaEngineDrivenE2ETests
     }
 
     /// <summary>
-    /// The production-deploy approver seat (2026-08-13, run 43): poll for
-    /// CYCLE.COMPLETED while approving the deployment pipeline's prod-approval
-    /// gate through its shipped resume seam once it suspends (404 = not
-    /// suspended yet — retry next tick, the merge-approval convention).
+    /// The deploy approver seat (2026-08-13, run 43; extended by Story 43-19 for
+    /// live QA/UAT gates): poll for CYCLE.COMPLETED while approving each suspended
+    /// stage gate (<c>qa</c> → <c>uat</c> → <c>production</c>) through the shipped
+    /// resume seam as the pipeline reaches it (404 = not suspended yet — retry next
+    /// tick, the merge-approval convention).
     /// </summary>
     private async Task<bool> ApproveProdDeployAndAwaitCompletionAsync(
         int issueNumber, string? mergeSha, TimeSpan budget)
     {
         var deadline = DateTimeOffset.UtcNow.Add(budget);
-        var approved = false;
+        var stages = new[] { "qa", "uat", "production" };
+        var stageIndex = 0;
         while (DateTimeOffset.UtcNow < deadline)
         {
             if ((await EventTypesAsync()).Contains("CYCLE.COMPLETED")) return true;
 
-            if (!approved)
+            if (stageIndex < stages.Length)
             {
+                var stage = stages[stageIndex];
                 using var resp = await _engine.PostAsJsonAsync(
                     "/elsa/api/adl/deploy-approval/resume", new
                     {
                         issueNumber,
+                        stage,
                         decision = "approve",
-                        feedback = "e2e harness: production deploy approved",
+                        feedback = $"e2e harness: {stage} deploy approved",
                         approver = "e2e-harness",
                         tenantId = (string?)null,
                         repository = RepoSlug,
                         mergeSha,
                     }, Json);
                 TestContext.Out.WriteLine(
-                    $"[pump] deploy approval issue={issueNumber} sha={mergeSha} -> {(int)resp.StatusCode}");
-                if (resp.StatusCode != HttpStatusCode.NotFound) approved = true;
+                    $"[pump] deploy approval stage={stage} issue={issueNumber} sha={mergeSha} -> {(int)resp.StatusCode}");
+                if (resp.StatusCode != HttpStatusCode.NotFound) stageIndex++;
             }
 
             await Task.Delay(TimeSpan.FromSeconds(3));
