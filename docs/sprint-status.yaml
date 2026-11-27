@@ -1014,3 +1014,24 @@ development_status:
   # Enabled flag lands as DATA in 46-1 but is NOT enforced on the egress path (allowlist inversion is the
   #   finding's remaining Phase-2 work). UIs grey/hide; settings routes reject; egress does not check. Do not
   #   read "provider disabled" as a security control until that lands.
+
+  # ════════════════════════════════════════════════════════════════════════════════════════════════
+  # Epic 47: Single-User Mode Extraction & Pure SaaS Cutover (Companion: TammaDesktop Epics D1–D7)
+  # ════════════════════════════════════════════════════════════════════════════════════════════════
+  # Removes TammaMode.SingleUser (503 exact references across 151 files) from Tam-ma/tamma so Tamma
+  # operates as a pure multi-tenant SaaS platform while all single-machine personal-subscription,
+  # CLI, desktop, and mobile remote capabilities move into TammaDesktop.
+  # Architecture doc: docs/architecture/SAAS-PURE-EXTRACTION-DESIGN.md
+  # Epic README: docs/stories/epic-47/README.md
+  epic-47: in-planning
+  47-1-saas-worker-runner-cli-decoupling: drafted                        # Extract dedicated @tamma/worker-runner for Dockerfile.ts & tamma-worker.yml [P0]
+  47-2-local-single-user-state-exporter: drafted                         # Signed tamma-local-export-v1.tar.gz exporter for TammaDesktop D1-3 import [P0]
+  47-3-remove-tamma-mode-and-fail-closed-saas-startup: drafted           # Delete TammaMode/ITammaModeProvider; fail-closed SaaS startup checks [P0]
+  47-4-remove-sole-user-and-personal-tenant-bootstrap: drafted           # Delete SoleUserProvider, EnsurePersonalTenantMiddleware & auth bypasses [P0]
+  47-5-unconditional-tenant-scope-for-governance-prompts-analytics: drafted # Consolidate ActionPolicy/Prompts/Conventions/Analytics/Tracker to SaaS scopes [P0]
+  47-6-unconditional-saas-provider-gate-and-credentials: drafted         # Unconditional SaaSProviderGate, ProviderCredentials & Integration Resolvers [P0]
+  47-7-remove-null-billing-and-quota-shims: drafted                      # Delete NullBillingProvider/NullQuotaService/NullBillingModeTagger & skips [P0]
+  47-8-remove-deployment-mode-and-local-pat-fallbacks: drafted           # Delete DeploymentMode, SingleUserPlatformOptions & local PAT fallbacks [P1]
+  47-9-dashboard-cli-and-deployment-pure-saas-cleanup: drafted           # Clean dashboards, remove packages/cli after D1 handoff, prune single-user Docker [P1]
+  47-10-pure-saas-test-cutover-and-forbidden-symbols-gate: drafted       # Cut over 74 dual-mode test files, add forbidden-symbols ratchet & runbook [P1]
+  epic-47-retrospective: optional
