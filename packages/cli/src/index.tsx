@@ -14,6 +14,7 @@ import { apiCommand } from './commands/api.js';
 import { upgradeCommand } from './commands/upgrade.js';
 import { processIssueCommand } from './commands/process-issue.js';
 import { executeAgentCommand } from './commands/execute-agent.js';
+import { exportLocalCommand } from './commands/export-local.js';
 import { checkForUpdates } from './update-check.js';
 import { printBanner } from './components/Banner.js';
 
@@ -53,7 +54,11 @@ program
   .option('--mode <mode>', 'Run mode: interactive (TUI) or service (headless)', 'interactive')
   .action(async (opts) => {
     // Fire-and-forget update check (never blocks startup)
-    checkForUpdates(version).then(msg => { if (msg) console.log(msg); }).catch(() => {});
+    checkForUpdates(version)
+      .then((msg) => {
+        if (msg) console.log(msg);
+      })
+      .catch(() => {});
 
     const mode = opts.mode as 'interactive' | 'service' | undefined;
     if (mode !== 'service') {
@@ -175,6 +180,32 @@ program
       console.error(result.diagnostic);
     }
     process.exit(result.exitCode);
+  });
+
+program
+  .command('export-local')
+  .description('Export the verified single-user state as a signed TammaDesktop bundle')
+  .option('--output <path>', 'Archive destination', 'tamma-local-export-v1.tar.gz')
+  .option(
+    '--signing-key-file <path>',
+    'Base64 Ed25519 export signing seed (or TAMMA_LOCAL_EXPORT_SIGNING_KEY_FILE)'
+  )
+  .option('--api-project <path>', 'Path to Tamma.Api.csproj (or TAMMA_API_PROJECT)')
+  .option('--force', 'Atomically replace an existing destination archive')
+  .option('--verify <archive>', 'Verify an archive instead of exporting')
+  .option('--trusted-key-file <path>', 'Base64 Ed25519 public key trusted for verification')
+  .action(async (opts) => {
+    const exportOpts: Parameters<typeof exportLocalCommand>[0] = {
+      output: opts.output as string,
+      force: opts.force === true,
+    };
+    if (opts.signingKeyFile !== undefined)
+      exportOpts.signingKeyFile = opts.signingKeyFile as string;
+    if (opts.apiProject !== undefined) exportOpts.apiProject = opts.apiProject as string;
+    if (opts.verify !== undefined) exportOpts.verify = opts.verify as string;
+    if (opts.trustedKeyFile !== undefined)
+      exportOpts.trustedKeyFile = opts.trustedKeyFile as string;
+    process.exitCode = await exportLocalCommand(exportOpts);
   });
 
 program

@@ -29,6 +29,11 @@ using Tamma.Platforms.GitLab;
 
 var builder = WebApplication.CreateBuilder(args);
 
+if (Tamma.Api.Services.LocalExport.LocalExportCommand.ShouldRun(args))
+{
+    return await Tamma.Api.Services.LocalExport.LocalExportCommand.RunAsync(builder.Configuration, args);
+}
+
 // Story 42-10 (AC3, D4) — compose the shell execution PROFILE before any catalog
 // access. The catalog freezes the shell/process.spawn shipped level (80
 // unsandboxed / 40 sandboxed) at first touch, so this MUST precede Validate()
