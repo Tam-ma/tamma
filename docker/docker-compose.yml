@@ -307,8 +307,13 @@ services:
     restart: unless-stopped
     environment:
       DATABASE_URL: "postgresql://${POSTGRES_USER:-tamma}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB:-tamma}"
-      GITHUB_APP_ID: ${GITHUB_APP_ID:?GITHUB_APP_ID is required}
-      GITHUB_APP_PRIVATE_KEY_PATH: /etc/tamma/private-key.pem
+      TAMMA_GITHUB_AUTH_MODE: app
+      TAMMA_GITHUB_INSTALLATION_ID: ${TAMMA_GITHUB_INSTALLATION_ID:-}
+      TAMMA_GITHUB_OWNER: ${TAMMA_GITHUB_OWNER:-}
+      TAMMA_GITHUB_REPO: ${TAMMA_GITHUB_REPO:-}
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:-}
+      TAMMA_GITHUB_APP_ID: ${GITHUB_APP_ID:?GITHUB_APP_ID is required}
+      TAMMA_GITHUB_PRIVATE_KEY_PATH: /etc/tamma/private-key.pem
       TAMMA_API_URL: http://tamma-api:3100
       OPENSEARCH_URL: ${OPENSEARCH_URL:-http://opensearch:9200}
       OPENSEARCH_ENABLED: ${OPENSEARCH_ENABLED:-true}

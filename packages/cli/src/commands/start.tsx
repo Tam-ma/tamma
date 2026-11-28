@@ -131,6 +131,7 @@ function createAgentSetup(config: TammaConfig, logger: ILogger): AgentSetupResul
 }
 
 export async function startCommand(options: CLIOptions): Promise<void> {
+  if (options.mode === 'service') fs.rmSync(HEALTH_SENTINEL, { force: true });
   const config = loadConfig(options);
   const errors = validateConfig(config);
 
@@ -151,7 +152,6 @@ export async function startCommand(options: CLIOptions): Promise<void> {
       console.error('');
       console.error('Engine is in --mode service with incomplete config; sitting idle.');
       console.error('Configure GitHub credentials and restart to activate the worker loop.');
-      try { fs.writeFileSync('/tmp/tamma-engine-healthy', String(Date.now())); } catch { /* best-effort */ }
       await new Promise<void>(resolve => {
         // Node's event loop exits when there's no pending work; signal
         // handlers alone aren't considered work, so without an active

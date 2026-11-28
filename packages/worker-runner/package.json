@@ -1,0 +1,26 @@
+{
+  "name": "@tamma/worker-runner",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc --build",
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@anthropic-ai/claude-code": "2.1.332",
+    "@tamma/cost-monitor": "workspace:*",
+    "@tamma/observability": "workspace:*",
+    "@tamma/orchestrator": "workspace:*",
+    "@tamma/platforms": "workspace:*",
+    "@tamma/providers": "workspace:*",
+    "@tamma/shared": "workspace:*"
+  },
+  "devDependencies": {
+    "typescript": "^6.0.3"
+  }
+}

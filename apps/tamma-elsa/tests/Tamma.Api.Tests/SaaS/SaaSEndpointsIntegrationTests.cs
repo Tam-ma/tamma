@@ -262,6 +262,30 @@ public class SaaSEndpointsIntegrationTests
         events.Should().ContainSingle();
     }
 
+    [TestCase("completed")]
+    [TestCase("failed")]
+    [TestCase("cancelled")]
+    public async Task WorkerTerminalResult_PersistsDispatchCorrelation(string status)
+    {
+        var (_, id) = await SeedWorkflowInstanceAsync();
+        using var client = CreateClientWithCannedAnthropic(new CannedHandler(HttpStatusCode.OK, "{}"));
+        var response = await client.PostAsJsonAsync($"/api/v1/workflows/{id}/result", new
+        {
+            status, duration = 42, result = new { issueNumber = 17, installationId = "123" }
+        });
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+
+        using var scope = SharedFactory().Services.CreateScope();
+        var factory = scope.ServiceProvider.GetRequiredService<ITenantDbContextFactory>();
+        await using var db = await factory.CreateAsync(TestTenantId);
+        var instance = await db.WorkflowInstances.IgnoreQueryFilters().SingleAsync(row => row.Id == id);
+        instance.Status.Should().Be(status);
+        using var payload = JsonDocument.Parse(instance.Result!);
+        var correlation = payload.RootElement.GetProperty("result");
+        correlation.GetProperty("issueNumber").GetInt32().Should().Be(17);
+        correlation.GetProperty("installationId").GetString().Should().Be("123");
+    }
+
     // ─── Key rotation ───────────────────────────────────────────────────────
     //
     // Dev-mode auth is permissive (no principal is stamped onto the request),

@@ -1,6 +1,7 @@
 import type { AgentTaskResult } from '@tamma/shared';
 
 export interface AgentTaskConfig {
+  signal?: AbortSignal;
   prompt: string;
   cwd: string;
   model?: string;

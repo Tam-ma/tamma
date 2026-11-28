@@ -1,9 +1,10 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import { RateLimitError } from '../types/errors.js';
 
 const MAX_RETRIES = 3;
 const BASE_DELAY_MS = 1000;
 
-export async function withRateLimit<T>(fn: () => Promise<T>): Promise<T> {
+export async function withRateLimit<T>(fn: () => Promise<T>, signal?: AbortSignal): Promise<T> {
   let lastError: unknown;
 
   for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
@@ -17,7 +18,8 @@ export async function withRateLimit<T>(fn: () => Promise<T>): Promise<T> {
       }
 
       const delayMs = getRetryDelay(err, attempt);
-      await new Promise((resolve) => setTimeout(resolve, delayMs));
+      if (signal) await delay(delayMs, undefined, { signal });
+      else await new Promise((resolve) => setTimeout(resolve, delayMs));
     }
   }
 
