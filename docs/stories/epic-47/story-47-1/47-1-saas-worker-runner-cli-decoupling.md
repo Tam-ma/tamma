@@ -35,3 +35,20 @@ Extract the headless service and `process-issue` entry points used by `docker/Do
 `start.tsx` writes `/tmp/tamma-engine-healthy` even when service configuration is incomplete. `process-issue.ts` and the workflow's `Report Result` step can both report terminal results. The worker sends `success`/`failure` and the shell can send `skipped`. `SaaSEndpoints.PostWorkflowResult` accepts `completed`/`failed`/`cancelled`. `callback_url` is required on dispatch, while the current result POST targets `TAMMA_API_URL`.
 
 [Implementation plan](./implementation-plan.md)
+
+## S1 release evidence
+
+The `tamma-engine` image runs the headless service as UID 1001 under tini. The Docker smoke checks exercised startup with a repository binding, SIGTERM during a pending GitHub request, readiness removal, and startup without a binding. An unbound service stays idle and unhealthy. For the App-backed Compose service, set the repository variables `TAMMA_GITHUB_OWNER`, `TAMMA_GITHUB_REPO`, and `TAMMA_GITHUB_INSTALLATION_ID` alongside the existing App credentials. The default coding agent uses the `ANTHROPIC_API_KEY` secret.
+
+The worker workflow checks out the triggering SHA in Tam-ma/tamma. Installed tenant copies check out the immutable upstream commit recorded in the template. Update that pin when distributing a new runner. The runner compares the dispatched installation ID to the token action's installation ID before selecting the issue. The checked-out issue repository supplies the working directory. A tracked job posts progress and one terminal result to the configured Tamma API. Pre-launch failures remain visible in Actions and expire through the coordinator timeout.
+
+Verification for 47-10 includes the compiled process fixture with local GitHub and Tamma HTTP endpoints, the worker lifecycle and dispatch tests, the Postgres-backed API receiver tests for all three terminal states, and the five bundled public CLI smoke checks. The fixture uses synthetic credentials and a closed issue. No hosted tenant job or billable model invocation is required to run it.
+
+| Remaining S1 consumer | Handoff |
+| --- | --- |
+| Elsa `LocalExecutorOptions.DefaultCliEntryPoint` launches `packages/cli/dist/index.js execute-agent` | 47-8 replaces the local executor path before CLI removal. |
+| Public commands, `install.sh`, npm publishing, standalone binaries, and Homebrew in the release workflow | 47-9 removes SaaS-side distribution after the desktop handoff. |
+| CLI bundle and compatibility checks in CI | 47-9 retires these checks with the package. |
+| `apps/tamma-engine` directly constructs a standalone PAT engine | A separate local-engine caller for the 47-8 / 47-9 cleanup. |
+
+For S1 rollback, restore the worker workflow from `f3a1c8ff1ee93afcdf4fe89bd83e8c7643d032a9` and select the corresponding published image `ghcr.io/tam-ma/tamma-engine@sha256:4de1abdb7b0a029fb866486910f7a6654288327768d64d4b0293220645f0a26c`. [Pre-cutover image build](https://github.com/Tam-ma/tamma/actions/runs/45914803138/job/140231343205)
