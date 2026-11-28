@@ -7,12 +7,13 @@ import type {
   IProvidersConfig,
   IRepoConfig,
 } from '@tamma/shared';
-import { loadEnvConfig, resolveConfig, validateProvidersConfig, validateRepoConfig } from '@tamma/shared';
+import { loadEnvConfig } from '@tamma/shared/config/env';
+import { resolveConfig, validateProvidersConfig, validateRepoConfig } from '@tamma/shared';
 
 // Re-export normalizeAgentsConfig from @tamma/shared for CLI import convenience
 export { normalizeAgentsConfig } from '@tamma/shared';
 
-export { readSecretOrEnv, validateConfig } from '@tamma/shared';
+export { readSecretOrEnv, validateConfig } from '@tamma/shared/config/env';
 export { buildPlatformConfig } from '@tamma/platforms';
 
 /** Options from CLI flags that override config file and env vars. */

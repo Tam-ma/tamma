@@ -2,14 +2,13 @@ import { join } from 'node:path';
 import { existsSync, readFileSync } from 'node:fs';
 import type { IRepoConfig } from '@tamma/shared';
 import {
-  loadEnvConfig,
   resolveConfig,
   validateRepoConfig,
-  validateConfig,
   normalizeAgentsConfig,
   DiagnosticsQueue,
   ContentSanitizer,
 } from '@tamma/shared';
+import { loadEnvConfig, validateConfig } from '@tamma/shared/config/env';
 import type { ILogger } from '@tamma/shared/contracts';
 import { GitHubPlatform, buildPlatformConfig } from '@tamma/platforms';
 import { TammaEngine } from '@tamma/orchestrator';
