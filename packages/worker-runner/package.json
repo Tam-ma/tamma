@@ -9,7 +9,7 @@
   "scripts": {
     "build": "tsc --build",
     "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "test": "vitest run --root ../.. packages/worker-runner"
   },
   "dependencies": {
     "@anthropic-ai/claude-code": "2.1.332",
