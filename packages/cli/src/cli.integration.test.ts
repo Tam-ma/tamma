@@ -57,6 +57,7 @@ describe('CLI Integration', () => {
     expect(output).toContain('start');
     expect(output).toContain('init');
     expect(output).toContain('status');
+    expect(output).toContain('export-local');
   });
 
   it('should show version', () => {
