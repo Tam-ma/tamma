@@ -29,6 +29,10 @@
       "types": "./dist/telemetry/index.d.ts",
       "import": "./dist/telemetry/index.js"
     },
+    "./config/env": {
+      "types": "./dist/config/env-config.d.ts",
+      "node": "./dist/config/env-config.js"
+    },
     "./config": {
       "types": "./dist/config/index.d.ts",
       "import": "./dist/config/index.js"

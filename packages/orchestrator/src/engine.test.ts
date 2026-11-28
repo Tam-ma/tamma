@@ -230,6 +230,14 @@ describe('TammaEngine', () => {
       expect(platform.addIssueComment).toHaveBeenCalled();
     });
 
+    it('fetches the dispatched issue directly without scanning the queue', async () => {
+      const { engine, platform } = createEngine();
+      await engine.selectIssue(42);
+      expect(platform.getIssue).toHaveBeenCalledWith('test-owner', 'test-repo', 42);
+      expect(platform.listIssues).not.toHaveBeenCalled();
+      expect(platform.assignIssue).toHaveBeenCalledWith('test-owner', 'test-repo', 42, ['tamma-bot']);
+    });
+
     it('should return null when no issues found', async () => {
       const platform = createMockPlatform();
       vi.mocked(platform.listIssues).mockResolvedValue({

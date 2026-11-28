@@ -25,6 +25,7 @@ export default defineConfig({
       { find: /^@tamma\/shared\/types$/, replacement: pkg('shared', 'types/index.ts') },
       { find: /^@tamma\/shared\/utils$/, replacement: pkg('shared', 'utils/index.ts') },
       { find: /^@tamma\/shared\/errors$/, replacement: pkg('shared', 'errors.ts') },
+      { find: /^@tamma\/shared\/config\/env$/, replacement: pkg('shared', 'config/env-config.ts') },
       { find: /^@tamma\/shared\/config$/, replacement: pkg('shared', 'config/index.ts') },
       { find: /^@tamma\/shared$/, replacement: pkg('shared') },
       { find: /^@tamma\/intelligence\/vector-store$/, replacement: pkg('intelligence', 'vector-store/index.ts') },

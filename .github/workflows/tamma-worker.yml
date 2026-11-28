@@ -21,68 +21,67 @@ on:
         type: string
 
 permissions:
-  contents: write
-  issues: write
-  pull-requests: write
+  contents: read
 
 jobs:
   process-issue:
     runs-on: ubuntu-latest
     timeout-minutes: 30
     concurrency:
-      group: tamma-issue-${{ github.event.inputs.issue_number }}
+      group: tamma-issue-${{ inputs.issue_number }}
       cancel-in-progress: false
 
     steps:
-      - name: Checkout
+      # This template can also be installed in a tenant repository.
+      - name: Checkout runner source
         uses: actions/checkout@v4
+        with:
+          repository: Tam-ma/tamma
+          ref: ${{ github.repository == 'Tam-ma/tamma' && github.sha || '72a97479a86b5cdef1e05af9da8d915f66446a29' }}
+          path: runner
+          persist-credentials: false
 
-      - name: Setup Node.js
-        uses: actions/setup-node@v4
+      - uses: actions/setup-node@v4
         with:
           node-version: '22'
 
-      - name: Get GitHub App Token
+      - name: Build runner
+        working-directory: runner
+        run: |
+          corepack enable
+          pnpm --filter tamma --filter @tamma/worker-runner... install --frozen-lockfile
+          pnpm --filter @tamma/worker-runner... run build
+          echo "$PWD/packages/worker-runner/node_modules/.bin" >> "$GITHUB_PATH"
+
+      # With no owner/repositories overrides the action finds the installation
+      # for this repository and limits the minted token to this repository.
+      - name: Get repository installation token
         id: app-token
         uses: actions/create-github-app-token@v1
         with:
           app-id: ${{ vars.TAMMA_APP_ID }}
           private-key: ${{ secrets.TAMMA_APP_PRIVATE_KEY }}
 
-      - name: Install Tamma
-        run: npm install -g @tamma/cli
+      - name: Checkout issue repository
+        uses: actions/checkout@v4
+        with:
+          path: project
+          # The implementation agent pushes its branch with this repository-scoped token.
+          token: ${{ steps.app-token.outputs.token }}
 
-      - name: Process Issue
+      - name: Process issue
+        working-directory: project
         env:
+          NODE_ENV: production
+          OPENSEARCH_ENABLED: 'false'
+          ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
           GITHUB_TOKEN: ${{ steps.app-token.outputs.token }}
+          TAMMA_TOKEN_INSTALLATION_ID: ${{ steps.app-token.outputs.installation-id }}
+          TAMMA_GITHUB_OWNER: ${{ github.repository_owner }}
+          TAMMA_GITHUB_REPO: ${{ github.event.repository.name }}
+          TAMMA_INSTALLATION_ID: ${{ inputs.installation_id }}
+          TAMMA_ISSUE_NUMBER: ${{ inputs.issue_number }}
+          TAMMA_WORKFLOW_ID: ${{ inputs.workflow_id }}
           TAMMA_API_KEY: ${{ secrets.TAMMA_API_KEY }}
           TAMMA_API_URL: ${{ vars.TAMMA_API_URL || 'https://app.tamma.dev' }}
-          TAMMA_INSTALLATION_ID: ${{ github.event.inputs.installation_id }}
-          TAMMA_ISSUE_NUMBER: ${{ github.event.inputs.issue_number }}
-          TAMMA_WORKFLOW_ID: ${{ github.event.inputs.workflow_id }}
-        run: |
-          tamma process-issue \
-            --issue "$TAMMA_ISSUE_NUMBER" \
-            --installation-id "$TAMMA_INSTALLATION_ID"
-
-      - name: Report Result
-        if: always()
-        env:
-          TAMMA_API_KEY: ${{ secrets.TAMMA_API_KEY }}
-          TAMMA_API_URL: ${{ vars.TAMMA_API_URL || 'https://app.tamma.dev' }}
-        run: |
-          STATUS="${{ job.status }}"
-          if [ "$STATUS" = "success" ]; then
-            RESULT="success"
-          elif [ "$STATUS" = "cancelled" ]; then
-            RESULT="skipped"
-          else
-            RESULT="failure"
-          fi
-
-          curl -sf -X POST \
-            "${TAMMA_API_URL}/api/v1/workflows/${{ github.event.inputs.workflow_id }}/result" \
-            -H "Authorization: Bearer ${TAMMA_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "{\"status\":\"${RESULT}\",\"issueNumber\":${{ github.event.inputs.issue_number }},\"installationId\":${{ github.event.inputs.installation_id }}}" \
-            || echo "Warning: Failed to report result to orchestrator"
+        run: node ../runner/packages/worker-runner/dist/index.js process-issue

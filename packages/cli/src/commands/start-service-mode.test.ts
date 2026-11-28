@@ -32,11 +32,9 @@ describe('startCommand service-mode config-error handling', () => {
     expect(startSource).toContain("options.mode === 'service'");
   });
 
-  it('writes the engine healthy marker file on idle entry', () => {
-    // The container's HEALTHCHECK polls /tmp/tamma-engine-healthy — if
-    // we don't touch it the orchestrator will mark the container
-    // unhealthy even though we're intentionally idle.
-    expect(startSource).toContain('/tmp/tamma-engine-healthy');
+  it('writes readiness only after engine initialization', () => {
+    expect(startSource.slice(0, startSource.indexOf('await engine.initialize()'))).not.toContain('writeFileSync(HEALTH_SENTINEL');
+    expect(startSource).toContain('rmSync(HEALTH_SENTINEL');
   });
 
   it('waits for SIGTERM/SIGINT instead of busy-looping', () => {

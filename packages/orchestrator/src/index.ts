@@ -1,4 +1,4 @@
-export { TammaEngine } from './engine.js';
+export { TammaEngine, IssueUnavailableError } from './engine.js';
 export type { EngineContext, EngineStats, OnStateChangeCallback, ApprovalHandler } from './engine.js';
 export type { IWorkflowEngine, WorkflowInstanceStatus } from './workflow-engine.js';
 export { ElsaClient } from './elsa-client.js';

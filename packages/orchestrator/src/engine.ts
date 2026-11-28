@@ -1,3 +1,4 @@
+import { setTimeout as delay } from 'node:timers/promises';
 import * as readline from 'node:readline';
 import { randomUUID } from 'node:crypto';
 import type { ILogger } from '@tamma/shared/contracts';
@@ -14,6 +15,8 @@ import { EngineState, EngineEventType, sleep, slugify, extractIssueReferences, D
 import { WorkflowError, EngineError } from '@tamma/shared';
 import type { IAgentProvider, AgentTaskConfig, IRoleBasedAgentResolver } from '@tamma/providers';
 import type { IGitPlatform } from '@tamma/platforms';
+export class IssueUnavailableError extends Error {}
+
 /** Statistics tracked by the engine across its lifetime. */
 export interface EngineStats {
   issuesProcessed: number;
@@ -33,6 +36,7 @@ export type ApprovalHandler = (plan: DevelopmentPlan) => Promise<'approve' | 're
 
 /** Dependencies injected into TammaEngine at construction time. */
 export interface EngineContext {
+  signal?: AbortSignal;
   config: TammaConfig;
   platform: IGitPlatform;
   agent?: IAgentProvider;
@@ -94,7 +98,10 @@ export class TammaEngine {
   private readonly onStateChange: OnStateChangeCallback | undefined;
   private readonly approvalHandler: ApprovalHandler | undefined;
 
+  private readonly signal: AbortSignal | undefined;
+
   constructor(ctx: EngineContext) {
+    this.signal = ctx.signal;
     if (!ctx.agent && !ctx.agentResolver) {
       throw new EngineError('Either agent or agentResolver must be provided in EngineContext');
     }
@@ -199,14 +206,14 @@ export class TammaEngine {
    * the error is re-thrown. In both cases, work references (currentIssue, etc.)
    * are cleared in the finally block.
    */
-  async processOneIssue(): Promise<void> {
+  async processOneIssue(issueNumber?: number): Promise<void> {
     if (this.processing) {
       this.logger.warn('Pipeline already processing, skipping concurrent call');
       return;
     }
     this.processing = true;
 
-    const pipeline = this.runPipeline();
+    const pipeline = this.runPipeline(issueNumber);
     this.currentPipelinePromise = pipeline;
 
     try {
@@ -217,10 +224,11 @@ export class TammaEngine {
     }
   }
 
-  private async runPipeline(): Promise<void> {
+  private async runPipeline(issueNumber?: number): Promise<void> {
     // Step 1: Select issue
-    const issue = await this.selectIssue();
+    const issue = await this.selectIssue(issueNumber);
     if (issue === null) {
+      if (issueNumber !== undefined) throw new IssueUnavailableError('Dispatched issue is ineligible');
       this.logger.info('No issues found, staying idle');
       return;
     }
@@ -272,32 +280,23 @@ export class TammaEngine {
    * oldest one (FIFO), assign it to the bot, and post a pickup comment.
    * Returns null when no eligible issues are found.
    */
-  async selectIssue(): Promise<IssueData | null> {
+  async selectIssue(issueNumber?: number): Promise<IssueData | null> {
     await this.setState(EngineState.SELECTING_ISSUE);
     const { owner, repo, issueLabels, excludeLabels, botUsername } =
       this.config.github;
 
-    const result = await this.platform.listIssues(owner, repo, {
-      state: 'open',
-      labels: issueLabels,
-      sort: 'created',
-      direction: 'asc',
-    });
-
-    // Filter out issues with exclude labels
-    const candidates = result.data.filter((issue) => {
-      const hasExclude = issue.labels.some((label) =>
-        excludeLabels.includes(label),
-      );
-      return !hasExclude;
-    });
-
-    if (candidates.length === 0) {
+    const issues = issueNumber === undefined
+      ? (await this.platform.listIssues(owner, repo, {
+          state: 'open', labels: issueLabels, sort: 'created', direction: 'asc',
+        })).data
+      : [await this.platform.getIssue(owner, repo, issueNumber)];
+    const selected = issues.find(issue =>
+      issue.state === 'open' && !issue.labels.some(label => excludeLabels.includes(label)),
+    );
+    if (!selected) {
       await this.setState(EngineState.IDLE);
       return null;
     }
-
-    const selected = candidates[0]!;
 
     // Assign to bot
     await this.platform.assignIssue(owner, repo, selected.number, [botUsername]);
@@ -517,6 +516,7 @@ Return ONLY valid JSON matching the schema.`;
       // Engine always sets prompt and cwd
       prompt: planPrompt,
       cwd: this.config.engine.workingDirectory,
+      ...(this.signal ? { signal: this.signal } : {}),
       // Resolver-provided (allowlisted) fields, falling back to direct config
       ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : {}),
       ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : (this.config.agent?.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.config.agent.maxBudgetUsd } : {})),
@@ -782,6 +782,7 @@ Follow existing project conventions and patterns.`;
       // Engine always sets prompt and cwd
       prompt: implPrompt,
       cwd: this.config.engine.workingDirectory,
+      ...(this.signal ? { signal: this.signal } : {}),
       // Resolver-provided (allowlisted) fields, falling back to direct config
       ...(resolverConfig.allowedTools !== undefined ? { allowedTools: resolverConfig.allowedTools } : (this.config.agent?.allowedTools !== undefined ? { allowedTools: this.config.agent.allowedTools } : {})),
       ...(resolverConfig.maxBudgetUsd !== undefined ? { maxBudgetUsd: resolverConfig.maxBudgetUsd } : (this.config.agent?.maxBudgetUsd !== undefined ? { maxBudgetUsd: this.config.agent.maxBudgetUsd } : {})),
@@ -1044,7 +1045,8 @@ Follow existing project conventions and patterns.`;
       }
 
       // Wait before next poll
-      await sleep(pollInterval);
+      if (this.signal) await delay(pollInterval, undefined, { signal: this.signal });
+      else await sleep(pollInterval);
     }
   }
 

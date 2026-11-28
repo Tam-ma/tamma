@@ -38,6 +38,8 @@ export class GitHubPlatform implements IGitPlatform {
   readonly platformName = 'github';
   private octokit: Octokit | null = null;
 
+  constructor(private readonly signal?: AbortSignal) {}
+
   private getClient(): Octokit {
     if (this.octokit === null) {
       throw new Error('GitHubPlatform not initialized. Call initialize() first.');
@@ -54,11 +56,13 @@ export class GitHubPlatform implements IGitPlatform {
           privateKey: config.privateKey,
           installationId: config.installationId,
         },
+        ...(this.signal ? { request: { signal: this.signal } } : {}),
         ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
       });
     } else {
       this.octokit = new Octokit({
         auth: config.token,
+        ...(this.signal ? { request: { signal: this.signal } } : {}),
         ...(config.baseUrl !== undefined ? { baseUrl: config.baseUrl } : {}),
       });
     }
@@ -399,7 +403,7 @@ export class GitHubPlatform implements IGitPlatform {
 
   private async wrap<T>(fn: () => Promise<T>): Promise<T> {
     try {
-      return await withRateLimit(fn);
+      return await withRateLimit(fn, this.signal);
     } catch (err: unknown) {
       throw mapGitHubError(err);
     }

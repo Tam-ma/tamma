@@ -76,6 +76,11 @@ jobs:
              mkdir -p ${{ secrets.VPS_DEPLOY_PATH }}/{secrets,database/migrations}'
 
       - name: Write secrets to VPS
+        env:
+          ENGINE_INSTALLATION_ID: ${{ vars.TAMMA_GITHUB_INSTALLATION_ID }}
+          ENGINE_OWNER: ${{ vars.TAMMA_GITHUB_OWNER }}
+          ENGINE_REPO: ${{ vars.TAMMA_GITHUB_REPO }}
+          ENGINE_PROVIDER_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
         run: |
           echo '${{ secrets.TAMMA_APP_PRIVATE_KEY }}' | \
             ssh -i ~/.ssh/deploy_key \
@@ -97,6 +102,10 @@ jobs:
 
           printf '%s\n' \
             "POSTGRES_PASSWORD=${{ secrets.TAMMA_POSTGRES_PASSWORD }}" \
+            "TAMMA_GITHUB_INSTALLATION_ID=$ENGINE_INSTALLATION_ID" \
+            "TAMMA_GITHUB_OWNER=$ENGINE_OWNER" \
+            "TAMMA_GITHUB_REPO=$ENGINE_REPO" \
+            "ANTHROPIC_API_KEY=$ENGINE_PROVIDER_KEY" \
             "GITHUB_APP_ID=${{ secrets.TAMMA_APP_ID }}" \
             "GITHUB_WEBHOOK_SECRET=${{ secrets.TAMMA_WEBHOOK_SECRET }}" \
             "GITHUB_OAUTH_CLIENT_ID=${{ secrets.TAMMA_OAUTH_CLIENT_ID }}" \

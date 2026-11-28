@@ -135,6 +135,7 @@ export class ClaudeAgentProvider implements IAgentProvider, ICLIAgentProvider {
       return await new Promise<AgentTaskResult>((resolve) => {
         const child = spawn('claude', args, {
           cwd: config.cwd,
+          ...(config.signal ? { signal: config.signal } : {}),
           stdio: ['pipe', 'pipe', 'pipe'],
           env: { ...process.env },
         });
