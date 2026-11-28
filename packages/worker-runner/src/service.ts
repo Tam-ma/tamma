@@ -1,6 +1,6 @@
 import { rmSync, writeFileSync } from 'node:fs';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { createRuntime } from './runtime.js';
+import { createRuntime, IncompleteWorkerConfig } from './runtime.js';
 
 export async function serve(sentinel = '/tmp/tamma-engine-healthy', create = createRuntime) {
   const stop = new AbortController();
@@ -34,6 +34,26 @@ export async function serve(sentinel = '/tmp/tamma-engine-healthy', create = cre
     } finally {
       rmSync(sentinel, { force: true });
       await runtime.dispose();
+    }
+  } catch (error) {
+    if (!(error instanceof IncompleteWorkerConfig)) throw error;
+    console.error(
+      'Worker repository configuration incomplete. Waiting for shutdown without readiness.'
+    );
+    // Central SaaS deployments may use Actions exclusively. The Compose
+    // service remains idle until a restart supplies a repository binding.
+    if (!stop.signal.aborted) {
+      await new Promise<void>((resolve) => {
+        const keepAlive = setInterval(() => {}, 1 << 30);
+        stop.signal.addEventListener(
+          'abort',
+          () => {
+            clearInterval(keepAlive);
+            resolve();
+          },
+          { once: true }
+        );
+      });
     }
   } finally {
     process.off('SIGTERM', shutdown);

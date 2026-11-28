@@ -109,7 +109,12 @@ it('clears stale readiness on startup failure, then handles SIGTERM during a pol
     vi.stubEnv('GITHUB_TOKEN', '');
     vi.stubEnv('TAMMA_GITHUB_OWNER', '');
     vi.stubEnv('TAMMA_GITHUB_AUTH_MODE', 'pat');
-    await expect(serve(file)).rejects.toThrow('Incomplete worker repository credentials');
+    const log = vi.spyOn(console, 'error').mockImplementation(() => {});
+    const idle = serve(file);
+    await vi.waitFor(() => expect(log).toHaveBeenCalledWith(expect.stringContaining('incomplete')));
+    expect(existsSync(file)).toBe(false);
+    process.emit('SIGTERM');
+    await idle;
     expect(existsSync(file)).toBe(false);
     const { engine, runtime, create } = fixture();
     engine.initialize.mockImplementation(() => expect(existsSync(file)).toBe(false));

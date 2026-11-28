@@ -23,6 +23,8 @@ import {
 import { FileStore, createCostTracker } from '@tamma/cost-monitor';
 import { createLogger } from '@tamma/observability';
 
+export class IncompleteWorkerConfig extends Error {}
+
 export async function createRuntime(dispatched = false, signal?: AbortSignal) {
   const repoFile = '.tamma/config.json';
   const repo: IRepoConfig = existsSync(repoFile) ? JSON.parse(readFileSync(repoFile, 'utf8')) : {};
@@ -30,7 +32,7 @@ export async function createRuntime(dispatched = false, signal?: AbortSignal) {
   const { config } = resolveConfig({ providers: {} }, repo, loadEnvConfig());
   const gh = config.github;
   if (gh.authMode === 'saas' || validateConfig(config).length) {
-    throw new Error('Incomplete worker repository credentials');
+    throw new IncompleteWorkerConfig('Incomplete worker repository credentials');
   }
   if (
     dispatched &&
