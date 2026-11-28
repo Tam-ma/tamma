@@ -114,17 +114,12 @@ function buildPinoLogger(name: string, resolvedLevel: string): pino.Logger {
       });
 
       // Log OpenSearch transport errors to stderr (not to pino, to avoid loops)
-      osStream.on('error', (err: unknown) => {
-        const msg = err instanceof Error ? err.message : String(err);
-        process.stderr.write(
-          `[tamma-logger] OpenSearch transport error: ${msg}\n`
-        );
+      osStream.on('error', () => {
+        process.stderr.write('[tamma-logger] OpenSearch transport error\n');
       });
 
-      osStream.on('insertError', (err: unknown) => {
-        process.stderr.write(
-          `[tamma-logger] OpenSearch insert error: ${String(err)}\n`
-        );
+      osStream.on('insertError', () => {
+        process.stderr.write('[tamma-logger] OpenSearch insert error\n');
       });
 
       const multistream = pino.multistream([
@@ -132,15 +127,10 @@ function buildPinoLogger(name: string, resolvedLevel: string): pino.Logger {
         { stream: osStream },
       ]);
 
-      process.stderr.write(
-        `[tamma-logger] OpenSearch transport enabled → ${osConfig.node} (index: ${osConfig.index})\n`
-      );
+      process.stderr.write('[tamma-logger] OpenSearch transport enabled\n');
       return pino(options, multistream);
-    } catch (loadErr) {
-      const detail = loadErr instanceof Error ? loadErr.message : String(loadErr);
-      process.stderr.write(
-        `[tamma-logger] pino-elasticsearch not available (${detail}), falling back to stdout only\n`
-      );
+    } catch {
+      process.stderr.write('[tamma-logger] OpenSearch transport unavailable, using stdout\n');
       if (process.env['NODE_ENV'] !== 'production') {
         options.transport = { target: 'pino-pretty', options: { colorize: true } };
       }

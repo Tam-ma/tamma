@@ -16,3 +16,7 @@ try {
   console.error('Worker startup failed. Check command and configuration.');
   process.exitCode = 1;
 }
+
+// All worker cleanup and callbacks have completed. Give buffered logs a
+// moment to drain if the OpenSearch transport is still retrying delivery.
+setTimeout(() => process.exit(process.exitCode ?? 0), 1000).unref();
